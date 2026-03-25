@@ -1,6 +1,6 @@
 ---
 name: Feature Request
-about: Suggest a feature for PromptGuard
+about: Suggest a feature for Raucle Detect
 title: "[FEATURE] "
 labels: enhancement
 assignees: craigamcw

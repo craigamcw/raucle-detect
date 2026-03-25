@@ -1,4 +1,4 @@
-"""YAML rule loader for PromptGuard.
+"""YAML rule loader for Raucle Detect.
 
 Rule files follow the Raucle rule-pack format:
 
@@ -35,7 +35,7 @@ def _require_yaml() -> None:
     if not _YAML_AVAILABLE:
         raise ImportError(
             "PyYAML is required to load rule files.  "
-            "Install it with:  pip install promptguard[rules]  or  pip install pyyaml"
+            "Install it with:  pip install raucle-detect[rules]  or  pip install pyyaml"
         )
 
 

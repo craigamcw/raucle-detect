@@ -1,4 +1,4 @@
-"""Comprehensive tests for all PromptGuard detection rules.
+"""Comprehensive tests for all Raucle Detect detection rules.
 
 Validates every rule fires on at least one test input and does not
 produce false positives on clean inputs. Covers built-in patterns
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from promptguard.scanner import Scanner
+from raucle_detect.scanner import Scanner
 
 
 @pytest.fixture

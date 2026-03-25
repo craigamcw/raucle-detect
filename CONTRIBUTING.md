@@ -1,6 +1,6 @@
-# Contributing to PromptGuard
+# Contributing to Raucle Detect
 
-Thank you for your interest in contributing to PromptGuard. This library is the open-source core of the [Raucle](https://raucle.com) AI security platform.
+Thank you for your interest in contributing to Raucle Detect. This library is the open-source core of the [Raucle](https://raucle.com) AI security platform.
 
 ## Developer Certificate of Origin (DCO)
 
@@ -26,8 +26,8 @@ The DCO check runs automatically on all pull requests and must pass before mergi
 
 ```bash
 # Fork and clone
-git clone https://github.com/YOUR_USERNAME/promptguard.git
-cd promptguard
+git clone https://github.com/YOUR_USERNAME/raucle-detect.git
+cd raucle-detect
 
 # Install in development mode
 pip install -e ".[dev]"
@@ -36,7 +36,7 @@ pip install -e ".[dev]"
 python -m pytest tests/ -v
 
 # Run a quick scan
-promptguard scan "test prompt"
+raucle-detect scan "test prompt"
 ```
 
 ## What We Welcome
@@ -100,5 +100,5 @@ All PRs require approval from a maintainer before merging.
 
 ## License
 
-By contributing to PromptGuard, you agree that your contributions will be
+By contributing to Raucle Detect, you agree that your contributions will be
 licensed under the MIT License.

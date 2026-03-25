@@ -92,7 +92,7 @@ class MLClassifier:
 
         Returns ``True`` if the model was loaded successfully.
         """
-        model_path = model_path or os.environ.get("PROMPTGUARD_MODEL_PATH", "./models")
+        model_path = model_path or os.environ.get("RAUCLE_DETECT_MODEL_PATH", "./models")
         local_dir = os.path.join(model_path, "semantic-classifier")
 
         if not os.path.isdir(local_dir):

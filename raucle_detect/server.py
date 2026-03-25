@@ -1,12 +1,12 @@
-"""Lightweight FastAPI server for PromptGuard REST API.
+"""Lightweight FastAPI server for Raucle Detect REST API.
 
 Start via the CLI::
 
-    promptguard serve --port 8000
+    raucle-detect serve --port 8000
 
 Or directly with uvicorn::
 
-    uvicorn promptguard.server:app --host 0.0.0.0 --port 8000
+    uvicorn raucle_detect.server:app --host 0.0.0.0 --port 8000
 
 Endpoints
 ---------
@@ -22,8 +22,8 @@ import os
 import time
 from typing import Any
 
-from promptguard import __version__
-from promptguard.scanner import Scanner, ScanResult
+from raucle_detect import __version__
+from raucle_detect.scanner import Scanner, ScanResult
 
 try:
     from fastapi import FastAPI, HTTPException  # type: ignore[import-untyped]
@@ -31,7 +31,7 @@ try:
 except ImportError as exc:
     raise ImportError(
         "FastAPI and Pydantic are required for the server.\n"
-        "Install them with:  pip install promptguard[server]"
+        "Install them with:  pip install raucle-detect[server]"
     ) from exc
 
 
@@ -81,13 +81,13 @@ class HealthResponse(BaseModel):
 # App factory
 # ---------------------------------------------------------------------------
 
-_mode = os.environ.get("PROMPTGUARD_MODE", "standard")
-_rules_dir = os.environ.get("PROMPTGUARD_RULES_DIR")
+_mode = os.environ.get("RAUCLE_DETECT_MODE", "standard")
+_rules_dir = os.environ.get("RAUCLE_DETECT_RULES_DIR")
 
 _scanner = Scanner(mode=_mode, rules_dir=_rules_dir)
 
 app = FastAPI(
-    title="PromptGuard",
+    title="Raucle Detect",
     description="Prompt injection detection API",
     version=__version__,
 )

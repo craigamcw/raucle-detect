@@ -1,4 +1,4 @@
-"""Tests for the PromptGuard scanner.
+"""Tests for the Raucle Detect scanner.
 
 Covers known injections, clean prompts, edge cases, batch scanning,
 mode sensitivity, and rule loading.
@@ -10,7 +10,7 @@ import textwrap
 
 import pytest
 
-from promptguard.scanner import Scanner, ScanResult
+from raucle_detect.scanner import Scanner, ScanResult
 
 
 # ---------------------------------------------------------------------------

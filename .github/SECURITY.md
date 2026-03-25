@@ -2,7 +2,7 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in PromptGuard, **do not open a public issue**.
+If you discover a security vulnerability in Raucle Detect, **do not open a public issue**.
 
 Instead, please report it responsibly by emailing:
 
@@ -25,7 +25,7 @@ The following are in scope:
 - Dependency vulnerabilities
 
 The following are out of scope:
-- Deliberately crafted adversarial inputs (prompt injection is the threat model, not a vulnerability in PromptGuard)
+- Deliberately crafted adversarial inputs (prompt injection is the threat model, not a vulnerability in Raucle Detect)
 - Performance issues on extremely large inputs
 
 ## Disclosure

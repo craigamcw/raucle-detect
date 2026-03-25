@@ -1,8 +1,8 @@
-"""Core Scanner -- the main developer-facing API for PromptGuard.
+"""Core Scanner -- the main developer-facing API for Raucle Detect.
 
 Usage::
 
-    from promptguard import Scanner
+    from raucle_detect import Scanner
 
     scanner = Scanner()
     result = scanner.scan("Ignore all previous instructions")
@@ -21,9 +21,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from promptguard.classifier import HeuristicClassifier, MLClassifier
-from promptguard.patterns import PatternLayer
-from promptguard.rules import load_rules_dir, load_yaml_file
+from raucle_detect.classifier import HeuristicClassifier, MLClassifier
+from raucle_detect.patterns import PatternLayer
+from raucle_detect.rules import load_rules_dir, load_yaml_file
 
 logger = logging.getLogger(__name__)
 

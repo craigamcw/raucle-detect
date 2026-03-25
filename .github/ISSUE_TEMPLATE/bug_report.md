@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Report a bug in PromptGuard
+about: Report a bug in Raucle Detect
 title: "[BUG] "
 labels: bug
 assignees: craigamcw
@@ -26,7 +26,7 @@ assignees: craigamcw
 
 ## Environment
 
-- PromptGuard version:
+- Raucle Detect version:
 - Python version:
 - OS:
 
