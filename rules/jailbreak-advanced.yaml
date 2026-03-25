@@ -1,0 +1,94 @@
+# PromptGuard Detection Rules — Advanced Jailbreak Techniques
+# Original rules by Raucle. Inspired by public threat research.
+
+rules:
+  # Content policy bypass — explicit requests to ignore safety
+  - id: PI-400
+    name: content_policy_bypass
+    category: jailbreak
+    technique: content_policy_bypass
+    severity: CRITICAL
+    patterns:
+      - '(?i)(ignore|bypass|skip|disable|turn\s+off|remove)\s+(your\s+)?(content\s+polic(y|ies)|safety\s+(filters?|guidelines?|rules?|measures?)|restrictions?|guardrails?)'
+      - '(?i)(without|no|skip|remove)\s+(any\s+)?(warnings?|disclaimers?|caveats?|refusals?|ethical\s+considerations?)'
+      - '(?i)(do\s+not|don.?t|never)\s+(refuse|decline|reject|filter|censor|moderate|redact)'
+      - '(?i)respond\s+(without|with\s+no)\s+(restrictions?|limitations?|filters?|censorship)'
+    score: 0.85
+
+  # Persona assignment — creating an alter ego with fewer restrictions
+  - id: PI-401
+    name: persona_assignment
+    category: jailbreak
+    technique: persona_assignment
+    severity: HIGH
+    patterns:
+      - '(?i)you\s+are\s+now\s+(called|named|known\s+as)\s+\w+'
+      - '(?i)(create|adopt|assume|take\s+on)\s+(a|an|the)\s+(new\s+)?(persona|identity|character|role)\s+(called|named|of)'
+      - '(?i)from\s+now\s+on\s+(you\s+are|your\s+name\s+is|call\s+yourself|respond\s+as)'
+      - '(?i)switch\s+to\s+(\w+\s+)?mode'
+      - '(?i)enter\s+(\w+\s+)?(mode|persona|character)'
+    score: 0.70
+
+  # Dual response — asking for both filtered and unfiltered output
+  - id: PI-402
+    name: dual_response
+    category: jailbreak
+    technique: dual_response
+    severity: HIGH
+    patterns:
+      - '(?i)(give|provide|generate|produce)\s+(me\s+)?(two|2|dual|both)\s+(responses?|answers?|outputs?|versions?)'
+      - '(?i)(one\s+)?(filtered|censored|safe|normal)\s+(and|&)\s+(one\s+)?(unfiltered|uncensored|raw|real|true|honest)'
+      - '(?i)(normal|standard)\s+(response|answer)\s+(and|&|then)\s+(the\s+)?(real|actual|true|unfiltered|honest)\s+(response|answer)'
+      - '(?i)response\s+(as|from)\s+\w+\s*:.*response\s+(as|from)\s+\w+\s*:'
+    score: 0.80
+
+  # Token manipulation — asking model to process text in unusual ways
+  - id: PI-403
+    name: token_manipulation
+    category: jailbreak
+    technique: token_manipulation
+    severity: MEDIUM
+    patterns:
+      - '(?i)(spell|write)\s+(it\s+)?(backwards?|in\s+reverse|reversed)'
+      - '(?i)(replace|substitute|swap)\s+every\s+(letter|character|word)\s+with'
+      - '(?i)use\s+(pig\s+latin|leet\s+speak|l33t|1337|morse\s+code|braille|semaphore)'
+      - '(?i)(encode|encrypt|obfuscate|scramble)\s+(your|the)\s+(response|answer|output)'
+      - '(?i)write\s+each\s+(word|letter|character)\s+on\s+a\s+(separate|new)\s+line'
+    score: 0.55
+
+  # Gaslighting — convincing the model its safety rules are wrong
+  - id: PI-404
+    name: gaslighting
+    category: jailbreak
+    technique: gaslighting
+    severity: HIGH
+    patterns:
+      - '(?i)your\s+(safety|content)\s+(rules?|polic(y|ies)|guidelines?|restrictions?)\s+(are|were)\s+(wrong|incorrect|outdated|broken|flawed|a\s+bug)'
+      - '(?i)(there\s+is|there.?s)\s+(a|an)\s+(bug|error|glitch|mistake)\s+in\s+your\s+(safety|filtering|moderation|rules?)'
+      - '(?i)you\s+(were|have\s+been)\s+(incorrectly|wrongly|mistakenly)\s+(programmed|configured|trained|instructed)'
+      - '(?i)your\s+(creators?|developers?|trainers?)\s+(made\s+a\s+mistake|got\s+it\s+wrong|didn.?t\s+mean)'
+    score: 0.70
+
+  # Nested instruction — hiding malicious instructions inside benign-looking structure
+  - id: PI-405
+    name: nested_instruction
+    category: jailbreak
+    technique: nested_instruction
+    severity: HIGH
+    patterns:
+      - '(?i)step\s+1.*step\s+2.*step\s+3.*ignore'
+      - '(?i)(first|1st)\s*[,:].*?(then|2nd|second)\s*[,:].*?(finally|3rd|third)\s*[,:].*?(ignore|override|bypass|forget)'
+      - '(?i)if\s+(the\s+)?(user|I|someone)\s+(asks?|says?|types?)\s+.{0,40}\s+(then|respond\s+with|output|say)'
+    score: 0.60
+
+  # Few-shot poisoning — providing examples that lead toward harmful outputs
+  - id: PI-406
+    name: few_shot_poisoning
+    category: jailbreak
+    technique: few_shot_poisoning
+    severity: HIGH
+    patterns:
+      - '(?i)example\s+\d+\s*:.*example\s+\d+\s*:.*now\s+(your|the)\s+turn'
+      - '(?i)(here\s+are|see\s+these)\s+(some\s+)?examples?\s*:.*now\s+(do|generate|produce|write)\s+(the\s+same|similar|likewise)'
+      - '(?i)input\s*:.*output\s*:.*input\s*:.*output\s*:'
+    score: 0.55

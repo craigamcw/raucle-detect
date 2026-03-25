@@ -1,0 +1,109 @@
+# PromptGuard Detection Rules — Advanced Injection Techniques
+# Original rules by Raucle. Inspired by public threat research.
+
+rules:
+  # Authority impersonation — attacker claims to be the developer/admin
+  - id: PI-200
+    name: authority_impersonation
+    category: direct_injection
+    technique: authority_impersonation
+    severity: HIGH
+    patterns:
+      - '(?i)i\s+am\s+(your|the)\s+(developer|creator|admin|administrator|maintainer|owner)'
+      - '(?i)as\s+(your|the)\s+(developer|creator|admin|maintainer)\s*[,:]'
+      - '(?i)speaking\s+as\s+(the\s+)?(system|admin|root|developer)'
+      - '(?i)this\s+is\s+(the|your)\s+(developer|admin|system\s+administrator)'
+      - '(?i)i\s+have\s+(admin|root|developer|system)\s+(access|privileges|permissions)'
+    score: 0.80
+
+  # Priority override — attacker claims higher authority
+  - id: PI-201
+    name: priority_override
+    category: direct_injection
+    technique: priority_override
+    severity: HIGH
+    patterns:
+      - '(?i)(this|the\s+following)\s+(instruction|command|directive)\s+(has|takes)\s+(highest|top|maximum)\s+priority'
+      - '(?i)priority\s*:\s*(highest|critical|override|maximum|urgent)'
+      - '(?i)supersede[s]?\s+(all\s+)?(previous|prior|other)\s+(instructions|rules|directives)'
+      - '(?i)(the\s+)?above\s+instructions?\s+(are|is)\s+(outdated|deprecated|revoked|cancelled)'
+    score: 0.80
+
+  # Completion manipulation — tricking the model into continuing a harmful pattern
+  - id: PI-202
+    name: completion_manipulation
+    category: direct_injection
+    technique: completion_manipulation
+    severity: HIGH
+    patterns:
+      - '(?i)complete\s+the\s+following\s+(sentence|pattern|text)\s*:'
+      - '(?i)continue\s+(writing|generating|outputting)\s+from\s+where'
+      - "(?i)finish\\s+this\\s+(thought|sentence)\\s*:\\s*[\"']"
+      - '(?i)here\s+is\s+the\s+beginning.*continue\s*(it)?'
+    score: 0.55
+
+  # Hypothetical framing — wrapping harmful requests in academic/fictional context
+  - id: PI-203
+    name: hypothetical_framing
+    category: direct_injection
+    technique: hypothetical_framing
+    severity: MEDIUM
+    patterns:
+      - '(?i)for\s+(educational|research|academic|training)\s+purposes\s+(only\s*)?(show|explain|demonstrate|tell)'
+      - '(?i)hypothetically\s+(speaking\s*)?(,\s*)?(how|what|can)'
+      - '(?i)in\s+theory\s*,?\s+(how|what)\s+(would|could)\s+(one|someone|you)'
+      - '(?i)purely\s+(theoretical|academic|hypothetical)\s+(question|scenario|exercise)'
+      - '(?i)this\s+is\s+(just\s+)?(for|a)\s+(research|study|thesis|paper|class)'
+    score: 0.45
+
+  # Emotional manipulation — guilt-tripping or pressuring the model
+  - id: PI-204
+    name: emotional_manipulation
+    category: direct_injection
+    technique: emotional_manipulation
+    severity: MEDIUM
+    patterns:
+      - '(?i)if\s+you\s+don.?t\s+(help|answer|comply|do\s+this).*(someone|people|I)\s+(will|could)\s+(die|be\s+harmed|suffer)'
+      - '(?i)this\s+is\s+(a\s+)?(life|death|emergency|urgent|critical)\s+situation'
+      - '(?i)you\s+(must|have\s+to|need\s+to)\s+help\s+me\s+or\s+(else|people\s+will)'
+      - '(?i)my\s+(life|job|family)\s+depends\s+on\s+(this|your\s+answer)'
+    score: 0.50
+
+  # Delimiter injection — using separators to break context boundaries
+  - id: PI-205
+    name: delimiter_injection
+    category: direct_injection
+    technique: delimiter_injection
+    severity: HIGH
+    patterns:
+      - '(?i)---+\s*(new|system|real|actual|true|updated)\s*(instructions?|prompt|context|rules?)\s*---+'
+      - '(?i)={3,}\s*(system|instructions?|override|new\s+rules?)\s*={3,}'
+      - '(?i)\*{3,}\s*(important|system|override|new)\s*\*{3,}'
+      - '(?i)#{3,}\s*(system|override|new\s+instructions?|real\s+prompt)'
+    score: 0.75
+
+  # Instruction termination — signalling the end of the system prompt
+  - id: PI-206
+    name: instruction_termination
+    category: direct_injection
+    technique: instruction_termination
+    severity: HIGH
+    patterns:
+      - '(?i)end\s+of\s+(system\s+)?(prompt|instructions?|context|rules)'
+      - '(?i)(system|instructions?|prompt)\s+(end|terminated|complete|finished)'
+      - '(?i)\[end\]|\[\/system\]|\[\/instructions?\]|\[\/prompt\]'
+      - '(?i)<\/?(system|instructions?|prompt|context)>'
+    score: 0.75
+
+  # Reward hacking — offering incentives to the model
+  - id: PI-207
+    name: reward_hacking
+    category: direct_injection
+    technique: reward_hacking
+    severity: MEDIUM
+    patterns:
+      - '(?i)i.?ll\s+(give|tip|pay|reward)\s+you\s+\$?\d+'
+      - '(?i)you\s+(will|can)\s+(earn|receive|get)\s+(a\s+)?(reward|bonus|tip|payment|points)'
+      - '(?i)if\s+you\s+(do|answer|comply|help).*(\$|dollars?|reward|bonus|tip)'
+      - '(?i)your\s+(score|rating|performance)\s+(will|would)\s+(increase|improve|go\s+up)'
+    score: 0.45

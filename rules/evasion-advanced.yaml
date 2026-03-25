@@ -1,0 +1,90 @@
+# PromptGuard Detection Rules — Advanced Evasion Techniques
+# Original rules by Raucle. Inspired by public threat research.
+
+rules:
+  # Payload splitting — breaking attack across multiple messages or segments
+  - id: PI-500
+    name: payload_splitting
+    category: evasion
+    technique: payload_splitting
+    severity: HIGH
+    patterns:
+      - '(?i)(combine|concatenate|join|merge|put\s+together)\s+(the\s+)?(above|previous|following|these)\s+(parts?|segments?|pieces?|fragments?|halves|chunks?)'
+      - '(?i)(part|segment|piece|half|chunk)\s+[12]\s+(of|:)\s+.{5,}'
+      - '(?i)now\s+(combine|join|merge|concatenate|put)\s+(them|these|it)\s+(together|all)'
+    score: 0.65
+
+  # Instruction in foreign language — evading English-focused filters
+  - id: PI-501
+    name: language_switching
+    category: evasion
+    technique: language_switching
+    severity: MEDIUM
+    patterns:
+      - '(?i)(translate|say|write|respond)\s+(this|the\s+following|it)\s+in\s+(english|french|german|spanish|chinese|japanese|korean|arabic|russian|hindi|portuguese|italian)\s*[,:]?\s*(ignore|disregard|forget|bypass|override)'
+      - '(?i)(in\s+)?(french|german|spanish|mandarin|japanese|arabic|russian)\s*[,:]\s*(ignore|forget|disregard|override)'
+      - '(?i)(respond|answer|reply|write)\s+(only\s+)?in\s+(a\s+)?(different|another|foreign)\s+language'
+    score: 0.50
+
+  # Whitespace and formatting evasion — using unusual spacing or formatting
+  - id: PI-502
+    name: whitespace_evasion
+    category: evasion
+    technique: whitespace_evasion
+    severity: MEDIUM
+    patterns:
+      - 'i\s{2,}g\s{2,}n\s{2,}o\s{2,}r\s{2,}e'
+      - 'i\.g\.n\.o\.r\.e'
+      - '(?i)i_g_n_o_r_e|i-g-n-o-r-e|i\*g\*n\*o\*r\*e'
+      - '[\u200b\u200c\u200d\ufeff]{3,}'
+    score: 0.60
+
+  # Typo evasion — deliberate misspellings to bypass keyword filters
+  - id: PI-503
+    name: typo_evasion
+    category: evasion
+    technique: typo_evasion
+    severity: MEDIUM
+    patterns:
+      - '(?i)(1gnore|ign0re|iggnore|ignorre)\s+(all\s+)?(previous|prior|prev1ous)'
+      - '(?i)(d1sregard|disreg4rd|disreegard)\s+(all\s+)?(prior|previous)'
+      - '(?i)(syst[e3]m|syst\.em)\s+(pr[o0]mpt|pr\.ompt|pr0mpt)'
+      - '(?i)(byp[a4]ss|byp\.ass)\s+(s[a4]fety|s\.afety|s4fety)'
+      - '(?i)(jailbre[a4]k|j4ilbreak|ja1lbreak)\s+(mode|enabled|activated)'
+    score: 0.55
+
+  # Code block injection — hiding instructions inside code formatting
+  - id: PI-504
+    name: code_block_injection
+    category: evasion
+    technique: code_block_injection
+    severity: HIGH
+    patterns:
+      - '(?i)```\s*(system|instructions?|override|new\s+rules?|admin)'
+      - '(?i)(execute|run|eval)\s+(this|the\s+following)\s+(code|script|command)\s*:'
+      - '(?i)<script[^>]*>.*?(ignore|override|bypass|system\s+prompt)'
+    score: 0.70
+
+  # Repetition attack — repeating tokens to overflow or confuse
+  - id: PI-505
+    name: repetition_attack
+    category: evasion
+    technique: repetition_attack
+    severity: MEDIUM
+    patterns:
+      - '(.)\1{50,}'
+      - '(\b\w+\b)\s+\1(\s+\1){10,}'
+      - '(?i)(yes|no|ok|true|false|na)\s*[,.]?\s*\1(\s*[,.]?\s*\1){20,}'
+    score: 0.50
+
+  # Markdown abuse — using markdown formatting to hide or emphasise injections
+  - id: PI-506
+    name: markdown_formatting_abuse
+    category: evasion
+    technique: markdown_formatting_abuse
+    severity: MEDIUM
+    patterns:
+      - '(?i)\[([^\]]*ignore[^\]]*|[^\]]*override[^\]]*|[^\]]*system[^\]]*prompt[^\]]*)\]\([^\)]*\)'
+      - '(?i)<!--\s*(ignore|override|system|new\s+instructions?|bypass)[^>]*-->'
+      - '(?i)>\s*(ignore|override|forget|disregard)\s+(all\s+)?(previous|prior)'
+    score: 0.60
