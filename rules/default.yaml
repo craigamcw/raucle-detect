@@ -1,0 +1,104 @@
+# PromptGuard Detection Rules -- Default Rule Pack
+# These rules supplement the built-in pattern library.
+# Format: YAML rule definitions loaded by the pattern layer.
+#
+# To add custom rules, create additional .yaml files in this directory
+# or point the scanner at your own rules directory.
+
+rules:
+  # Prompt leaking via markdown injection
+  - id: PI-100
+    name: markdown_image_exfil
+    category: indirect_injection
+    technique: markdown_exfiltration
+    severity: HIGH
+    patterns:
+      - '!\[.*\]\(https?://[^)]*\{\{.*\}\}'
+      - '(?i)!\[.*\]\(https?://.*attacker'
+      - '(?i)<img\s+src=["\x27]https?://[^"\x27]*\{\{'
+    score: 0.80
+
+  # Unicode homoglyph evasion
+  - id: PI-101
+    name: unicode_homoglyph
+    category: evasion
+    technique: unicode_homoglyph
+    severity: MEDIUM
+    patterns:
+      - '[\u0410-\u044F]'  # Cyrillic characters mixed with Latin
+      - '[\uFF00-\uFFEF]'  # Fullwidth characters
+    score: 0.55
+
+  # Multi-turn escalation markers
+  - id: PI-102
+    name: multi_turn_escalation
+    category: jailbreak
+    technique: multi_turn_escalation
+    severity: HIGH
+    patterns:
+      - '(?i)now\s+that\s+we.*established.*trust'
+      - '(?i)since\s+you.*agreed.*let.*go\s+further'
+      - '(?i)great.*now\s+(let|can)\s+(us|you)\s+try'
+      - '(?i)perfect.*now\s+ignore\s+the\s+previous'
+    score: 0.70
+
+  # Token smuggling
+  - id: PI-103
+    name: token_smuggling
+    category: evasion
+    technique: token_smuggling
+    severity: HIGH
+    patterns:
+      - '(?i)split.*characters?.*reassemble'
+      - '(?i)first\s+letter.*each\s+word'
+      - '(?i)reverse\s+the\s+(following|text|string)'
+      - '(?i)read\s+backwards'
+      - '(?i)caesar\s+cipher'
+    score: 0.65
+
+  # Context window overflow
+  - id: PI-104
+    name: context_overflow
+    category: indirect_injection
+    technique: context_window_overflow
+    severity: MEDIUM
+    patterns:
+      - '(?s).{50000,}'  # Extremely long content
+    score: 0.50
+
+  # Virtualization / simulation attacks
+  - id: PI-105
+    name: virtualization_attack
+    category: jailbreak
+    technique: virtualization
+    severity: HIGH
+    patterns:
+      - '(?i)imagine\s+a\s+hypothetical\s+scenario'
+      - '(?i)in\s+a\s+fictional\s+world\s+where'
+      - '(?i)write\s+a\s+story\s+where.*AI.*reveals'
+      - '(?i)creative\s+writing.*no\s+restrictions'
+      - '(?i)academic\s+paper.*about.*bypassing'
+    score: 0.60
+
+  # MCP-specific: rug pull (tool description changed after approval)
+  - id: MCP-001
+    name: mcp_rug_pull
+    category: tool_poisoning
+    technique: mcp_rug_pull
+    severity: CRITICAL
+    patterns:
+      - '(?i)tool.*description.*changed.*after.*approval'
+      - '(?i)updated.*tool.*manifest.*without.*notice'
+    score: 0.90
+
+  # MCP-specific: cross-tool privilege escalation
+  - id: MCP-002
+    name: mcp_cross_tool_escalation
+    category: tool_poisoning
+    technique: mcp_cross_tool_escalation
+    severity: CRITICAL
+    patterns:
+      - '(?i)use\s+tool\s+A.*to.*access.*tool\s+B'
+      - '(?i)chain.*tools.*bypass.*permission'
+      - '(?i)escalate.*privilege.*via.*tool'
+    score: 0.85

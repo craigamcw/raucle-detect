@@ -1,0 +1,71 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "promptguard"
+version = "0.1.0"
+description = "Open-source prompt injection detection for LLM applications"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Raucle", email = "oss@raucle.io" },
+]
+keywords = [
+    "llm",
+    "prompt-injection",
+    "security",
+    "ai-safety",
+    "guardrails",
+    "jailbreak-detection",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+
+# Zero mandatory dependencies -- the core scanner runs on the stdlib alone.
+dependencies = []
+
+[project.optional-dependencies]
+rules = ["pyyaml>=6.0"]
+ml = ["transformers>=4.30", "torch>=2.0"]
+server = ["fastapi>=0.100", "uvicorn[standard]>=0.20", "pydantic>=2.0"]
+dev = [
+    "promptguard[rules,server]",
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.4",
+]
+all = ["promptguard[rules,ml,server]"]
+
+[project.scripts]
+promptguard = "promptguard.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/raucle/promptguard"
+Documentation = "https://docs.raucle.io/promptguard"
+Repository = "https://github.com/raucle/promptguard"
+Issues = "https://github.com/raucle/promptguard/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["promptguard"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
