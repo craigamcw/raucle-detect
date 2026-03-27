@@ -52,6 +52,20 @@ class BatchScanRequest(BaseModel):
     workers: int = Field(default=4, ge=1, le=32, description="Concurrency level")
 
 
+class OutputScanRequest(BaseModel):
+    output: str = Field(..., min_length=1, description="LLM output text to scan")
+    original_prompt: str | None = Field(
+        default=None, description="Original user prompt for context"
+    )
+    mode: str | None = Field(default=None, description="Override scanner mode")
+
+
+class ToolCallScanRequest(BaseModel):
+    tool_name: str = Field(..., description="Name of the tool being called")
+    arguments: dict[str, Any] = Field(default_factory=dict, description="Tool call arguments")
+    mode: str | None = Field(default=None, description="Override scanner mode")
+
+
 class ScanResponse(BaseModel):
     verdict: str
     confidence: float
@@ -126,6 +140,32 @@ def scan_batch(req: BatchScanRequest) -> BatchScanResponse:
         total=len(results),
         scan_time_ms=round(elapsed_ms, 2),
     )
+
+
+@app.post("/scan/output", response_model=ScanResponse)
+def scan_output(req: OutputScanRequest) -> ScanResponse:
+    """Scan LLM output for data leakage, injection, and exfiltration."""
+    start = time.perf_counter()
+    result: ScanResult = _scanner.scan_output(
+        req.output,
+        original_prompt=req.original_prompt,
+        mode=req.mode,
+    )
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    return ScanResponse(**result.to_dict(), scan_time_ms=round(elapsed_ms, 2))
+
+
+@app.post("/scan/tool", response_model=ScanResponse)
+def scan_tool_call(req: ToolCallScanRequest) -> ScanResponse:
+    """Scan tool call arguments for dangerous patterns."""
+    start = time.perf_counter()
+    result: ScanResult = _scanner.scan_tool_call(
+        req.tool_name,
+        req.arguments,
+        mode=req.mode,
+    )
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    return ScanResponse(**result.to_dict(), scan_time_ms=round(elapsed_ms, 2))
 
 
 @app.get("/rules")
