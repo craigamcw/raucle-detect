@@ -12,7 +12,7 @@ and other adversarial inputs before they reach your AI models.
 MIT License -- Copyright (c) 2026 Raucle Ltd.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __author__ = "Raucle"
 __license__ = "MIT"
 
