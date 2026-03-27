@@ -34,23 +34,49 @@ def _build_parser() -> argparse.ArgumentParser:
     scan_p = subparsers.add_parser("scan", help="Scan prompts for injection attacks")
     scan_p.add_argument("text", nargs="?", help="Prompt text to scan")
     scan_p.add_argument("--file", "-f", type=str, help="Read prompts from a file (one per line)")
-    scan_p.add_argument("--mode", "-m", choices=["strict", "standard", "permissive"], default="standard")
-    scan_p.add_argument("--rules-dir", "-r", type=str, help="Path to custom YAML rules directory")
-    scan_p.add_argument("--format", choices=["table", "json"], default="table", help="Output format")
+    _modes = ["strict", "standard", "permissive"]
+    scan_p.add_argument(
+        "--mode", "-m", choices=_modes, default="standard",
+    )
+    scan_p.add_argument(
+        "--rules-dir", "-r", type=str,
+        help="Path to custom YAML rules directory",
+    )
+    scan_p.add_argument(
+        "--format", choices=["table", "json"],
+        default="table", help="Output format",
+    )
 
     # -- serve --------------------------------------------------------------
     serve_p = subparsers.add_parser("serve", help="Start the REST API server")
-    serve_p.add_argument("--host", default="127.0.0.1", help="Bind address (default: 127.0.0.1)")
-    serve_p.add_argument("--port", "-p", type=int, default=8000, help="Port (default: 8000)")
-    serve_p.add_argument("--mode", "-m", choices=["strict", "standard", "permissive"], default="standard")
-    serve_p.add_argument("--rules-dir", "-r", type=str, help="Path to custom YAML rules directory")
+    serve_p.add_argument(
+        "--host", default="127.0.0.1",
+        help="Bind address (default: 127.0.0.1)",
+    )
+    serve_p.add_argument(
+        "--port", "-p", type=int, default=8000,
+        help="Port (default: 8000)",
+    )
+    serve_p.add_argument(
+        "--mode", "-m", choices=_modes, default="standard",
+    )
+    serve_p.add_argument(
+        "--rules-dir", "-r", type=str,
+        help="Path to custom YAML rules directory",
+    )
 
     # -- rules --------------------------------------------------------------
     rules_p = subparsers.add_parser("rules", help="Manage detection rules")
     rules_sub = rules_p.add_subparsers(dest="rules_command")
     rules_list = rules_sub.add_parser("list", help="List all loaded rules")
-    rules_list.add_argument("--rules-dir", "-r", type=str, help="Path to custom YAML rules directory")
-    rules_list.add_argument("--format", choices=["table", "json"], default="table", help="Output format")
+    rules_list.add_argument(
+        "--rules-dir", "-r", type=str,
+        help="Path to custom YAML rules directory",
+    )
+    rules_list.add_argument(
+        "--format", choices=["table", "json"],
+        default="table", help="Output format",
+    )
 
     return parser
 

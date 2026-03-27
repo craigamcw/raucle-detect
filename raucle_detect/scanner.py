@@ -186,7 +186,12 @@ class Scanner:
         """Return a summary of all loaded rules."""
         return self._pattern_layer.list_rules()
 
-    def scan(self, prompt: str, context: dict[str, Any] | None = None, mode: str | None = None) -> ScanResult:
+    def scan(
+        self,
+        prompt: str,
+        context: dict[str, Any] | None = None,
+        mode: str | None = None,
+    ) -> ScanResult:
         """Scan a single prompt and return a :class:`ScanResult`.
 
         Parameters

@@ -240,9 +240,8 @@ class PatternLayer:
     @staticmethod
     def _safe_match(pattern: re.Pattern[str], raw_pattern: str, text: str) -> re.Match[str] | None:
         """Match with a length pre-check for ReDoS-risky patterns."""
-        if raw_pattern in _REDOS_RISKY_PATTERNS:
-            if len(text) > _REDOS_PATTERN_MAX_LENGTH:
-                text = text[:_REDOS_PATTERN_MAX_LENGTH]
+        if raw_pattern in _REDOS_RISKY_PATTERNS and len(text) > _REDOS_PATTERN_MAX_LENGTH:
+            text = text[:_REDOS_PATTERN_MAX_LENGTH]
         return pattern.search(text)
 
     # ------------------------------------------------------------------
