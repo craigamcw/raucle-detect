@@ -364,6 +364,56 @@ All contributions must include a DCO sign-off:
 git commit -s -m "Add new detection rule"
 ```
 
+## OpenClaw Plugin
+
+The `plugins/openclaw/` directory contains the **Raucle plugin for OpenClaw** — a hook-based integration that scans all agent messages in real-time.
+
+### What it does
+
+| Hook | Action |
+|---|---|
+| `before_prompt_build` | Scans inbound user messages; injects security warning for SUSPICIOUS, overrides system prompt for MALICIOUS |
+| `message_sending` | Scans outbound agent responses for data leakage |
+| `before_tool_call` | Validates tool arguments before execution (shell injection, path traversal, SQLi, SSRF) |
+
+### Setup
+
+1. Copy `plugins/openclaw/` to `~/.openclaw/extensions/raucle/`
+2. Install raucle-detect: `pip install raucle-detect[server,rules]`
+3. Add to `openclaw.json`:
+
+```json
+{
+  "plugins": {
+    "allow": ["raucle"],
+    "load": { "paths": ["~/.openclaw/extensions/raucle"] },
+    "entries": {
+      "raucle": {
+        "enabled": true,
+        "config": {
+          "mode": "standard",
+          "blockOnMalicious": true,
+          "agentOverrides": {
+            "ciso": { "mode": "strict" }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+4. Restart the gateway: `openclaw gateway restart`
+
+### Per-agent sensitivity
+
+```json
+"agentOverrides": {
+  "ciso": { "mode": "strict" },
+  "main": { "mode": "standard", "scanToolCalls": false }
+}
+```
+
 ## Security
 
 To report a vulnerability, email **security@raucle.com**. Do not open a public issue. See [SECURITY.md](.github/SECURITY.md).

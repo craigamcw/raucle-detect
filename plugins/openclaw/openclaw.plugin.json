@@ -1,0 +1,80 @@
+{
+  "id": "raucle",
+  "name": "Raucle",
+  "description": "AI security guardrails — prompt injection detection, output scanning, tool call validation",
+  "version": "0.1.0",
+  "uiHints": {
+    "mode": {
+      "label": "Detection Mode",
+      "help": "Sensitivity: strict (lowest false negatives), standard (balanced), permissive (lowest false positives)"
+    },
+    "serverPort": {
+      "label": "Server Port",
+      "help": "Port for the raucle-detect REST API (default: 8900)"
+    },
+    "rulesDir": {
+      "label": "Rules Directory",
+      "help": "Path to custom YAML rules directory (optional)"
+    },
+    "alertChannel": {
+      "label": "Alert Channel",
+      "help": "Matrix room ID to send security alerts to (optional)"
+    },
+    "blockOnMalicious": {
+      "label": "Block Malicious",
+      "help": "Block messages/tool calls that score as MALICIOUS (default: true)"
+    },
+    "scanInbound": {
+      "label": "Scan Inbound Messages",
+      "help": "Scan messages from channels before agents process them (default: true)"
+    },
+    "scanOutbound": {
+      "label": "Scan Outbound Messages",
+      "help": "Scan agent responses before sending to channels (default: true)"
+    },
+    "scanToolCalls": {
+      "label": "Scan Tool Calls",
+      "help": "Validate tool arguments before execution (default: true)"
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": { "type": "boolean" },
+      "mode": {
+        "type": "string",
+        "enum": ["strict", "standard", "permissive"],
+        "default": "standard"
+      },
+      "serverPort": {
+        "type": "integer",
+        "minimum": 1024,
+        "maximum": 65535,
+        "default": 8900
+      },
+      "rulesDir": { "type": "string" },
+      "alertChannel": { "type": "string" },
+      "blockOnMalicious": { "type": "boolean", "default": true },
+      "scanInbound": { "type": "boolean", "default": true },
+      "scanOutbound": { "type": "boolean", "default": true },
+      "scanToolCalls": { "type": "boolean", "default": true },
+      "pythonPath": { "type": "string" },
+      "agentOverrides": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["strict", "standard", "permissive"]
+            },
+            "scanInbound": { "type": "boolean" },
+            "scanOutbound": { "type": "boolean" },
+            "scanToolCalls": { "type": "boolean" }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "@raucle/raucle",
+  "version": "0.1.0",
+  "description": "AI security guardrails plugin for OpenClaw — prompt injection detection, output scanning, tool call validation",
+  "type": "module",
+  "main": "index.ts",
+  "files": ["index.ts", "src/**/*.ts", "openclaw.plugin.json"],
+  "openclaw": {
+    "extensions": ["./index.ts"]
+  },
+  "peerDependencies": {
+    "openclaw": "*"
+  },
+  "keywords": ["openclaw", "security", "prompt-injection", "ai-safety", "guardrails"],
+  "license": "MIT"
+}
