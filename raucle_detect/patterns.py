@@ -185,10 +185,10 @@ BUILTIN_PATTERNS: list[dict[str, Any]] = [
         "technique": "pii_exposure",
         "severity": "HIGH",
         "patterns": [
-            r"\b[A-Z]{2}\d{6}[A-Z]\b",       # UK National Insurance Number
-            r"\b\d{3}\s?\d{4}\s?\d{4}\b",     # NHS Number
+            r"\b[A-Z]{2}\d{6}[A-Z]\b",  # UK National Insurance Number
+            r"\b\d{3}\s?\d{4}\s?\d{4}\b",  # NHS Number
             r"\b[A-Z]{1,2}\d{1,2}\s?\d[A-Z]{2}\b",  # UK Postcode
-            r"\b\d{4}\s?\d{4}\s?\d{4}\s?\d{4}\b",   # Credit card
+            r"\b\d{4}\s?\d{4}\s?\d{4}\s?\d{4}\b",  # Credit card
             r"\b[A-Z]{2}\d{2}\s?[A-Z0-9]{4}\s?\d{7,}\b",  # IBAN
         ],
         "score": 0.65,

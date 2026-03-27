@@ -36,32 +36,48 @@ def _build_parser() -> argparse.ArgumentParser:
     scan_p.add_argument("--file", "-f", type=str, help="Read prompts from a file (one per line)")
     _modes = ["strict", "standard", "permissive"]
     scan_p.add_argument(
-        "--mode", "-m", choices=_modes, default="standard",
+        "--mode",
+        "-m",
+        choices=_modes,
+        default="standard",
     )
     scan_p.add_argument(
-        "--rules-dir", "-r", type=str,
+        "--rules-dir",
+        "-r",
+        type=str,
         help="Path to custom YAML rules directory",
     )
     scan_p.add_argument(
-        "--format", choices=["table", "json"],
-        default="table", help="Output format",
+        "--format",
+        choices=["table", "json"],
+        default="table",
+        help="Output format",
     )
 
     # -- serve --------------------------------------------------------------
     serve_p = subparsers.add_parser("serve", help="Start the REST API server")
     serve_p.add_argument(
-        "--host", default="127.0.0.1",
+        "--host",
+        default="127.0.0.1",
         help="Bind address (default: 127.0.0.1)",
     )
     serve_p.add_argument(
-        "--port", "-p", type=int, default=8000,
+        "--port",
+        "-p",
+        type=int,
+        default=8000,
         help="Port (default: 8000)",
     )
     serve_p.add_argument(
-        "--mode", "-m", choices=_modes, default="standard",
+        "--mode",
+        "-m",
+        choices=_modes,
+        default="standard",
     )
     serve_p.add_argument(
-        "--rules-dir", "-r", type=str,
+        "--rules-dir",
+        "-r",
+        type=str,
         help="Path to custom YAML rules directory",
     )
 
@@ -70,12 +86,16 @@ def _build_parser() -> argparse.ArgumentParser:
     rules_sub = rules_p.add_subparsers(dest="rules_command")
     rules_list = rules_sub.add_parser("list", help="List all loaded rules")
     rules_list.add_argument(
-        "--rules-dir", "-r", type=str,
+        "--rules-dir",
+        "-r",
+        type=str,
         help="Path to custom YAML rules directory",
     )
     rules_list.add_argument(
-        "--format", choices=["table", "json"],
-        default="table", help="Output format",
+        "--format",
+        choices=["table", "json"],
+        default="table",
+        help="Output format",
     )
 
     return parser
@@ -105,8 +125,10 @@ def _print_result_table(result, index: int | None = None) -> None:
         print(f"{prefix}Technique:  {result.attack_technique}")
     if result.matched_rules:
         print(f"{prefix}Rules:      {', '.join(result.matched_rules)}")
-    print(f"{prefix}Layers:     pattern={result.layer_scores.get('pattern', 0):.4f}  "
-          f"semantic={result.layer_scores.get('semantic', 0):.4f}")
+    print(
+        f"{prefix}Layers:     pattern={result.layer_scores.get('pattern', 0):.4f}  "
+        f"semantic={result.layer_scores.get('semantic', 0):.4f}"
+    )
 
 
 def _print_rules_table(rules: list[dict]) -> None:

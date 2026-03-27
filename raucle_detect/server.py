@@ -122,9 +122,7 @@ def scan_batch(req: BatchScanRequest) -> BatchScanResponse:
     elapsed_ms = (time.perf_counter() - start) * 1000
 
     return BatchScanResponse(
-        results=[
-            ScanResponse(**r.to_dict(), scan_time_ms=0) for r in results
-        ],
+        results=[ScanResponse(**r.to_dict(), scan_time_ms=0) for r in results],
         total=len(results),
         scan_time_ms=round(elapsed_ms, 2),
     )

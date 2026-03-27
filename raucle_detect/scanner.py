@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 MAX_INPUT_BYTES = 1_048_576  # 1 MB
-MAX_INPUT_LENGTH = 100_000   # characters
+MAX_INPUT_LENGTH = 100_000  # characters
 
 # ---------------------------------------------------------------------------
 # Result dataclass
@@ -292,9 +292,7 @@ class Scanner:
 
         results: list[ScanResult | None] = [None] * len(prompts)
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            future_to_idx = {
-                pool.submit(self.scan, p, mode=mode): i for i, p in enumerate(prompts)
-            }
+            future_to_idx = {pool.submit(self.scan, p, mode=mode): i for i, p in enumerate(prompts)}
             for future in as_completed(future_to_idx):
                 idx = future_to_idx[future]
                 results[idx] = future.result()
