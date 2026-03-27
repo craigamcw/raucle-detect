@@ -1,4 +1,16 @@
-# Raucle Detect
+<p align="center">
+  <img src="assets/raucle-banner.svg" alt="Raucle Detect" width="600">
+</p>
+
+<p align="center">
+  <a href="https://raucle.com">Website</a> &middot;
+  <a href="#quick-start">Quick Start</a> &middot;
+  <a href="#openclaw-plugin">OpenClaw Plugin</a> &middot;
+  <a href="#what-it-detects">Detection Rules</a> &middot;
+  <a href="#contributing">Contributing</a>
+</p>
+
+---
 
 Open-source prompt injection detection for LLM applications. Scan every prompt before it reaches your AI model.
 
@@ -366,21 +378,29 @@ git commit -s -m "Add new detection rule"
 
 ## OpenClaw Plugin
 
-The `plugins/openclaw/` directory contains the **Raucle plugin for OpenClaw** — a hook-based integration that scans all agent messages in real-time.
+The `plugins/openclaw/` directory contains the **Raucle plugin for OpenClaw** — automatically protects all your agents from prompt injection, data exfiltration, and tool abuse.
 
-### What it does
+### Quick install
 
-| Hook | Action |
-|---|---|
-| `before_prompt_build` | Scans inbound user messages; injects security warning for SUSPICIOUS, overrides system prompt for MALICIOUS |
-| `message_sending` | Scans outbound agent responses for data leakage |
-| `before_tool_call` | Validates tool arguments before execution (shell injection, path traversal, SQLi, SSRF) |
+```bash
+# 1. Install the detection engine
+pip install raucle-detect[server,rules]
 
-### Setup
+# 2. Copy the plugin
+cp -r plugins/openclaw/ ~/.openclaw/extensions/raucle/
 
-1. Copy `plugins/openclaw/` to `~/.openclaw/extensions/raucle/`
-2. Install raucle-detect: `pip install raucle-detect[server,rules]`
-3. Add to `openclaw.json`:
+# 3. Enable it (one command)
+openclaw config set plugins.allow+=raucle \
+  plugins.load.paths+=~/.openclaw/extensions/raucle \
+  plugins.entries.raucle.enabled=true \
+  plugins.entries.raucle.config.mode=standard \
+  plugins.entries.raucle.config.blockOnMalicious=true
+
+# 4. Restart
+openclaw gateway restart
+```
+
+Or manually add to `openclaw.json`:
 
 ```json
 {
@@ -392,10 +412,7 @@ The `plugins/openclaw/` directory contains the **Raucle plugin for OpenClaw** �
         "enabled": true,
         "config": {
           "mode": "standard",
-          "blockOnMalicious": true,
-          "agentOverrides": {
-            "ciso": { "mode": "strict" }
-          }
+          "blockOnMalicious": true
         }
       }
     }
@@ -403,16 +420,41 @@ The `plugins/openclaw/` directory contains the **Raucle plugin for OpenClaw** �
 }
 ```
 
-4. Restart the gateway: `openclaw gateway restart`
+That's it — all agents are now protected. No per-agent configuration needed.
+
+### What it does
+
+| Hook | Action |
+|---|---|
+| `before_prompt_build` | Scans every inbound message; injects security warning for SUSPICIOUS, hard blocks MALICIOUS |
+| `message_sending` | Scans outbound agent responses for data leakage |
+| `before_tool_call` | Validates tool arguments before execution (shell injection, path traversal, SQLi, SSRF) |
+| `llm_output` | Monitors large LLM outputs for anomalies |
 
 ### Per-agent sensitivity
+
+Override detection sensitivity for specific agents:
 
 ```json
 "agentOverrides": {
   "ciso": { "mode": "strict" },
-  "main": { "mode": "standard", "scanToolCalls": false }
+  "main": { "mode": "standard" },
+  "sandbox": { "mode": "strict", "scanToolCalls": true }
 }
 ```
+
+Modes: `strict` (lowest false negatives), `standard` (balanced), `permissive` (lowest false positives).
+
+### Tamper protection
+
+Agents cannot disable Raucle by modifying their own configuration. The plugin:
+
+- **Runs at the gateway level**, not inside the agent sandbox — agents cannot access the plugin process
+- **Hooks fire before the agent sees the prompt** — the security scan completes before the LLM is called
+- **Configuration is in `openclaw.json`** which is owned by the gateway process, not individual agents
+- **The raucle-detect server runs as a separate process** on a fixed port — agents cannot stop or modify it
+
+To prevent agents from using tools to modify `openclaw.json` and disable the plugin, add the config file to your sandbox deny list or set `exec.security` appropriately. The plugin itself has no mechanism for agents to disable it from within a conversation.
 
 ## Security
 

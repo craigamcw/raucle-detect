@@ -64,6 +64,16 @@ const raucleClaw = {
     );
 
     // ---------------------------------------------------------------
+    // Tamper detection: warn if plugin is misconfigured
+    // ---------------------------------------------------------------
+    if (!config.scanInbound && !config.scanOutbound && !config.scanToolCalls) {
+      api.logger.error(
+        "[raucle] ALL scanning disabled — no protection active. " +
+        "This may indicate configuration tampering."
+      );
+    }
+
+    // ---------------------------------------------------------------
     // Background service: raucle-detect Python server
     // ---------------------------------------------------------------
     serverManager = new ServerManager({
