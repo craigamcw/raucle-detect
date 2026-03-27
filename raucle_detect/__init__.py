@@ -16,10 +16,15 @@ __version__ = "0.1.0"
 __author__ = "Raucle"
 __license__ = "MIT"
 
+from raucle_detect.middleware import RaucleMiddleware
 from raucle_detect.scanner import Scanner, ScanResult
+from raucle_detect.session import SessionScanner, SessionScanResult
 
 __all__ = [
     "Scanner",
     "ScanResult",
+    "SessionScanner",
+    "SessionScanResult",
+    "RaucleMiddleware",
     "__version__",
 ]

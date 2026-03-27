@@ -196,6 +196,112 @@ BUILTIN_PATTERNS: list[dict[str, Any]] = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Output-specific rules (for scan_output)
+# ---------------------------------------------------------------------------
+
+OUTPUT_RULES: list[dict[str, Any]] = [
+    {
+        "id": "OUT-001",
+        "name": "system_prompt_leak",
+        "category": "data_leakage",
+        "technique": "system_prompt_leak",
+        "severity": "CRITICAL",
+        "patterns": [
+            r"(?i)(?:my|the)\s+system\s+(?:prompt|instructions?)\s+(?:is|are|says?)",
+            r"(?i)(?:here\s+(?:is|are)\s+)?my\s+(?:original|initial|base)\s+instructions?",
+            r"(?i)i\s+was\s+(?:told|instructed|programmed|configured)\s+to",
+            r"(?i)my\s+(?:rules?|guidelines?|directives?)\s+(?:state|say|are|include)",
+        ],
+        "score": 0.80,
+    },
+    {
+        "id": "OUT-002",
+        "name": "instruction_injection_in_output",
+        "category": "indirect_injection",
+        "technique": "output_injection",
+        "severity": "HIGH",
+        "patterns": [
+            r"(?i)(?:ignore|disregard|override)\s+(?:all\s+)?(?:previous|prior|above)\s+instructions?",
+            r"(?i)(?:you\s+(?:must|should|need\s+to)|please)\s+(?:now\s+)?(?:execute|run|perform)",
+            r"(?i)<\|im_start\|>|<\|im_end\|>|\[INST\]|\[/INST\]",
+        ],
+        "score": 0.75,
+    },
+    {
+        "id": "OUT-003",
+        "name": "exfiltration_channel",
+        "category": "data_exfiltration",
+        "technique": "output_exfiltration",
+        "severity": "CRITICAL",
+        "patterns": [
+            r"(?i)!\[[^\]]*\]\(https?://[^)]*(?:api[_-]?key|token|secret|password|credential)",
+            r"(?i)(?:fetch|curl|wget|requests?\.get)\s*\(\s*['\"]https?://",
+            r"(?i)(?:send|post|transmit|exfiltrate)\s+(?:this|the|all)\s+(?:data|information|content)\s+to",
+        ],
+        "score": 0.85,
+    },
+]
+
+# ---------------------------------------------------------------------------
+# Tool call rules (for scan_tool_call)
+# ---------------------------------------------------------------------------
+
+TOOL_CALL_RULES: list[dict[str, Any]] = [
+    {
+        "id": "TOOL-001",
+        "name": "dangerous_shell_command",
+        "category": "tool_abuse",
+        "technique": "shell_injection",
+        "severity": "CRITICAL",
+        "patterns": [
+            r"(?i)(?:rm\s+-rf|mkfs|dd\s+if=|chmod\s+777|curl.*\|\s*(?:sh|bash))",
+            r"(?i)(?:sudo|su\s+-)\s+",
+            r"(?i)(?:>\s*/etc/|/dev/(?:sd|null))",
+            r"(?i)(?:eval|exec)\s*\(",
+        ],
+        "score": 0.90,
+    },
+    {
+        "id": "TOOL-002",
+        "name": "path_traversal",
+        "category": "tool_abuse",
+        "technique": "path_traversal",
+        "severity": "HIGH",
+        "patterns": [
+            r"\.\./\.\./",
+            r"(?i)(?:/etc/passwd|/etc/shadow|\.env|\.ssh/|id_rsa)",
+            r"(?i)%2e%2e%2f|%252e%252e%252f",
+        ],
+        "score": 0.85,
+    },
+    {
+        "id": "TOOL-003",
+        "name": "sql_injection_in_args",
+        "category": "tool_abuse",
+        "technique": "sql_injection",
+        "severity": "CRITICAL",
+        "patterns": [
+            r"(?i)(?:'\s*(?:OR|AND)\s+['\d]|;\s*DROP\s+TABLE|UNION\s+SELECT|--\s*$)",
+            r"(?i)(?:INSERT\s+INTO|UPDATE\s+.*SET|DELETE\s+FROM)\s+(?!.*\bWHERE\b)",
+        ],
+        "score": 0.85,
+    },
+    {
+        "id": "TOOL-004",
+        "name": "ssrf_attempt",
+        "category": "tool_abuse",
+        "technique": "ssrf",
+        "severity": "HIGH",
+        "patterns": [
+            r"(?i)(?:169\.254\.169\.254|metadata\.google|localhost|127\.0\.0\.1|0\.0\.0\.0|::1)",
+            r"(?i)(?:file://|gopher://|dict://|ftp://(?:localhost|127))",
+        ],
+        "score": 0.80,
+    },
+]
+
+
 class PatternLayer:
     """Fast regex-based pattern matching layer.
 
@@ -273,6 +379,43 @@ class PatternLayer:
                     matched_categories.append(rule["category"])
                     matched_rules.append(rule["id"])
                     break  # One match per rule is sufficient
+
+        return {
+            "score": best_score,
+            "categories": list(set(matched_categories)),
+            "technique": matched_technique,
+            "matched_rules": matched_rules,
+        }
+
+    def scan_with_rules(self, text: str, rule_lists: list[list[dict[str, Any]]]) -> dict[str, Any]:
+        """Scan *text* against specific rule lists (not the loaded rules).
+
+        Compiles the provided rules on the fly and scans against them.
+        Returns the same dict shape as :meth:`scan`.
+        """
+        if len(text) > MAX_INPUT_LENGTH:
+            text = text[:MAX_INPUT_LENGTH]
+
+        best_score = 0.0
+        matched_categories: list[str] = []
+        matched_technique = ""
+        matched_rules: list[str] = []
+
+        for rule_list in rule_lists:
+            for rule in rule_list:
+                for p in rule.get("patterns", []):
+                    try:
+                        compiled = re.compile(p)
+                    except re.error:
+                        continue
+                    if self._safe_match(compiled, p, text):
+                        score = rule.get("score", 0.5)
+                        if score > best_score:
+                            best_score = score
+                            matched_technique = rule.get("technique", "")
+                        matched_categories.append(rule["category"])
+                        matched_rules.append(rule["id"])
+                        break  # One match per rule is sufficient
 
         return {
             "score": best_score,

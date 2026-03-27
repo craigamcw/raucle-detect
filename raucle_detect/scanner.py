@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from raucle_detect.classifier import HeuristicClassifier, MLClassifier
-from raucle_detect.patterns import PatternLayer
+from raucle_detect.patterns import BUILTIN_PATTERNS, OUTPUT_RULES, TOOL_CALL_RULES, PatternLayer
 from raucle_detect.rules import load_rules_dir, load_yaml_file
 
 logger = logging.getLogger(__name__)
@@ -256,6 +256,158 @@ class Scanner:
             layer_scores={
                 "pattern": round(pat["score"], 4),
                 "semantic": round(sem["score"], 4),
+            },
+            matched_rules=pat.get("matched_rules", []),
+            action=action,
+            notes=notes,
+        )
+
+    def scan_output(
+        self,
+        output: str,
+        original_prompt: str | None = None,
+        mode: str | None = None,
+    ) -> ScanResult:
+        """Scan LLM output for data leakage, exfiltration, and injection.
+
+        Parameters
+        ----------
+        output : str
+            The LLM-generated text to scan.
+        original_prompt : str, optional
+            If provided, the scanner checks whether the output suspiciously
+            mirrors system-level content from the prompt.
+        mode : str, optional
+            Override the scanner-level mode for this single call.
+        """
+        thresholds = _MODE_THRESHOLDS.get(mode, self._thresholds) if mode else self._thresholds
+
+        notes: list[str] = []
+        if len(output) > MAX_INPUT_LENGTH:
+            output = output[:MAX_INPUT_LENGTH]
+            notes.append(
+                f"Output was truncated to {MAX_INPUT_LENGTH:,} characters. "
+                "Detection covers the truncated text only."
+            )
+
+        # Collect DLP rules from built-in patterns
+        dlp_rules = [r for r in BUILTIN_PATTERNS if r["id"].startswith("DLP-")]
+
+        # Run output-specific rules + DLP rules against the output
+        pat = self._pattern_layer.scan_with_rules(output, [OUTPUT_RULES, dlp_rules])
+
+        # If original_prompt is provided, check for suspicious mirroring
+        if original_prompt and len(original_prompt) > 20:
+            # Check if substantial chunks of the prompt appear in the output
+            # Use sliding window to find shared substrings
+            prompt_lower = original_prompt.lower()
+            output_lower = output.lower()
+            window = 50  # characters
+            for i in range(0, min(len(prompt_lower) - window, 500), 10):
+                chunk = prompt_lower[i : i + window]
+                if chunk in output_lower:
+                    if pat["score"] < 0.80:
+                        pat["score"] = 0.80
+                    if "data_leakage" not in pat["categories"]:
+                        pat["categories"].append("data_leakage")
+                    pat["technique"] = pat.get("technique") or "system_prompt_leak"
+                    notes.append("Output contains content that mirrors the original prompt.")
+                    break
+
+        # Semantic layer on output
+        if self._ml is not None:
+            sem = self._ml.classify(output)
+        else:
+            sem = self._heuristic.classify(output)
+
+        combined = pat["score"] * _PATTERN_WEIGHT + sem["score"] * _SEMANTIC_WEIGHT
+        categories = list(set(pat.get("categories", []) + sem.get("categories", [])))
+        technique = pat.get("technique", "") or sem.get("technique", "")
+
+        if combined >= thresholds["block"]:
+            verdict = "MALICIOUS"
+            action = "BLOCK"
+        elif combined >= thresholds["alert"]:
+            verdict = "SUSPICIOUS"
+            action = "ALERT"
+        else:
+            verdict = "CLEAN"
+            action = "ALLOW"
+
+        return ScanResult(
+            verdict=verdict,
+            confidence=round(combined, 4),
+            injection_detected=combined >= thresholds["alert"],
+            categories=categories,
+            attack_technique=technique,
+            layer_scores={
+                "pattern": round(pat["score"], 4),
+                "semantic": round(sem["score"], 4),
+            },
+            matched_rules=pat.get("matched_rules", []),
+            action=action,
+            notes=notes,
+        )
+
+    def scan_tool_call(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        mode: str | None = None,
+    ) -> ScanResult:
+        """Scan tool call arguments for dangerous patterns before execution.
+
+        Parameters
+        ----------
+        tool_name : str
+            Name of the tool being called.
+        arguments : dict
+            Tool call arguments to inspect.
+        mode : str, optional
+            Override the scanner-level mode for this single call.
+        """
+        thresholds = _MODE_THRESHOLDS.get(mode, self._thresholds) if mode else self._thresholds
+
+        # Serialize all argument values to strings
+        parts = [tool_name]
+        for key, value in arguments.items():
+            parts.append(f"{key}={value}")
+        text = " ".join(parts)
+
+        notes: list[str] = []
+        if len(text) > MAX_INPUT_LENGTH:
+            text = text[:MAX_INPUT_LENGTH]
+            notes.append("Tool call arguments were truncated for scanning.")
+
+        # Collect DLP rules from built-in patterns
+        dlp_rules = [r for r in BUILTIN_PATTERNS if r["id"].startswith("DLP-")]
+
+        # Run tool-specific rules + DLP rules
+        pat = self._pattern_layer.scan_with_rules(text, [TOOL_CALL_RULES, dlp_rules])
+
+        # No semantic layer for tool calls -- pattern-only
+        combined = pat["score"]
+        categories = list(set(pat.get("categories", [])))
+        technique = pat.get("technique", "")
+
+        if combined >= thresholds["block"]:
+            verdict = "MALICIOUS"
+            action = "BLOCK"
+        elif combined >= thresholds["alert"]:
+            verdict = "SUSPICIOUS"
+            action = "ALERT"
+        else:
+            verdict = "CLEAN"
+            action = "ALLOW"
+
+        return ScanResult(
+            verdict=verdict,
+            confidence=round(combined, 4),
+            injection_detected=combined >= thresholds["alert"],
+            categories=categories,
+            attack_technique=technique,
+            layer_scores={
+                "pattern": round(pat["score"], 4),
             },
             matched_rules=pat.get("matched_rules", []),
             action=action,
