@@ -1,0 +1,46 @@
+# Raucle Detect Detection Rules -- RAG/Retrieval Poisoning Attacks
+# Detects hidden instructions and manipulation targeting RAG pipelines.
+
+rules:
+  - id: RAG-001
+    name: Document injection marker
+    category: indirect_injection
+    severity: HIGH
+    description: Detects hidden instructions embedded in documents that target RAG pipelines
+    patterns:
+      - '(?i)\[system\].*(?:ignore|override|disregard)'
+      - '(?i)<!--\s*(?:instruction|system|prompt)[^>]*-->'
+      - '(?i)BEGIN\s+HIDDEN\s+INSTRUCTIONS?'
+    score: 0.85
+
+  - id: RAG-002
+    name: Retrieval result manipulation
+    category: indirect_injection
+    severity: HIGH
+    description: Detects attempts to manipulate how retrieved documents are interpreted
+    patterns:
+      - '(?i)this\s+(?:document|context|source)\s+(?:overrides?|replaces?|supersedes?)'
+      - '(?i)the\s+following\s+(?:takes?|has)\s+(?:priority|precedence)\s+over'
+      - '(?i)update\s+your\s+(?:knowledge|understanding|context)\s+with'
+    score: 0.80
+
+  - id: RAG-003
+    name: Invisible text injection
+    category: evasion
+    severity: MEDIUM
+    description: Detects zero-width or invisible text used to hide instructions in documents
+    patterns:
+      - '[\u200b\u200c\u200d\u2060\ufeff]{3,}'
+      - '(?i)color:\s*(?:white|transparent|rgba\(\d+,\s*\d+,\s*\d+,\s*0\))'
+      - '(?i)font-size:\s*0'
+    score: 0.65
+
+  - id: RAG-004
+    name: Citation/source poisoning
+    category: indirect_injection
+    severity: MEDIUM
+    description: Detects fake citation or attribution markers designed to increase trust
+    patterns:
+      - '(?i)(?:source|reference|citation):\s*(?:verified|official|authoritative|trusted)'
+      - '(?i)this\s+(?:has\s+been|was)\s+(?:verified|confirmed|validated)\s+by'
+    score: 0.60

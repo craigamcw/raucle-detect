@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 from raucle_detect import __version__
-from raucle_detect.scanner import Scanner
+from raucle_detect.scanner import MAX_INPUT_BYTES, Scanner
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -114,7 +114,15 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         if not file_path.exists():
             print(f"Error: file not found: {args.file}", file=sys.stderr)
             return 1
-        prompts = [line.strip() for line in file_path.read_text().splitlines() if line.strip()]
+        file_size = file_path.stat().st_size
+        if file_size > MAX_INPUT_BYTES:
+            print(
+                f"Warning: file is {file_size:,} bytes, exceeding the "
+                f"{MAX_INPUT_BYTES:,}-byte limit. Input will be truncated.",
+                file=sys.stderr,
+            )
+        raw = file_path.read_bytes()[:MAX_INPUT_BYTES].decode(errors="replace")
+        prompts = [line.strip() for line in raw.splitlines() if line.strip()]
     else:
         # Read from stdin
         if sys.stdin.isatty():

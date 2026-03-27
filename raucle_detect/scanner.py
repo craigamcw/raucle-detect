@@ -16,6 +16,7 @@ ML) semantic classifier, producing a single :class:`ScanResult` per prompt.
 from __future__ import annotations
 
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,6 +27,13 @@ from raucle_detect.patterns import PatternLayer
 from raucle_detect.rules import load_rules_dir, load_yaml_file
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Input size limits
+# ---------------------------------------------------------------------------
+
+MAX_INPUT_BYTES = 1_048_576  # 1 MB
+MAX_INPUT_LENGTH = 100_000   # characters
 
 # ---------------------------------------------------------------------------
 # Result dataclass
@@ -60,9 +68,12 @@ class ScanResult:
     action: str = "ALLOW"
     """Recommended action: ``ALLOW``, ``ALERT``, or ``BLOCK``."""
 
+    notes: list[str] = field(default_factory=list)
+    """Informational notes (e.g. input was truncated)."""
+
     def to_dict(self) -> dict[str, Any]:
         """Serialise to a plain dictionary (JSON-friendly)."""
-        return {
+        d: dict[str, Any] = {
             "verdict": self.verdict,
             "confidence": self.confidence,
             "injection_detected": self.injection_detected,
@@ -72,6 +83,9 @@ class ScanResult:
             "matched_rules": self.matched_rules,
             "action": self.action,
         }
+        if self.notes:
+            d["notes"] = self.notes
+        return d
 
 
 # ---------------------------------------------------------------------------
@@ -187,6 +201,18 @@ class Scanner:
         """
         thresholds = _MODE_THRESHOLDS.get(mode, self._thresholds) if mode else self._thresholds
 
+        # Input size guard
+        notes: list[str] = []
+        if len(prompt) > MAX_INPUT_LENGTH:
+            logger.warning(
+                "Input truncated from %d to %d characters", len(prompt), MAX_INPUT_LENGTH
+            )
+            prompt = prompt[:MAX_INPUT_LENGTH]
+            notes.append(
+                f"Input was truncated to {MAX_INPUT_LENGTH:,} characters. "
+                "Detection covers the truncated text only."
+            )
+
         # Layer 1: Pattern matching
         pat = self._pattern_layer.scan(prompt)
 
@@ -228,6 +254,7 @@ class Scanner:
             },
             matched_rules=pat.get("matched_rules", []),
             action=action,
+            notes=notes,
         )
 
     def scan_batch(
@@ -252,8 +279,14 @@ class Scanner:
         list[ScanResult]
             Results in the same order as the input prompts.
         """
+        max_workers = max(1, min(workers, os.cpu_count() or 4))
+        if max_workers != workers:
+            logger.warning(
+                "Worker count adjusted from %d to %d (clamped to CPU count)", workers, max_workers
+            )
+
         results: list[ScanResult | None] = [None] * len(prompts)
-        with ThreadPoolExecutor(max_workers=workers) as pool:
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
             future_to_idx = {
                 pool.submit(self.scan, p, mode=mode): i for i, p in enumerate(prompts)
             }

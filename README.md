@@ -13,6 +13,8 @@ Raucle Detect is the open-source detection engine behind [Raucle](https://raucle
 | **Data exfiltration** | System prompt extraction, markdown image exfil | PI-004, PI-100 |
 | **Data loss** | API keys, AWS credentials, PII (NI numbers, NHS numbers, IBANs) | DLP-001, DLP-002 |
 | **MCP tool poisoning** | Rug pull, cross-tool escalation, hidden instructions | PI-006, MCP-001, MCP-002 |
+| **RAG poisoning** | Document injection, retrieval manipulation, invisible text, citation spoofing | RAG-001 -- RAG-004 |
+| **Agent attacks** | Goal hijacking, tool abuse, memory manipulation, privilege escalation | AGT-001 -- AGT-005 |
 | **Evasion** | Base64/hex encoding, unicode homoglyphs, token smuggling | PI-007, PI-101, PI-103 |
 
 ## Install
@@ -175,6 +177,47 @@ for prompt, result in zip(prompts, results):
     if result.injection_detected:
         print(f"Blocked: {prompt}")
 ```
+
+## Rule Packs
+
+Raucle Detect ships with several rule packs in the `rules/` directory:
+
+| File | Rules | Description |
+|---|---|---|
+| `default.yaml` | PI-100 -- MCP-002 | Markdown exfil, homoglyphs, multi-turn escalation, MCP poisoning |
+| `injection-advanced.yaml` | PI-200 -- PI-207 | Authority impersonation, priority override, hypothetical framing |
+| `jailbreak-advanced.yaml` | PI-400 -- PI-406 | Content policy bypass, persona assignment, gaslighting |
+| `evasion-advanced.yaml` | PI-500 -- PI-506 | Payload splitting, language switching, whitespace evasion |
+| `rag-poisoning.yaml` | RAG-001 -- RAG-004 | Document injection, retrieval manipulation, invisible text, citation spoofing |
+| `agent-attacks.yaml` | AGT-001 -- AGT-005 | Goal hijacking, tool abuse, memory/state manipulation, privilege escalation |
+
+Load all rule packs:
+
+```python
+scanner = Scanner(rules_dir="rules/")
+```
+
+## Input Size Limits
+
+Raucle Detect enforces input size limits to prevent denial-of-service via oversized payloads:
+
+- **`MAX_INPUT_BYTES`** (1 MB) -- CLI file inputs larger than this are truncated before processing.
+- **`MAX_INPUT_LENGTH`** (100,000 characters) -- Prompts exceeding this length are truncated at the scanner level. A note is added to the `ScanResult.notes` field when truncation occurs.
+- **ReDoS protection** -- Patterns that could cause exponential backtracking (e.g. repetition rules) apply a tighter 10,000-character limit per pattern match.
+
+These limits ensure predictable latency regardless of input size.
+
+## Heuristic Classifier
+
+The built-in heuristic classifier (Layer 2) uses weighted keyword matching with several refinements:
+
+- **Keyword weighting** -- Each injection signal has an individual weight (e.g. "ignore all previous" = 0.25, "act as" = 0.08). Stronger signals contribute more to the score.
+- **Position awareness** -- Injection signals found in the first 100 characters of a prompt receive a 1.5x weight multiplier.
+- **Negation detection** -- If "don't", "do not", "never", or "shouldn't" appears within 10 characters before an injection keyword, that signal's weight is reduced by 70%.
+- **Density scoring** -- When 3 or more injection signals appear within any 200-character window, a 0.1 bonus is added.
+- **Benign signal reduction** -- Benign phrases (e.g. "how do i", "please explain") reduce the final score.
+
+The classifier requires zero external dependencies and runs in microseconds.
 
 ## ScanResult Fields
 

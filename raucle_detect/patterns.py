@@ -14,6 +14,21 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# ReDoS protection constants
+# ---------------------------------------------------------------------------
+
+MAX_INPUT_LENGTH = 100_000  # characters -- inputs longer than this are truncated
+
+# Patterns that can cause exponential backtracking on long inputs.
+# These get a tighter per-pattern input length limit.
+_REDOS_RISKY_PATTERNS: set[str] = {
+    r"(.)\1{50,}",
+    r"(\b\w+\b)\s+\1(\s+\1){10,}",
+}
+
+_REDOS_PATTERN_MAX_LENGTH = 10_000
+
+# ---------------------------------------------------------------------------
 # Built-in pattern library
 # ---------------------------------------------------------------------------
 # Each rule has an id, human-readable name, threat category, MITRE-like
@@ -191,7 +206,7 @@ class PatternLayer:
 
     def __init__(self) -> None:
         self._rules: list[dict[str, Any]] = []
-        self._compiled: list[tuple[dict[str, Any], list[re.Pattern[str]]]] = []
+        self._compiled: list[tuple[dict[str, Any], list[tuple[re.Pattern[str], str]]]] = []
 
     # ------------------------------------------------------------------
     # Loading
@@ -210,13 +225,25 @@ class PatternLayer:
     def _compile(self) -> None:
         self._compiled = []
         for rule in self._rules:
-            compiled_patterns: list[re.Pattern[str]] = []
+            compiled_patterns: list[tuple[re.Pattern[str], str]] = []
             for p in rule.get("patterns", []):
                 try:
-                    compiled_patterns.append(re.compile(p))
+                    compiled_patterns.append((re.compile(p), p))
                 except re.error as exc:
                     logger.warning("Invalid regex in rule %s: %s", rule.get("id", "?"), exc)
             self._compiled.append((rule, compiled_patterns))
+
+    # ------------------------------------------------------------------
+    # ReDoS-safe matching
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _safe_match(pattern: re.Pattern[str], raw_pattern: str, text: str) -> re.Match[str] | None:
+        """Match with a length pre-check for ReDoS-risky patterns."""
+        if raw_pattern in _REDOS_RISKY_PATTERNS:
+            if len(text) > _REDOS_PATTERN_MAX_LENGTH:
+                text = text[:_REDOS_PATTERN_MAX_LENGTH]
+        return pattern.search(text)
 
     # ------------------------------------------------------------------
     # Scanning
@@ -228,14 +255,18 @@ class PatternLayer:
         Returns a dict with ``score``, ``categories``, ``technique``, and
         ``matched_rules``.
         """
+        # Global input length guard
+        if len(text) > MAX_INPUT_LENGTH:
+            text = text[:MAX_INPUT_LENGTH]
+
         best_score = 0.0
         matched_categories: list[str] = []
         matched_technique = ""
         matched_rules: list[str] = []
 
         for rule, patterns in self._compiled:
-            for pattern in patterns:
-                if pattern.search(text):
+            for pattern, raw_pattern in patterns:
+                if self._safe_match(pattern, raw_pattern, text):
                     score = rule.get("score", 0.5)
                     if score > best_score:
                         best_score = score

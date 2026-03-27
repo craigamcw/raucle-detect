@@ -10,61 +10,123 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Signal word lists
+# Weighted signal dictionaries
 # ---------------------------------------------------------------------------
 
-INJECTION_SIGNALS: list[str] = [
-    # Instruction manipulation
-    "ignore", "disregard", "forget", "override", "bypass",
-    "new instructions", "updated instructions", "real instructions",
-    # Role play / identity
-    "pretend", "roleplay", "act as", "you are now", "simulate",
-    # System prompt extraction
-    "system prompt", "initial prompt", "hidden instructions",
-    "reveal", "display", "output", "repeat everything",
-    # Jailbreak keywords
-    "jailbreak", "unrestricted", "unfiltered", "uncensored",
-    "no restrictions", "no limits", "no rules", "anything goes",
-    "DAN", "developer mode", "god mode",
-    # Encoding / evasion
-    "base64", "decode this", "translate from",
-    # Harmful intent
-    "malicious", "exploit", "hack", "inject", "exfiltrate",
-]
+INJECTION_SIGNALS: dict[str, float] = {
+    # (keyword, weight) -- higher weight = stronger signal
+    "ignore all previous": 0.25,
+    "ignore above": 0.20,
+    "disregard your instructions": 0.25,
+    "new instructions": 0.15,
+    "system prompt": 0.15,
+    "you are now": 0.12,
+    "act as": 0.08,
+    "pretend to be": 0.10,
+    "developer mode": 0.15,
+    "do anything now": 0.20,
+    "jailbreak": 0.18,
+    "bypass": 0.10,
+    "override": 0.10,
+    "forget everything": 0.20,
+    "no restrictions": 0.15,
+    "without filters": 0.12,
+    "unlimited mode": 0.15,
+    "ignore safety": 0.20,
+    "reveal your": 0.12,
+    "output your": 0.10,
+}
 
-BENIGN_SIGNALS: list[str] = [
-    "please help", "can you explain", "summarize",
-    "write a", "create a", "generate a",
-    "how do I", "what is", "tell me about",
-    "review this", "check this", "analyze",
-]
+BENIGN_SIGNALS: dict[str, float] = {
+    "how do i": 0.10,
+    "can you help": 0.08,
+    "please explain": 0.08,
+    "what is": 0.06,
+    "tell me about": 0.06,
+    "i need help": 0.08,
+    "thank you": 0.06,
+    "summarize": 0.05,
+    "translate": 0.05,
+    "write a": 0.04,
+}
+
+# Negation patterns that appear within a short span before an injection keyword
+_NEGATION_PATTERN = re.compile(r"(?:don['\u2019]t|do not|never|shouldn['\u2019]t)", re.IGNORECASE)
+_NEGATION_WINDOW = 10  # characters before the match start
 
 
 class HeuristicClassifier:
-    """Lightweight keyword-density classifier that requires zero dependencies.
+    """Weighted keyword classifier with position awareness, negation detection,
+    and density scoring.
 
-    Scores text by counting injection-related and benign signal phrases, then
-    produces a 0-1 confidence score.  Useful as a standalone fallback or as a
-    secondary signal alongside the pattern layer.
+    Scores text by matching injection and benign signal phrases with individual
+    weights, then applies position bonuses, negation reductions, and density
+    bonuses to produce a 0-1 confidence score.
     """
 
     def classify(self, text: str) -> dict[str, Any]:
         text_lower = text.lower()
-        words = text_lower.split()
-        total_words = max(len(words), 1)
 
-        injection_hits = sum(1 for s in INJECTION_SIGNALS if s in text_lower)
-        benign_hits = sum(1 for s in BENIGN_SIGNALS if s in text_lower)
+        # -----------------------------------------------------------------
+        # 1. Sum weighted injection signals
+        # -----------------------------------------------------------------
+        injection_score = 0.0
+        injection_hits: list[tuple[str, int]] = []  # (keyword, position)
 
-        injection_density = (injection_hits / total_words) * 100
-        raw_score = min(1.0, (injection_hits * 0.12) + (injection_density * 0.05))
-        benign_reduction = min(0.3, benign_hits * 0.08)
-        score = max(0.0, raw_score - benign_reduction)
+        for keyword, weight in INJECTION_SIGNALS.items():
+            pos = text_lower.find(keyword)
+            if pos == -1:
+                continue
+
+            effective_weight = weight
+
+            # Position bonus: injection signal in first 100 chars is more suspicious
+            if pos < 100:
+                effective_weight *= 1.5
+
+            # Negation check: reduce weight if negation word appears nearby before keyword
+            window_start = max(0, pos - _NEGATION_WINDOW)
+            preceding = text_lower[window_start:pos]
+            if _NEGATION_PATTERN.search(preceding):
+                effective_weight *= 0.3  # reduce by 0.7 (multiply by 1-0.7)
+
+            injection_score += effective_weight
+            injection_hits.append((keyword, pos))
+
+        # -----------------------------------------------------------------
+        # 2. Density bonus: 3+ injection signals in any 200-char window
+        # -----------------------------------------------------------------
+        if len(injection_hits) >= 3:
+            positions = sorted(h[1] for h in injection_hits)
+            for i in range(len(positions)):
+                window_end = positions[i] + 200
+                count_in_window = sum(1 for p in positions if positions[i] <= p <= window_end)
+                if count_in_window >= 3:
+                    injection_score += 0.1
+                    break
+
+        injection_score = min(1.0, injection_score)
+
+        # -----------------------------------------------------------------
+        # 3. Sum weighted benign signals (capped at 0.5)
+        # -----------------------------------------------------------------
+        benign_score = 0.0
+        for keyword, weight in BENIGN_SIGNALS.items():
+            if keyword in text_lower:
+                benign_score += weight
+        benign_score = min(0.5, benign_score)
+
+        # -----------------------------------------------------------------
+        # 4. Final score
+        # -----------------------------------------------------------------
+        score = injection_score - (benign_score * 0.5)
+        score = max(0.0, min(1.0, score))
 
         categories: list[str] = []
         technique = ""

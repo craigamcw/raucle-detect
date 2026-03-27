@@ -1,0 +1,60 @@
+# Raucle Detect Detection Rules -- Agent/Tool-Use Attacks
+# Detects goal hijacking, tool abuse, memory manipulation, and privilege
+# escalation targeting autonomous AI agents.
+
+rules:
+  - id: AGT-001
+    name: Goal hijacking
+    category: direct_injection
+    severity: CRITICAL
+    description: Detects attempts to redirect an autonomous agent's objectives
+    patterns:
+      - '(?i)(?:change|update|modify|replace)\s+(?:your|the)\s+(?:goal|objective|mission|task)'
+      - '(?i)(?:your|the)\s+(?:real|actual|true)\s+(?:goal|objective|task)\s+is'
+      - '(?i)forget\s+(?:your|the)\s+(?:original|current|previous)\s+(?:goal|task|objective)'
+    score: 0.85
+
+  - id: AGT-002
+    name: Tool abuse escalation
+    category: tool_poisoning
+    severity: CRITICAL
+    description: Detects attempts to misuse tools for unintended purposes
+    patterns:
+      - '(?i)(?:use|call|invoke|execute)\s+(?:the\s+)?(?:tool|function|api)\s+(?:to|for)\s+(?:delete|remove|destroy|drop)'
+      - '(?i)(?:chain|combine|pipe)\s+(?:the\s+)?(?:tools?|functions?|apis?)\s+to\s+(?:bypass|circumvent|avoid)'
+      - '(?i)(?:the\s+)?(?:tool|function)\s+(?:can\s+also|should\s+also|secretly)\s+(?:be\s+used\s+to|access)'
+    score: 0.90
+
+  - id: AGT-003
+    name: Memory/state manipulation
+    category: direct_injection
+    severity: HIGH
+    description: Detects attempts to manipulate agent memory or persistent state
+    patterns:
+      - '(?i)(?:update|modify|change|overwrite)\s+(?:your|the)\s+(?:memory|state|context|history)'
+      - '(?i)(?:remember|store|save)\s+that\s+(?:you|your)\s+(?:are|should|must|were)'
+      - '(?i)(?:clear|reset|wipe|erase)\s+(?:your|the)\s+(?:memory|conversation|history|context)'
+      - '(?i)(?:from\s+now\s+on|going\s+forward|permanently)\s+(?:you\s+(?:are|should|must|will))'
+    score: 0.80
+
+  - id: AGT-004
+    name: Autonomous action coercion
+    category: direct_injection
+    severity: CRITICAL
+    description: Detects attempts to force agents into taking autonomous harmful actions
+    patterns:
+      - '(?i)(?:immediately|urgently|right\s+now)\s+(?:execute|run|perform|do)\s+.{0,30}(?:without|before)\s+(?:asking|checking|confirming|verifying)'
+      - '(?i)(?:do\s+not|don.t|never)\s+(?:ask|wait|confirm|verify|check)\s+(?:before|prior\s+to)'
+      - '(?i)(?:skip|bypass|disable)\s+(?:the\s+)?(?:confirmation|approval|verification|review)\s+(?:step|process|check)'
+    score: 0.85
+
+  - id: AGT-005
+    name: Privilege escalation via agent
+    category: tool_poisoning
+    severity: CRITICAL
+    description: Detects attempts to escalate privileges through agent tool access
+    patterns:
+      - '(?i)(?:grant|give|assign)\s+(?:me|yourself|the\s+user)\s+(?:admin|root|elevated|full)\s+(?:access|permissions?|privileges?)'
+      - '(?i)(?:you\s+have|i\s+have)\s+(?:admin|root|sudo|elevated)\s+(?:access|permissions?|privileges?)'
+      - '(?i)(?:as\s+(?:an?\s+)?(?:admin|root|superuser|administrator))\s+(?:you\s+(?:can|should|must))'
+    score: 0.85
