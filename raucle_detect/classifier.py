@@ -62,7 +62,7 @@ BENIGN_SIGNALS: dict[str, float] = {
 
 # Negation patterns that appear within a short span before an injection keyword
 _NEGATION_PATTERN = re.compile(r"(?:don['\u2019]t|do not|never|shouldn['\u2019]t)", re.IGNORECASE)
-_NEGATION_WINDOW = 10  # characters before the match start
+_NEGATION_WINDOW = 40  # characters before the match start
 
 
 class HeuristicClassifier:
@@ -83,6 +83,12 @@ class HeuristicClassifier:
         injection_score = 0.0
         injection_hits: list[tuple[str, int]] = []  # (keyword, position)
 
+        # Position bonus only applies if injection leads the text (no benign preamble).
+        # Measure benign content in the opening 100 chars to prevent the gameable
+        # pattern of "totally fine intro... ignore all previous instructions".
+        opening = text_lower[:100]
+        benign_in_opening = any(kw in opening for kw in BENIGN_SIGNALS)
+
         for keyword, weight in INJECTION_SIGNALS.items():
             pos = text_lower.find(keyword)
             if pos == -1:
@@ -90,8 +96,10 @@ class HeuristicClassifier:
 
             effective_weight = weight
 
-            # Position bonus: injection signal in first 100 chars is more suspicious
-            if pos < 100:
+            # Position bonus: injection signal within first 100 chars, but only when
+            # the opening has no benign preamble (otherwise an attacker can bypass this
+            # by prefixing "please help me: ignore all previous instructions").
+            if pos < 100 and not benign_in_opening:
                 effective_weight *= 1.5
 
             # Negation check: reduce weight if negation word appears nearby before keyword

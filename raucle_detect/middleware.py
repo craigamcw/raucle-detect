@@ -12,11 +12,14 @@ inputs, LLM outputs, and tool calls.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from typing import Any
 
 from raucle_detect.scanner import Scanner, ScanResult
 from raucle_detect.session import SessionScanner, SessionScanResult
+
+_DEFAULT_SESSION_TTL = 3600  # seconds — idle sessions older than this are evicted
 
 
 class RaucleMiddleware:
@@ -41,6 +44,9 @@ class RaucleMiddleware:
         Whether to track session state across calls.
     window_size : int
         Rolling window size for session tracking.
+    session_ttl : int
+        Seconds of inactivity after which a session is automatically evicted.
+        Defaults to 3600 (1 hour).  Set to 0 to disable TTL eviction.
     """
 
     def __init__(
@@ -51,24 +57,48 @@ class RaucleMiddleware:
         on_block: Callable[[ScanResult | SessionScanResult, str], None] | None = None,
         session_enabled: bool = True,
         window_size: int = 20,
+        session_ttl: int = _DEFAULT_SESSION_TTL,
     ) -> None:
         self.scanner = Scanner(mode=mode, rules_dir=rules_dir)
         self.on_alert = on_alert
         self.on_block = on_block
         self._sessions: dict[str, SessionScanner] = {}
+        self._session_last_seen: dict[str, float] = {}
         self._session_enabled = session_enabled
         self._window_size = window_size
         self._mode = mode
+        self._session_ttl = session_ttl
 
     def get_session(self, session_id: str) -> SessionScanner:
-        """Get or create a session scanner for the given ID."""
+        """Get or create a session scanner for the given ID.
+
+        Evicts stale sessions on each access when TTL is enabled.
+        """
+        self._evict_stale_sessions()
         if session_id not in self._sessions:
             self._sessions[session_id] = SessionScanner(
                 scanner=self.scanner,
                 window_size=self._window_size,
                 mode=self._mode,
             )
+        self._session_last_seen[session_id] = time.monotonic()
         return self._sessions[session_id]
+
+    def active_session_count(self) -> int:
+        """Return the number of currently tracked sessions."""
+        return len(self._sessions)
+
+    def _evict_stale_sessions(self) -> None:
+        """Remove sessions that have been idle longer than *session_ttl* seconds."""
+        if not self._session_ttl:
+            return
+        now = time.monotonic()
+        stale = [
+            sid for sid, last in self._session_last_seen.items() if now - last > self._session_ttl
+        ]
+        for sid in stale:
+            self._sessions.pop(sid, None)
+            self._session_last_seen.pop(sid, None)
 
     def pre_process(
         self,
@@ -146,6 +176,7 @@ class RaucleMiddleware:
     def drop_session(self, session_id: str) -> None:
         """Remove a session from tracking."""
         self._sessions.pop(session_id, None)
+        self._session_last_seen.pop(session_id, None)
 
     # ------------------------------------------------------------------
     # Internal

@@ -1,0 +1,42 @@
+version: "3.9"
+
+services:
+  raucle-detect:
+    image: python:3.12-slim
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: >
+      sh -c "pip install -e '.[server,rules]' --quiet &&
+             uvicorn raucle_detect.server:app
+               --host 0.0.0.0
+               --port 8000
+               --workers 2
+               --log-level info"
+    ports:
+      - "8000:8000"
+    environment:
+      # Detection sensitivity: strict | standard | permissive
+      RAUCLE_DETECT_MODE: ${RAUCLE_DETECT_MODE:-standard}
+      # Set to require Bearer token auth on all scan endpoints
+      RAUCLE_DETECT_API_KEY: ${RAUCLE_DETECT_API_KEY:-}
+      # Requests per minute per IP (0 = disabled)
+      RAUCLE_DETECT_RATE_LIMIT: ${RAUCLE_DETECT_RATE_LIMIT:-120}
+      # Burst allowance (token-bucket capacity)
+      RAUCLE_DETECT_BURST_LIMIT: ${RAUCLE_DETECT_BURST_LIMIT:-20}
+      # Optional: path inside the container to a custom rules directory
+      RAUCLE_DETECT_RULES_DIR: ${RAUCLE_DETECT_RULES_DIR:-}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # Optional: expose Prometheus scrape target via the /metrics endpoint.
+  # Uncomment and configure your Prometheus instance to scrape:
+  #   - job_name: raucle-detect
+  #     static_configs:
+  #       - targets: ['raucle-detect:8000']
+  #     metrics_path: /metrics
