@@ -94,9 +94,7 @@ class RaucleMiddleware:
             return
         now = time.monotonic()
         stale = [
-            sid
-            for sid, last in self._session_last_seen.items()
-            if now - last > self._session_ttl
+            sid for sid, last in self._session_last_seen.items() if now - last > self._session_ttl
         ]
         for sid in stale:
             self._sessions.pop(sid, None)

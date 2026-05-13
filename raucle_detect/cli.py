@@ -310,8 +310,10 @@ def _cmd_rules_fuzz(args: argparse.Namespace) -> int:
         print(json.dumps(report.to_dict(), indent=2))
     else:
         # Table output
-        print(f"\nOverall coverage: {report.overall_coverage:.0%} "
-              f"({report.total_caught}/{report.total_variants} variants detected)")
+        print(
+            f"\nOverall coverage: {report.overall_coverage:.0%} "
+            f"({report.total_caught}/{report.total_variants} variants detected)"
+        )
         print(f"Strategies: {', '.join(report.strategies_tested)}\n")
         header = f"{'Rule ID':<12} {'Coverage':>9} {'Caught':>7} {'Total':>7}  Missed strategies"
         print(header)
@@ -320,8 +322,10 @@ def _cmd_rules_fuzz(args: argparse.Namespace) -> int:
             missed_str = ", ".join(entry.missed_strategies) if entry.missed_strategies else "—"
             cov_str = f"{entry.coverage:.0%}"
             cov_colored = (
-                f"\033[91m{cov_str}\033[0m" if entry.coverage < 0.5
-                else f"\033[93m{cov_str}\033[0m" if entry.coverage < 0.8
+                f"\033[91m{cov_str}\033[0m"
+                if entry.coverage < 0.5
+                else f"\033[93m{cov_str}\033[0m"
+                if entry.coverage < 0.8
                 else f"\033[92m{cov_str}\033[0m"
             )
             print(
@@ -333,8 +337,7 @@ def _cmd_rules_fuzz(args: argparse.Namespace) -> int:
         weak = [e for e in report.results if e.coverage < 0.5]
         if weak:
             print(
-                f"⚠ {len(weak)} rule(s) with <50% variant coverage — "
-                "consider expanding patterns:"
+                f"⚠ {len(weak)} rule(s) with <50% variant coverage — consider expanding patterns:"
             )
             for e in weak:
                 print(f"  {e.rule_id}: {e.coverage:.0%} — missed: {', '.join(e.missed_strategies)}")

@@ -172,15 +172,13 @@ class AttackLog:
         return {
             "total": total,
             "by_verdict": verdict_counts,
-            "top_categories": sorted(
-                category_counts.items(), key=lambda x: x[1], reverse=True
-            )[:10],
-            "top_techniques": sorted(
-                technique_counts.items(), key=lambda x: x[1], reverse=True
-            )[:10],
-            "top_rules": sorted(
-                rule_counts.items(), key=lambda x: x[1], reverse=True
-            )[:10],
+            "top_categories": sorted(category_counts.items(), key=lambda x: x[1], reverse=True)[
+                :10
+            ],
+            "top_techniques": sorted(technique_counts.items(), key=lambda x: x[1], reverse=True)[
+                :10
+            ],
+            "top_rules": sorted(rule_counts.items(), key=lambda x: x[1], reverse=True)[:10],
         }
 
     # ------------------------------------------------------------------

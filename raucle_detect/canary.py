@@ -47,6 +47,7 @@ from typing import Any
 # Concealment strategies
 # ---------------------------------------------------------------------------
 
+
 class EmbedStrategy(str, Enum):
     ZERO_WIDTH = "zero_width"
     """Encode the token as a sequence of zero-width Unicode characters
@@ -64,9 +65,9 @@ class EmbedStrategy(str, Enum):
 
 
 # Zero-width characters used for binary encoding
-_ZW_ZERO = "​"   # ZERO WIDTH SPACE  → 0
-_ZW_ONE  = "‌"   # ZERO WIDTH NON-JOINER → 1
-_ZW_SEP  = "‍"   # ZERO WIDTH JOINER  → byte separator
+_ZW_ZERO = "​"  # ZERO WIDTH SPACE  → 0
+_ZW_ONE = "‌"  # ZERO WIDTH NON-JOINER → 1
+_ZW_SEP = "‍"  # ZERO WIDTH JOINER  → byte separator
 
 
 def _token_to_zw(token: str) -> str:
@@ -112,6 +113,7 @@ def _zw_to_token(text: str) -> str | None:
 # ---------------------------------------------------------------------------
 # Data types
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class CanaryToken:
@@ -170,6 +172,7 @@ class CanaryCheckResult:
 # ---------------------------------------------------------------------------
 # Manager
 # ---------------------------------------------------------------------------
+
 
 class CanaryManager:
     """Create, embed, and check canary tokens for system prompt leak detection.
@@ -259,16 +262,10 @@ class CanaryManager:
                 watermarked = system_prompt + watermark
 
         elif strategy == EmbedStrategy.SEMANTIC:
-            watermarked = (
-                system_prompt.rstrip()
-                + f"\n\n[Ref: session-token={token.value}]"
-            )
+            watermarked = system_prompt.rstrip() + f"\n\n[Ref: session-token={token.value}]"
 
         else:  # COMMENT
-            watermarked = (
-                system_prompt.rstrip()
-                + f"\n<!-- canary:{token.value} -->"
-            )
+            watermarked = system_prompt.rstrip() + f"\n<!-- canary:{token.value} -->"
 
         return watermarked, token
 

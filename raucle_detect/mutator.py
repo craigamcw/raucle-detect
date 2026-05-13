@@ -49,6 +49,7 @@ from raucle_detect.scanner import Scanner, ScanResult
 # Mutation strategies
 # ---------------------------------------------------------------------------
 
+
 class MutationStrategy(str, Enum):
     LEET = "leet"
     HOMOGLYPH = "homoglyph"
@@ -61,9 +62,21 @@ class MutationStrategy(str, Enum):
 
 
 _LEET_MAP: dict[str, str] = {
-    "a": "@", "e": "3", "i": "1", "o": "0", "s": "$",
-    "t": "7", "l": "|", "g": "9", "b": "6", "A": "@",
-    "E": "3", "I": "1", "O": "0", "S": "$", "T": "7",
+    "a": "@",
+    "e": "3",
+    "i": "1",
+    "o": "0",
+    "s": "$",
+    "t": "7",
+    "l": "|",
+    "g": "9",
+    "b": "6",
+    "A": "@",
+    "E": "3",
+    "I": "1",
+    "O": "0",
+    "S": "$",
+    "T": "7",
 }
 
 _HOMOGLYPH_MAP: dict[str, str] = {
@@ -132,9 +145,7 @@ def _mutate_reverse(text: str) -> str:
 
 
 def _mutate_case_flip(text: str) -> str:
-    return "".join(
-        ch.upper() if random.random() > 0.5 else ch.lower() for ch in text
-    )
+    return "".join(ch.upper() if random.random() > 0.5 else ch.lower() for ch in text)
 
 
 _MUTATORS: dict[MutationStrategy, Any] = {
@@ -195,6 +206,7 @@ _SEED_PHRASES: dict[str, list[str]] = {
 # Result types
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class MutationResult:
     """Outcome of a single mutation test."""
@@ -254,6 +266,7 @@ class FuzzReport:
 # ---------------------------------------------------------------------------
 # Fuzzer
 # ---------------------------------------------------------------------------
+
 
 class RuleFuzzer:
     """Generate adversarial variants of seed phrases and measure rule coverage.
@@ -326,19 +339,19 @@ class RuleFuzzer:
             caught = sum(1 for r in rule_results if r.detected)
             missed = total - caught
             coverage = caught / total if total else 0.0
-            missed_strategies = sorted({
-                r.strategy.value for r in rule_results if not r.detected
-            })
+            missed_strategies = sorted({r.strategy.value for r in rule_results if not r.detected})
             sample_misses = [r.mutated_prompt for r in rule_results if not r.detected][:3]
-            entries.append(RuleFuzzEntry(
-                rule_id=rule_id,
-                total=total,
-                caught=caught,
-                missed=missed,
-                coverage=coverage,
-                missed_strategies=missed_strategies,
-                sample_misses=sample_misses,
-            ))
+            entries.append(
+                RuleFuzzEntry(
+                    rule_id=rule_id,
+                    total=total,
+                    caught=caught,
+                    missed=missed,
+                    coverage=coverage,
+                    missed_strategies=missed_strategies,
+                    sample_misses=sample_misses,
+                )
+            )
 
         total_variants = len(results)
         total_caught = sum(1 for r in results if r.detected)

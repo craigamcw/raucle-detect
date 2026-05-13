@@ -24,6 +24,7 @@ def _compile_pattern(pattern: str) -> re.Pattern[str] | None:
         logger.warning("Invalid regex (cached skip): %s — %s", pattern[:80], exc)
         return None
 
+
 # ---------------------------------------------------------------------------
 # ReDoS protection constants
 # ---------------------------------------------------------------------------

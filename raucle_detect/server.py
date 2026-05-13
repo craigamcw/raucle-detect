@@ -136,9 +136,9 @@ _MAX_HISTOGRAM_SAMPLES = 1000  # cap per-endpoint to avoid unbounded growth
 def _record(endpoint: str, verdict: str, elapsed_ms: float) -> None:
     with _metrics_lock:
         _counters["raucle_requests_total"] += 1
-        _counters[f"raucle_requests_total{{endpoint=\"{endpoint}\"}}"] += 1
-        _counters[f"raucle_verdict_total{{verdict=\"{verdict}\"}}"] += 1
-        bucket = _histograms[f"raucle_scan_duration_ms{{endpoint=\"{endpoint}\"}}"]
+        _counters[f'raucle_requests_total{{endpoint="{endpoint}"}}'] += 1
+        _counters[f'raucle_verdict_total{{verdict="{verdict}"}}'] += 1
+        bucket = _histograms[f'raucle_scan_duration_ms{{endpoint="{endpoint}"}}']
         if len(bucket) < _MAX_HISTOGRAM_SAMPLES:
             bucket.append(elapsed_ms)
 
@@ -163,7 +163,7 @@ def _metrics_text() -> str:
                 p99 = sorted(samples)[int(len(samples) * 0.99)]
                 lines.append(f'{key},quantile="avg"}} {avg:.2f}')
                 lines.append(f'{key},quantile="0.99"}} {p99:.2f}')
-                lines.append(f'{key}_count}} {len(samples)}')
+                lines.append(f"{key}_count}} {len(samples)}")
 
     return "\n".join(lines) + "\n"
 
@@ -171,6 +171,7 @@ def _metrics_text() -> str:
 # ---------------------------------------------------------------------------
 # Rate limiter (token-bucket per client IP)
 # ---------------------------------------------------------------------------
+
 
 class _TokenBucket:
     """Simple per-IP token bucket for rate limiting."""
@@ -224,6 +225,7 @@ app = FastAPI(
 # Middleware: auth + rate limiting
 # ---------------------------------------------------------------------------
 
+
 @app.middleware("http")
 async def _auth_and_rate_limit(request: Request, call_next):  # type: ignore[no-untyped-def]
     # Skip auth + rate limiting for health and metrics (allow monitoring without creds)
@@ -254,7 +256,7 @@ async def _auth_and_rate_limit(request: Request, call_next):  # type: ignore[no-
                 content={"detail": "Missing Authorization header. Use: Bearer <api-key>"},
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        provided_key = auth_header[len("Bearer "):]
+        provided_key = auth_header[len("Bearer ") :]
         if not secrets.compare_digest(provided_key.encode(), _api_key.encode()):
             from fastapi.responses import JSONResponse
 
