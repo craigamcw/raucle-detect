@@ -47,7 +47,6 @@ jobs:
             VERSION="${GITHUB_REF_NAME#v}"
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "branch_name=release-v${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Syncing version: v${VERSION}"
 
       - name: Check out raucle.com
@@ -63,6 +62,12 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Snapshot website before sync
+        working-directory: website
+        run: |
+          cp index.html /tmp/index.before.html
+          wc -c /tmp/index.before.html
+
       - name: Sync release content
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -72,65 +77,70 @@ jobs:
             --version "$VERSION" \
             --website-html website/index.html
 
-      - name: Configure git
+      - name: Smoke-check rendered output (fails closed on broken render)
         working-directory: website
+        run: |
+          # 1. All six marker tags must still exist after rendering.
+          for marker in \
+            'RAUCLE_DETECT:VERSION:START' \
+            'RAUCLE_DETECT:VERSION:END' \
+            'RAUCLE_DETECT:FEATURES:START' \
+            'RAUCLE_DETECT:FEATURES:END' \
+            'RAUCLE_DETECT:WHATSNEW:START' \
+            'RAUCLE_DETECT:WHATSNEW:END'; do
+            if ! grep -q "$marker" index.html; then
+              echo "::error::Marker $marker is missing from rendered HTML — refusing to deploy."
+              exit 1
+            fi
+          done
+
+          # 2. File size must not shrink by more than 30% — catches catastrophic
+          #    regex bugs that strip out large chunks of the page.
+          before=$(wc -c < /tmp/index.before.html)
+          after=$(wc -c < index.html)
+          shrink_pct=$(( (before - after) * 100 / before ))
+          echo "Before: ${before} bytes, after: ${after} bytes (delta ${shrink_pct}%)"
+          if (( shrink_pct > 30 )); then
+            echo "::error::index.html shrank by ${shrink_pct}% — likely a render bug, refusing to deploy."
+            exit 1
+          fi
+
+          # 3. Sanity-check that valid HTML structure is preserved.
+          if ! grep -q '</html>' index.html; then
+            echo "::error::Rendered index.html has no </html> tag — refusing to deploy."
+            exit 1
+          fi
+
+          echo "Smoke checks passed."
+
+      - name: Commit and push directly to main (triggers Cloudflare deploy)
+        working-directory: website
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           git config user.name "raucle-detect-bot"
           git config user.email "oss@raucle.io"
 
-      - name: Push branch and open PR
-        working-directory: website
-        env:
-          GH_TOKEN: ${{ secrets.WEBSITE_SYNC_TOKEN }}
-          BRANCH: ${{ steps.version.outputs.branch_name }}
-          VERSION: ${{ steps.version.outputs.version }}
-          EVENT_NAME: ${{ github.event_name }}
-          RUN_ID: ${{ github.run_id }}
-        run: |
           if git diff --quiet; then
-            echo "No changes to commit — website already in sync."
+            echo "No changes — website already in sync with v${VERSION}."
             exit 0
           fi
 
-          # Idempotent: reuse the branch name per version so re-runs update
-          # the same PR instead of opening duplicates.
-          git checkout -B "$BRANCH"
-          git add index.html
-
-          # Build commit message in a file to avoid YAML/shell quoting issues.
+          # Build commit message in a file so multi-line content stays
+          # well clear of YAML / shell quoting hazards.
           {
-            printf 'Sync release v%s content from raucle-detect\n\n' "$VERSION"
-            printf 'Automated update from raucle-detect tag push.\n\n'
+            printf 'Sync raucle-detect v%s release content\n\n' "$VERSION"
+            printf 'Automated update from raucle-detect tag push.\n'
+            printf '  - Release badge bumped to v%s\n' "$VERSION"
+            printf '  - Features list regenerated from CHANGELOG.md\n'
+            printf "  - What's new callout updated\n\n"
             printf 'Source: https://github.com/craigamcw/raucle-detect/blob/v%s/CHANGELOG.md\n' "$VERSION"
+            printf 'Workflow run: https://github.com/craigamcw/raucle-detect/actions/runs/%s\n' "$RUN_ID"
           } > /tmp/commit-msg.txt
 
+          git add index.html
           git commit -F /tmp/commit-msg.txt
-          git push -u origin "$BRANCH" --force-with-lease
+          git push origin main
 
-          # Build PR body in a file too.
-          changelog_url="https://github.com/craigamcw/raucle-detect/blob/v${VERSION}/CHANGELOG.md"
-          workflow_url="https://github.com/craigamcw/raucle-detect/actions/runs/${RUN_ID}"
-          {
-            printf 'Automated update from raucle-detect tag push.\n\n'
-            printf 'This PR regenerates the open-source-section content between '
-            printf 'the `RAUCLE_DETECT:*` markers in `index.html`. The content '
-            printf 'is sourced from the `v%s` section of [CHANGELOG.md](%s).\n\n' "$VERSION" "$changelog_url"
-            printf -- '- **Release badge** updated to v%s\n' "$VERSION"
-            printf -- '- **Features list** regenerated from headline bullets\n'
-            printf -- "- **What's new callout** updated with section titles + changelog link\n\n"
-            printf 'Triggered by: `%s`\n' "$EVENT_NAME"
-            printf 'Workflow: %s\n' "$workflow_url"
-          } > /tmp/pr-body.txt
-
-          # Open PR if one doesn't already exist for this branch.
-          if gh pr view "$BRANCH" --repo craigamcw/raucle.com >/dev/null 2>&1; then
-            echo "PR for $BRANCH already exists — updated in place."
-            gh pr view "$BRANCH" --repo craigamcw/raucle.com --json url --jq .url
-          else
-            gh pr create \
-              --repo craigamcw/raucle.com \
-              --base main \
-              --head "$BRANCH" \
-              --title "Sync raucle-detect v${VERSION} release content" \
-              --body-file /tmp/pr-body.txt
-          fi
+          echo "Pushed to craigamcw/raucle.com:main — Cloudflare Pages will deploy in ~30s."
