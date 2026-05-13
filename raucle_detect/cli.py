@@ -131,6 +131,59 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Random seed for reproducibility",
     )
 
+    # -- audit --------------------------------------------------------------
+    audit_p = subparsers.add_parser("audit", help="Audit chain operations")
+    audit_sub = audit_p.add_subparsers(dest="audit_command")
+
+    audit_verify = audit_sub.add_parser("verify", help="Verify an audit chain file")
+    audit_verify.add_argument("path", help="Path to the chain log (JSONL)")
+    audit_verify.add_argument(
+        "--pubkey",
+        type=str,
+        help="Path to Ed25519 public key PEM (omit to skip signature verification)",
+    )
+    audit_verify.add_argument(
+        "--format", choices=["table", "json"], default="table", help="Output format"
+    )
+
+    audit_keygen = audit_sub.add_parser(
+        "keygen", help="Generate a new Ed25519 audit key pair (writes PEM files)"
+    )
+    audit_keygen.add_argument(
+        "--out", default="raucle-audit", help="Output prefix (default: raucle-audit)"
+    )
+
+    # -- verify-receipt -----------------------------------------------------
+    receipt_p = subparsers.add_parser("verify-receipt", help="Verify a signed JWS verdict receipt")
+    receipt_p.add_argument("receipt", help="The compact JWS receipt string")
+    receipt_p.add_argument("--pubkey", required=True, help="Path to Ed25519 public key PEM")
+    receipt_p.add_argument("--input", help="Expected original prompt (binds receipt to input)")
+
+    # -- mcp ----------------------------------------------------------------
+    mcp_p = subparsers.add_parser("mcp", help="Model Context Protocol operations")
+    mcp_sub = mcp_p.add_subparsers(dest="mcp_command")
+
+    mcp_serve = mcp_sub.add_parser("serve", help="Run raucle as an MCP server over stdio")
+    mcp_serve.add_argument(
+        "--mode",
+        choices=_modes,
+        default="standard",
+        help="Detection sensitivity for the underlying scanner",
+    )
+    mcp_serve.add_argument(
+        "--rules-dir", "-r", type=str, help="Path to custom YAML rules directory"
+    )
+
+    mcp_scan = mcp_sub.add_parser("scan", help="Static analysis of an MCP server manifest")
+    mcp_scan.add_argument("path", help="Manifest JSON file or directory of manifests")
+    mcp_scan.add_argument(
+        "--format",
+        choices=["table", "json", "sarif"],
+        default="table",
+        help="Output format (sarif suitable for GitHub Advanced Security)",
+    )
+    mcp_scan.add_argument("--sarif-out", help="Write SARIF output to this file")
+
     return parser
 
 
@@ -355,6 +408,138 @@ def _cmd_rules_fuzz(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _cmd_audit_verify(args: argparse.Namespace) -> int:
+    from raucle_detect.audit import AuditVerifier
+
+    pubkey_pem: bytes | None = None
+    if args.pubkey:
+        pubkey_pem = Path(args.pubkey).read_bytes()
+    report = AuditVerifier(public_key_pem=pubkey_pem).verify_chain(args.path)
+
+    if args.format == "json":
+        print(json.dumps(report.to_dict(), indent=2))
+    else:
+        status = "\033[92mVALID\033[0m" if report.valid else "\033[91mINVALID\033[0m"
+        print(f"Audit chain: {status}")
+        print(f"  Events:               {report.event_count}")
+        print(f"  Checkpoints:          {report.checkpoint_count}")
+        print(f"  Valid signatures:     {report.valid_signatures}")
+        print(f"  Invalid signatures:   {report.invalid_signatures}")
+        if report.first_invalid_index is not None:
+            print(f"  First invalid index:  {report.first_invalid_index}")
+        if report.errors:
+            print("\nErrors:")
+            for e in report.errors[:10]:
+                print(f"  - {e}")
+            if len(report.errors) > 10:
+                print(f"  … and {len(report.errors) - 10} more")
+    return 0 if report.valid else 2
+
+
+def _cmd_audit_keygen(args: argparse.Namespace) -> int:
+    from cryptography.hazmat.primitives import serialization
+
+    from raucle_detect.audit import Ed25519Signer
+
+    signer = Ed25519Signer.generate()
+    priv_path = Path(f"{args.out}-private.pem")
+    pub_path = Path(f"{args.out}-public.pem")
+
+    priv_pem = signer._private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    priv_path.write_bytes(priv_pem)
+    pub_path.write_bytes(signer.public_key_pem())
+    priv_path.chmod(0o600)
+
+    print("Generated key pair:")
+    print(f"  Private key: {priv_path} (chmod 600)")
+    print(f"  Public key:  {pub_path}")
+    print(f"  Key ID:      {signer.key_id()}")
+    print()
+    print("Keep the private key secret. Distribute the public key to verifiers.")
+    return 0
+
+
+def _cmd_verify_receipt(args: argparse.Namespace) -> int:
+    from raucle_detect.verdicts import VerdictVerificationError, VerdictVerifier
+
+    pubkey_pem = Path(args.pubkey).read_bytes()
+    verifier = VerdictVerifier(public_key_pem=pubkey_pem)
+    try:
+        payload = verifier.verify(args.receipt, expected_input=args.input)
+    except VerdictVerificationError as exc:
+        print(f"\033[91mINVALID\033[0m: {exc}", file=sys.stderr)
+        return 2
+
+    print("\033[92mVALID\033[0m receipt:")
+    print(json.dumps(payload.to_dict(), indent=2))
+    return 0
+
+
+def _cmd_mcp_serve(args: argparse.Namespace) -> int:
+    from raucle_detect.mcp_server import MCPServer
+
+    scanner = Scanner(mode=args.mode, rules_dir=args.rules_dir)
+    server = MCPServer(scanner=scanner)
+    # Log to stderr only — stdout is the JSON-RPC channel
+    logging.basicConfig(level=logging.INFO, stream=sys.stderr, format="%(asctime)s %(message)s")
+    logger.info("raucle-detect MCP server starting (mode=%s)", args.mode)
+    import contextlib
+
+    with contextlib.suppress(KeyboardInterrupt):
+        server.serve_stdio()
+    return 0
+
+
+def _cmd_mcp_scan(args: argparse.Namespace) -> int:
+    from raucle_detect.mcp_scanner import (
+        findings_to_sarif,
+        scan_manifest_dir,
+        scan_manifest_file,
+    )
+
+    path = Path(args.path)
+    findings = scan_manifest_dir(path) if path.is_dir() else scan_manifest_file(path)
+
+    if args.format == "json":
+        print(json.dumps([f.to_dict() for f in findings], indent=2))
+    elif args.format == "sarif":
+        sarif = findings_to_sarif(findings, tool_version=__version__)
+        if args.sarif_out:
+            Path(args.sarif_out).write_text(json.dumps(sarif, indent=2))
+            print(f"SARIF written to {args.sarif_out}", file=sys.stderr)
+        else:
+            print(json.dumps(sarif, indent=2))
+    else:
+        if not findings:
+            print("No findings.")
+        else:
+            print(f"{len(findings)} finding(s):\n")
+            header = f"{'Rule ID':<24} {'Severity':<10} {'Tool':<20} {'Field':<28} Message"
+            print(header)
+            print("-" * min(len(header), 120))
+            for f in findings:
+                colour = {
+                    "CRITICAL": "\033[91m",
+                    "HIGH": "\033[91m",
+                    "MEDIUM": "\033[93m",
+                    "LOW": "\033[93m",
+                    "INFO": "\033[92m",
+                }.get(f.severity.value, "")
+                sev = f"{colour}{f.severity.value}\033[0m"
+                print(f"{f.rule_id:<24} {sev:<19} {f.tool[:19]:<20} {f.field[:27]:<28} {f.message}")
+
+    # Exit code: 2 if any CRITICAL/HIGH, 1 if any MEDIUM/LOW, 0 if clean
+    if any(f.severity.value in ("CRITICAL", "HIGH") for f in findings):
+        return 2
+    if findings:
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -367,6 +552,16 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_rules(args)
     elif args.command == "rules" and args.rules_command == "fuzz":
         return _cmd_rules_fuzz(args)
+    elif args.command == "audit" and args.audit_command == "verify":
+        return _cmd_audit_verify(args)
+    elif args.command == "audit" and args.audit_command == "keygen":
+        return _cmd_audit_keygen(args)
+    elif args.command == "verify-receipt":
+        return _cmd_verify_receipt(args)
+    elif args.command == "mcp" and args.mcp_command == "serve":
+        return _cmd_mcp_serve(args)
+    elif args.command == "mcp" and args.mcp_command == "scan":
+        return _cmd_mcp_scan(args)
     else:
         parser.print_help()
         return 0

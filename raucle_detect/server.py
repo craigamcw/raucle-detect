@@ -62,8 +62,31 @@ _rules_dir = os.environ.get("RAUCLE_DETECT_RULES_DIR")
 _api_key = os.environ.get("RAUCLE_DETECT_API_KEY", "")  # empty = no auth
 _rate_limit_rpm = int(os.environ.get("RAUCLE_DETECT_RATE_LIMIT", "120"))
 _burst_limit = int(os.environ.get("RAUCLE_DETECT_BURST_LIMIT", "20"))
+_model_version = os.environ.get("RAUCLE_DETECT_MODEL_VERSION", "")
+_tenant_default = os.environ.get("RAUCLE_DETECT_TENANT") or None
 
-_scanner = Scanner(mode=_mode, rules_dir=_rules_dir)
+# Optional compliance machinery — built from env if configured
+_audit_sink: Any = None
+_verdict_signer: Any = None
+try:
+    from raucle_detect.audit import sink_from_env
+    from raucle_detect.verdicts import VerdictSigner
+
+    _audit_sink = sink_from_env()
+    _signer_pem = os.environ.get("RAUCLE_DETECT_VERDICT_KEY_PEM", "")
+    if _signer_pem:
+        _verdict_signer = VerdictSigner.from_pem(_signer_pem.encode())
+except Exception:  # cryptography not installed or invalid config
+    pass
+
+_scanner = Scanner(
+    mode=_mode,
+    rules_dir=_rules_dir,
+    audit_sink=_audit_sink,
+    verdict_signer=_verdict_signer,
+    model_version=_model_version,
+    tenant=_tenant_default,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -352,3 +375,55 @@ def health() -> HealthResponse:
 def metrics() -> str:
     """Prometheus-compatible plain-text metrics."""
     return _metrics_text()
+
+
+# ---------------------------------------------------------------------------
+# Verdict receipt verification
+# ---------------------------------------------------------------------------
+
+
+class VerifyReceiptRequest(BaseModel):
+    receipt: str = Field(..., description="Compact JWS receipt string")
+    public_key_pem: str = Field(..., description="Ed25519 public key in PEM format")
+    expected_input: str | None = Field(default=None, description="Optional input to bind")
+
+
+class OutcomeVerifyRequest(BaseModel):
+    prompt: str = Field(..., min_length=1)
+    response: str = Field(..., min_length=1)
+    tool_calls: list[dict[str, Any]] | None = Field(default=None)
+
+
+@app.post("/verdict/verify")
+def verify_receipt(req: VerifyReceiptRequest) -> dict[str, Any]:
+    """Verify a signed verdict receipt and return its payload."""
+    from raucle_detect.verdicts import VerdictVerificationError, VerdictVerifier
+
+    try:
+        verifier = VerdictVerifier(public_key_pem=req.public_key_pem.encode())
+        payload = verifier.verify(req.receipt, expected_input=req.expected_input)
+        return {"valid": True, "payload": payload.to_dict()}
+    except VerdictVerificationError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid receipt: {exc}") from exc
+
+
+@app.post("/verify/outcome")
+def verify_outcome(req: OutcomeVerifyRequest) -> dict[str, Any]:
+    """Classify whether an attack actually landed by inspecting the response."""
+    from raucle_detect.outcome import OutcomeVerifier
+
+    verifier = OutcomeVerifier()
+    report = verifier.verify(req.prompt, req.response, tool_calls=req.tool_calls)
+    return report.to_dict()
+
+
+@app.get("/audit/status")
+def audit_status() -> dict[str, Any]:
+    """Report whether audit logging is active and the current chain tail."""
+    if _audit_sink is None:
+        return {"enabled": False}
+    return {
+        "enabled": True,
+        "event_count": _audit_sink.event_count,
+        "tail_hash": _audit_sink.tail_hash,
+    }
