@@ -9,7 +9,31 @@ jobs:
     name: DCO Sign-off
     runs-on: ubuntu-latest
     steps:
-      - name: Check DCO
-        uses: dcoapp/app@v1
+      - name: Check out PR head
+        uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Verify every commit has a Signed-off-by trailer
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -e
+          range="$BASE_SHA..$HEAD_SHA"
+          missing=0
+          while IFS= read -r commit; do
+            if ! git log -1 --format=%B "$commit" | grep -qiE '^Signed-off-by: .+ <.+@.+>'; then
+              echo "::error::Commit $commit is missing a 'Signed-off-by:' trailer."
+              echo "  Add one with:  git commit -s  (or git commit --amend -s for the last commit)"
+              echo "  Then: git push --force-with-lease"
+              missing=1
+            fi
+          done < <(git rev-list --no-merges "$range")
+          if [[ $missing -ne 0 ]]; then
+            echo
+            echo "DCO check failed. See https://developercertificate.org/ for the contributor sign-off requirement."
+            exit 1
+          fi
+          echo "All commits in $range have valid Signed-off-by trailers."
