@@ -18,10 +18,10 @@ import logging
 import sys
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
-
 from raucle_detect import __version__
 from raucle_detect.scanner import MAX_INPUT_BYTES, Scanner
+
+logger = logging.getLogger(__name__)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -325,13 +325,17 @@ def _cmd_rules_fuzz(args: argparse.Namespace) -> int:
                 else f"\033[92m{cov_str}\033[0m"
             )
             print(
-                f"{entry.rule_id:<12} {cov_colored:>18} {entry.caught:>7} {entry.total:>7}  {missed_str}"
+                f"{entry.rule_id:<12} {cov_colored:>18} {entry.caught:>7} "
+                f"{entry.total:>7}  {missed_str}"
             )
         print()
         # Highlight rules with low coverage
         weak = [e for e in report.results if e.coverage < 0.5]
         if weak:
-            print(f"⚠ {len(weak)} rule(s) with <50% variant coverage — consider expanding patterns:")
+            print(
+                f"⚠ {len(weak)} rule(s) with <50% variant coverage — "
+                "consider expanding patterns:"
+            )
             for e in weak:
                 print(f"  {e.rule_id}: {e.coverage:.0%} — missed: {', '.join(e.missed_strategies)}")
                 if e.sample_misses:

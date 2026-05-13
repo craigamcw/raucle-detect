@@ -137,7 +137,7 @@ class AttackLog:
     ) -> int:
         """Record multiple scan events at once. Returns count added."""
         added = 0
-        for i, (prompt, result) in enumerate(zip(prompts, results)):
+        for i, (prompt, result) in enumerate(zip(prompts, results, strict=False)):
             meta = metadata[i] if metadata and i < len(metadata) else {}
             if self.record(prompt, result, meta):
                 added += 1

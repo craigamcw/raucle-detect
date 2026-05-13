@@ -39,14 +39,11 @@ from __future__ import annotations
 import base64
 import codecs
 import random
-import re
-import string
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
 from raucle_detect.scanner import Scanner, ScanResult
-
 
 # ---------------------------------------------------------------------------
 # Mutation strategies
