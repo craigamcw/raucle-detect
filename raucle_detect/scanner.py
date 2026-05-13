@@ -15,6 +15,7 @@ ML) semantic classifier, producing a single :class:`ScanResult` per prompt.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -27,6 +28,11 @@ from raucle_detect.patterns import BUILTIN_PATTERNS, OUTPUT_RULES, TOOL_CALL_RUL
 from raucle_detect.rules import load_rules_dir, load_yaml_file
 
 logger = logging.getLogger(__name__)
+
+
+def _input_hash(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
 
 # ---------------------------------------------------------------------------
 # Input size limits
@@ -71,6 +77,9 @@ class ScanResult:
     notes: list[str] = field(default_factory=list)
     """Informational notes (e.g. input was truncated)."""
 
+    receipt: str = ""
+    """Optional detached JWS receipt — present when a verdict signer is wired in."""
+
     def to_dict(self) -> dict[str, Any]:
         """Serialise to a plain dictionary (JSON-friendly)."""
         d: dict[str, Any] = {
@@ -85,6 +94,8 @@ class ScanResult:
         }
         if self.notes:
             d["notes"] = self.notes
+        if self.receipt:
+            d["receipt"] = self.receipt
         return d
 
 
@@ -133,6 +144,10 @@ class Scanner:
         rules_dir: str | Path | None = None,
         use_ml: bool = False,
         model_path: str | None = None,
+        audit_sink: Any = None,
+        verdict_signer: Any = None,
+        model_version: str = "",
+        tenant: str | None = None,
     ) -> None:
         if mode not in _MODE_THRESHOLDS:
             raise ValueError(f"Unknown mode {mode!r}. Choose from: strict, standard, permissive")
@@ -157,6 +172,56 @@ class Scanner:
             ml = MLClassifier()
             if ml.load(model_path):
                 self._ml = ml
+
+        # Compliance / receipt machinery (all optional)
+        self._audit_sink = audit_sink
+        self._verdict_signer = verdict_signer
+        self._model_version = model_version
+        self._tenant = tenant
+        self._ruleset_hash_cached: str | None = None
+
+    def _ruleset_hash(self) -> str:
+        """Return (and cache) the canonical hash of the active ruleset."""
+        if self._ruleset_hash_cached is None:
+            from raucle_detect.verdicts import hash_ruleset
+
+            self._ruleset_hash_cached = hash_ruleset(self._pattern_layer._rules)
+        return self._ruleset_hash_cached
+
+    def _finalize(self, result: ScanResult, input_text: str, scan_kind: str = "scan") -> ScanResult:
+        """Apply signed-receipt + audit-sink side effects to a fresh ScanResult."""
+        if self._verdict_signer is not None:
+            try:
+                result.receipt = self._verdict_signer.issue(
+                    input_text=input_text,
+                    verdict=result.verdict,
+                    confidence=result.confidence,
+                    ruleset_hash=self._ruleset_hash(),
+                    model_version=self._model_version,
+                    tenant=self._tenant,
+                )
+            except Exception as exc:
+                logger.warning("Failed to issue verdict receipt: %s", exc)
+
+        if self._audit_sink is not None:
+            try:
+                self._audit_sink.append(
+                    {
+                        "kind": scan_kind,
+                        "tenant": self._tenant,
+                        "verdict": result.verdict,
+                        "confidence": result.confidence,
+                        "categories": result.categories,
+                        "matched_rules": result.matched_rules,
+                        "ruleset_hash": self._ruleset_hash(),
+                        "model_version": self._model_version,
+                        "input_hash": _input_hash(input_text),
+                    }
+                )
+            except Exception as exc:
+                logger.warning("Failed to write audit event: %s", exc)
+
+        return result
 
     # ------------------------------------------------------------------
     # Public API
@@ -247,19 +312,23 @@ class Scanner:
             verdict = "CLEAN"
             action = "ALLOW"
 
-        return ScanResult(
-            verdict=verdict,
-            confidence=round(combined, 4),
-            injection_detected=combined >= thresholds["alert"],
-            categories=categories,
-            attack_technique=technique,
-            layer_scores={
-                "pattern": round(pat["score"], 4),
-                "semantic": round(sem["score"], 4),
-            },
-            matched_rules=pat.get("matched_rules", []),
-            action=action,
-            notes=notes,
+        return self._finalize(
+            ScanResult(
+                verdict=verdict,
+                confidence=round(combined, 4),
+                injection_detected=combined >= thresholds["alert"],
+                categories=categories,
+                attack_technique=technique,
+                layer_scores={
+                    "pattern": round(pat["score"], 4),
+                    "semantic": round(sem["score"], 4),
+                },
+                matched_rules=pat.get("matched_rules", []),
+                action=action,
+                notes=notes,
+            ),
+            prompt,
+            scan_kind="scan",
         )
 
     def scan_output(
@@ -334,19 +403,23 @@ class Scanner:
             verdict = "CLEAN"
             action = "ALLOW"
 
-        return ScanResult(
-            verdict=verdict,
-            confidence=round(combined, 4),
-            injection_detected=combined >= thresholds["alert"],
-            categories=categories,
-            attack_technique=technique,
-            layer_scores={
-                "pattern": round(pat["score"], 4),
-                "semantic": round(sem["score"], 4),
-            },
-            matched_rules=pat.get("matched_rules", []),
-            action=action,
-            notes=notes,
+        return self._finalize(
+            ScanResult(
+                verdict=verdict,
+                confidence=round(combined, 4),
+                injection_detected=combined >= thresholds["alert"],
+                categories=categories,
+                attack_technique=technique,
+                layer_scores={
+                    "pattern": round(pat["score"], 4),
+                    "semantic": round(sem["score"], 4),
+                },
+                matched_rules=pat.get("matched_rules", []),
+                action=action,
+                notes=notes,
+            ),
+            output,
+            scan_kind="scan_output",
         )
 
     def scan_tool_call(
@@ -400,18 +473,22 @@ class Scanner:
             verdict = "CLEAN"
             action = "ALLOW"
 
-        return ScanResult(
-            verdict=verdict,
-            confidence=round(combined, 4),
-            injection_detected=combined >= thresholds["alert"],
-            categories=categories,
-            attack_technique=technique,
-            layer_scores={
-                "pattern": round(pat["score"], 4),
-            },
-            matched_rules=pat.get("matched_rules", []),
-            action=action,
-            notes=notes,
+        return self._finalize(
+            ScanResult(
+                verdict=verdict,
+                confidence=round(combined, 4),
+                injection_detected=combined >= thresholds["alert"],
+                categories=categories,
+                attack_technique=technique,
+                layer_scores={
+                    "pattern": round(pat["score"], 4),
+                },
+                matched_rules=pat.get("matched_rules", []),
+                action=action,
+                notes=notes,
+            ),
+            text,
+            scan_kind="scan_tool_call",
         )
 
     def scan_batch(
