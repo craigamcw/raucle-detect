@@ -1,0 +1,110 @@
+name: Sync raucle.com release content
+
+# Fires automatically on every release tag, and can be re-run manually
+# from the Actions tab against any version for backfills or fixes.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version to sync (without leading v), e.g. 0.4.0'
+        required: true
+        type: string
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out raucle-detect
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Determine release version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "branch_name=release-v${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Syncing version: v${VERSION}"
+
+      - name: Check out raucle.com
+        uses: actions/checkout@v4
+        with:
+          repository: craigamcw/raucle.com
+          token: ${{ secrets.WEBSITE_SYNC_TOKEN }}
+          path: website
+          ref: main
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Sync release content
+        run: |
+          python scripts/sync_website.py \
+            --changelog CHANGELOG.md \
+            --version "${{ steps.version.outputs.version }}" \
+            --website-html website/index.html
+
+      - name: Configure git
+        working-directory: website
+        run: |
+          git config user.name "raucle-detect-bot"
+          git config user.email "oss@raucle.io"
+
+      - name: Push branch and open PR
+        working-directory: website
+        env:
+          GH_TOKEN: ${{ secrets.WEBSITE_SYNC_TOKEN }}
+          BRANCH: ${{ steps.version.outputs.branch_name }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if git diff --quiet; then
+            echo "No changes to commit — website already in sync."
+            exit 0
+          fi
+
+          # Idempotent: reuse the branch name per version so re-runs update
+          # the same PR instead of opening duplicates.
+          git checkout -B "$BRANCH"
+          git add index.html
+          git commit -m "Sync release v${VERSION} content from raucle-detect
+
+Automated update from raucle-detect tag push.
+
+Source: https://github.com/craigamcw/raucle-detect/blob/v${VERSION}/CHANGELOG.md
+"
+          git push -u origin "$BRANCH" --force-with-lease
+
+          # Open PR if one doesn't already exist for this branch.
+          if gh pr view "$BRANCH" --repo craigamcw/raucle.com >/dev/null 2>&1; then
+            echo "PR for $BRANCH already exists — updated in place."
+            gh pr view "$BRANCH" --repo craigamcw/raucle.com --json url --jq .url
+          else
+            gh pr create \
+              --repo craigamcw/raucle.com \
+              --base main \
+              --head "$BRANCH" \
+              --title "Sync raucle-detect v${VERSION} release content" \
+              --body "Automated update from raucle-detect tag push.
+
+This PR regenerates the open-source-section content between the \`RAUCLE_DETECT:*\` markers in \`index.html\`. The content is sourced from the \`v${VERSION}\` section of [CHANGELOG.md](https://github.com/craigamcw/raucle-detect/blob/v${VERSION}/CHANGELOG.md).
+
+- **Release badge** updated to v${VERSION}
+- **Features list** regenerated from headline bullets
+- **What's new callout** updated with section titles + changelog link
+
+Triggered by: \`${{ github.event_name }}\`
+Workflow: https://github.com/craigamcw/raucle-detect/actions/runs/${{ github.run_id }}
+"
+          fi
