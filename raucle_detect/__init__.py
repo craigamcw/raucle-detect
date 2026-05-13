@@ -12,10 +12,12 @@ and other adversarial inputs before they reach your AI models.
 MIT License -- Copyright (c) 2026 Raucle Ltd.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 __author__ = "Raucle"
 __license__ = "MIT"
 
+from raucle_detect.canary import CanaryCheckResult, CanaryManager, CanaryToken, EmbedStrategy
+from raucle_detect.export import AttackLog, ExportFormat
 from raucle_detect.middleware import RaucleMiddleware
 from raucle_detect.scanner import Scanner, ScanResult
 from raucle_detect.session import SessionScanner, SessionScanResult
@@ -26,5 +28,11 @@ __all__ = [
     "SessionScanner",
     "SessionScanResult",
     "RaucleMiddleware",
+    "CanaryManager",
+    "CanaryToken",
+    "CanaryCheckResult",
+    "EmbedStrategy",
+    "AttackLog",
+    "ExportFormat",
     "__version__",
 ]

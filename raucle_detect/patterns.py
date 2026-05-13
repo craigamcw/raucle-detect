@@ -9,9 +9,20 @@ from __future__ import annotations
 
 import logging
 import re
+from functools import lru_cache
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=2048)
+def _compile_pattern(pattern: str) -> re.Pattern[str] | None:
+    """Compile and cache a regex pattern. Returns None on compile error."""
+    try:
+        return re.compile(pattern)
+    except re.error as exc:
+        logger.warning("Invalid regex (cached skip): %s — %s", pattern[:80], exc)
+        return None
 
 # ---------------------------------------------------------------------------
 # ReDoS protection constants
@@ -332,10 +343,11 @@ class PatternLayer:
         for rule in self._rules:
             compiled_patterns: list[tuple[re.Pattern[str], str]] = []
             for p in rule.get("patterns", []):
-                try:
-                    compiled_patterns.append((re.compile(p), p))
-                except re.error as exc:
-                    logger.warning("Invalid regex in rule %s: %s", rule.get("id", "?"), exc)
+                compiled = _compile_pattern(p)
+                if compiled is not None:
+                    compiled_patterns.append((compiled, p))
+                else:
+                    logger.warning("Skipping invalid regex in rule %s", rule.get("id", "?"))
             self._compiled.append((rule, compiled_patterns))
 
     # ------------------------------------------------------------------
@@ -403,9 +415,8 @@ class PatternLayer:
         for rule_list in rule_lists:
             for rule in rule_list:
                 for p in rule.get("patterns", []):
-                    try:
-                        compiled = re.compile(p)
-                    except re.error:
+                    compiled = _compile_pattern(p)
+                    if compiled is None:
                         continue
                     if self._safe_match(compiled, p, text):
                         score = rule.get("score", 0.5)

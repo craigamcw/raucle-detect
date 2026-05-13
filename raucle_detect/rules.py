@@ -39,8 +39,56 @@ def _require_yaml() -> None:
         )
 
 
+_REQUIRED_RULE_FIELDS: set[str] = {"id", "name", "category", "patterns", "score"}
+_VALID_SEVERITIES: set[str] = {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
+
+
+def _validate_rule(rule: Any, source: str) -> list[str]:
+    """Return a list of validation error strings for *rule*, or empty list if valid."""
+    if not isinstance(rule, dict):
+        return [f"{source}: rule must be a mapping, got {type(rule).__name__}"]
+
+    errors: list[str] = []
+    rule_id = rule.get("id", "<unknown>")
+    prefix = f"{source}[{rule_id}]"
+
+    missing = _REQUIRED_RULE_FIELDS - rule.keys()
+    if missing:
+        errors.append(f"{prefix}: missing required fields: {sorted(missing)}")
+
+    patterns = rule.get("patterns")
+    if patterns is not None:
+        if not isinstance(patterns, list) or not patterns:
+            errors.append(f"{prefix}: 'patterns' must be a non-empty list")
+        else:
+            for i, p in enumerate(patterns):
+                if not isinstance(p, str):
+                    errors.append(f"{prefix}: patterns[{i}] must be a string")
+                else:
+                    try:
+                        import re
+
+                        re.compile(p)
+                    except Exception as exc:
+                        errors.append(f"{prefix}: patterns[{i}] invalid regex: {exc}")
+
+    score = rule.get("score")
+    if score is not None and not isinstance(score, (int, float)):
+        errors.append(f"{prefix}: 'score' must be a number, got {type(score).__name__}")
+    elif score is not None and not (0.0 <= float(score) <= 1.0):
+        errors.append(f"{prefix}: 'score' must be between 0.0 and 1.0, got {score}")
+
+    severity = rule.get("severity")
+    if severity is not None and severity not in _VALID_SEVERITIES:
+        errors.append(
+            f"{prefix}: 'severity' must be one of {sorted(_VALID_SEVERITIES)}, got {severity!r}"
+        )
+
+    return errors
+
+
 def load_yaml_file(path: str | Path) -> list[dict[str, Any]]:
-    """Load rules from a single YAML file and return a list of rule dicts."""
+    """Load rules from a single YAML file and return a list of validated rule dicts."""
     _require_yaml()
     path = Path(path)
 
@@ -48,11 +96,26 @@ def load_yaml_file(path: str | Path) -> list[dict[str, Any]]:
         data = yaml.safe_load(fh)
 
     if isinstance(data, list):
-        return data
-    if isinstance(data, dict) and "rules" in data:
-        return data["rules"]
+        raw_rules = data
+    elif isinstance(data, dict) and "rules" in data:
+        raw_rules = data["rules"]
+    else:
+        raise ValueError(f"Unrecognised rule file format in {path}")
 
-    raise ValueError(f"Unrecognised rule file format in {path}")
+    valid_rules: list[dict[str, Any]] = []
+    for rule in raw_rules:
+        errors = _validate_rule(rule, str(path))
+        if errors:
+            for err in errors:
+                logger.error("Rule validation error: %s", err)
+        else:
+            valid_rules.append(rule)
+
+    skipped = len(raw_rules) - len(valid_rules)
+    if skipped:
+        logger.warning("Skipped %d invalid rule(s) from %s", skipped, path)
+
+    return valid_rules
 
 
 def load_rules_dir(directory: str | Path) -> list[dict[str, Any]]:

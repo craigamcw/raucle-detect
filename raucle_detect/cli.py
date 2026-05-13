@@ -14,8 +14,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from raucle_detect import __version__
 from raucle_detect.scanner import MAX_INPUT_BYTES, Scanner
@@ -98,7 +101,49 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Output format",
     )
 
+    # -- rules fuzz ---------------------------------------------------------
+    rules_fuzz = rules_sub.add_parser(
+        "fuzz",
+        help="Mutation-test rules against adversarial variants",
+    )
+    rules_fuzz.add_argument(
+        "--rules-dir",
+        "-r",
+        type=str,
+        help="Path to custom YAML rules directory",
+    )
+    rules_fuzz.add_argument(
+        "--samples",
+        type=int,
+        default=3,
+        help="Variants per seed per strategy (default: 3)",
+    )
+    rules_fuzz.add_argument(
+        "--format",
+        choices=["table", "json"],
+        default="table",
+        help="Output format",
+    )
+    rules_fuzz.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for reproducibility",
+    )
+
     return parser
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _decode_with_count(raw: bytes, encoding: str = "utf-8") -> tuple[str, int]:
+    """Decode *raw* bytes, replacing invalid sequences and counting replacements."""
+    decoded = raw.decode(encoding, errors="replace")
+    error_count = decoded.count("�")
+    return decoded, error_count
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +214,14 @@ def _cmd_scan(args: argparse.Namespace) -> int:
                 f"{MAX_INPUT_BYTES:,}-byte limit. Input will be truncated.",
                 file=sys.stderr,
             )
-        raw = file_path.read_bytes()[:MAX_INPUT_BYTES].decode(errors="replace")
+        raw_bytes = file_path.read_bytes()[:MAX_INPUT_BYTES]
+        raw, encoding_errors = _decode_with_count(raw_bytes)
+        if encoding_errors:
+            print(
+                f"Warning: {encoding_errors} invalid byte(s) in {args.file} were replaced "
+                "with �. Scan results may not reflect the original content.",
+                file=sys.stderr,
+            )
         prompts = [line.strip() for line in raw.splitlines() if line.strip()]
     else:
         # Read from stdin
@@ -241,6 +293,56 @@ def _cmd_rules(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_rules_fuzz(args: argparse.Namespace) -> int:
+    from raucle_detect.mutator import RuleFuzzer
+
+    scanner = Scanner(rules_dir=args.rules_dir)
+    fuzzer = RuleFuzzer(
+        scanner,
+        samples_per_seed=args.samples,
+        random_seed=args.seed,
+    )
+
+    print("Running rule mutation fuzzer...", file=sys.stderr)
+    report = fuzzer.fuzz()
+
+    if args.format == "json":
+        print(json.dumps(report.to_dict(), indent=2))
+    else:
+        # Table output
+        print(f"\nOverall coverage: {report.overall_coverage:.0%} "
+              f"({report.total_caught}/{report.total_variants} variants detected)")
+        print(f"Strategies: {', '.join(report.strategies_tested)}\n")
+        header = f"{'Rule ID':<12} {'Coverage':>9} {'Caught':>7} {'Total':>7}  Missed strategies"
+        print(header)
+        print("-" * len(header))
+        for entry in report.results:
+            missed_str = ", ".join(entry.missed_strategies) if entry.missed_strategies else "—"
+            cov_str = f"{entry.coverage:.0%}"
+            cov_colored = (
+                f"\033[91m{cov_str}\033[0m" if entry.coverage < 0.5
+                else f"\033[93m{cov_str}\033[0m" if entry.coverage < 0.8
+                else f"\033[92m{cov_str}\033[0m"
+            )
+            print(
+                f"{entry.rule_id:<12} {cov_colored:>18} {entry.caught:>7} {entry.total:>7}  {missed_str}"
+            )
+        print()
+        # Highlight rules with low coverage
+        weak = [e for e in report.results if e.coverage < 0.5]
+        if weak:
+            print(f"⚠ {len(weak)} rule(s) with <50% variant coverage — consider expanding patterns:")
+            for e in weak:
+                print(f"  {e.rule_id}: {e.coverage:.0%} — missed: {', '.join(e.missed_strategies)}")
+                if e.sample_misses:
+                    print(f"    Example miss: {e.sample_misses[0][:80]!r}")
+
+    # Exit 1 if any rule has 0% coverage
+    if any(e.coverage == 0.0 for e in report.results):
+        return 1
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -256,6 +358,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_serve(args)
     elif args.command == "rules" and args.rules_command == "list":
         return _cmd_rules(args)
+    elif args.command == "rules" and args.rules_command == "fuzz":
+        return _cmd_rules_fuzz(args)
     else:
         parser.print_help()
         return 0
