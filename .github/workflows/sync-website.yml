@@ -24,11 +24,25 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Fail fast if WEBSITE_SYNC_TOKEN is missing
+        env:
+          TOKEN: ${{ secrets.WEBSITE_SYNC_TOKEN }}
+        run: |
+          if [[ -z "$TOKEN" ]]; then
+            echo "::error::WEBSITE_SYNC_TOKEN secret is not configured."
+            echo "Add a fine-grained PAT with contents:write + pull-requests:write on craigamcw/raucle.com"
+            echo "at: https://github.com/craigamcw/raucle-detect/settings/secrets/actions"
+            exit 1
+          fi
+
       - name: Determine release version
         id: version
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            VERSION="${{ inputs.version }}"
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            VERSION="$INPUT_VERSION"
           else
             VERSION="${GITHUB_REF_NAME#v}"
           fi
@@ -50,10 +64,12 @@ jobs:
           python-version: '3.12'
 
       - name: Sync release content
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           python scripts/sync_website.py \
             --changelog CHANGELOG.md \
-            --version "${{ steps.version.outputs.version }}" \
+            --version "$VERSION" \
             --website-html website/index.html
 
       - name: Configure git
@@ -68,6 +84,8 @@ jobs:
           GH_TOKEN: ${{ secrets.WEBSITE_SYNC_TOKEN }}
           BRANCH: ${{ steps.version.outputs.branch_name }}
           VERSION: ${{ steps.version.outputs.version }}
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           if git diff --quiet; then
             echo "No changes to commit — website already in sync."
@@ -78,13 +96,31 @@ jobs:
           # the same PR instead of opening duplicates.
           git checkout -B "$BRANCH"
           git add index.html
-          git commit -m "Sync release v${VERSION} content from raucle-detect
 
-Automated update from raucle-detect tag push.
+          # Build commit message in a file to avoid YAML/shell quoting issues.
+          {
+            printf 'Sync release v%s content from raucle-detect\n\n' "$VERSION"
+            printf 'Automated update from raucle-detect tag push.\n\n'
+            printf 'Source: https://github.com/craigamcw/raucle-detect/blob/v%s/CHANGELOG.md\n' "$VERSION"
+          } > /tmp/commit-msg.txt
 
-Source: https://github.com/craigamcw/raucle-detect/blob/v${VERSION}/CHANGELOG.md
-"
+          git commit -F /tmp/commit-msg.txt
           git push -u origin "$BRANCH" --force-with-lease
+
+          # Build PR body in a file too.
+          changelog_url="https://github.com/craigamcw/raucle-detect/blob/v${VERSION}/CHANGELOG.md"
+          workflow_url="https://github.com/craigamcw/raucle-detect/actions/runs/${RUN_ID}"
+          {
+            printf 'Automated update from raucle-detect tag push.\n\n'
+            printf 'This PR regenerates the open-source-section content between '
+            printf 'the `RAUCLE_DETECT:*` markers in `index.html`. The content '
+            printf 'is sourced from the `v%s` section of [CHANGELOG.md](%s).\n\n' "$VERSION" "$changelog_url"
+            printf -- '- **Release badge** updated to v%s\n' "$VERSION"
+            printf -- '- **Features list** regenerated from headline bullets\n'
+            printf -- "- **What's new callout** updated with section titles + changelog link\n\n"
+            printf 'Triggered by: `%s`\n' "$EVENT_NAME"
+            printf 'Workflow: %s\n' "$workflow_url"
+          } > /tmp/pr-body.txt
 
           # Open PR if one doesn't already exist for this branch.
           if gh pr view "$BRANCH" --repo craigamcw/raucle.com >/dev/null 2>&1; then
@@ -96,15 +132,5 @@ Source: https://github.com/craigamcw/raucle-detect/blob/v${VERSION}/CHANGELOG.md
               --base main \
               --head "$BRANCH" \
               --title "Sync raucle-detect v${VERSION} release content" \
-              --body "Automated update from raucle-detect tag push.
-
-This PR regenerates the open-source-section content between the \`RAUCLE_DETECT:*\` markers in \`index.html\`. The content is sourced from the \`v${VERSION}\` section of [CHANGELOG.md](https://github.com/craigamcw/raucle-detect/blob/v${VERSION}/CHANGELOG.md).
-
-- **Release badge** updated to v${VERSION}
-- **Features list** regenerated from headline bullets
-- **What's new callout** updated with section titles + changelog link
-
-Triggered by: \`${{ github.event_name }}\`
-Workflow: https://github.com/craigamcw/raucle-detect/actions/runs/${{ github.run_id }}
-"
+              --body-file /tmp/pr-body.txt
           fi
