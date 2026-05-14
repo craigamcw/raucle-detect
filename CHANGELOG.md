@@ -1,5 +1,62 @@
 # Changelog
 
+## 0.6.0 (2026-05-14)
+
+### Counterfactual replay — the SOC killer feature
+
+Given any provenance chain produced by v0.5.0, you can now re-run every guardrail decision in it against a *different* policy and see exactly what would have changed. Answers the question every incident response actually needs: *"if we'd had stricter rules on last Tuesday, would we have caught this?"*
+
+- **`InputStore`** — JSONL-backed, append-only, hash-verified mapping of `input_hash → original_text`. Lives alongside (not inside) the provenance chain so receipts stay privacy-by-default. Tampered entries are detected on lookup and reported as missing rather than silently returning the wrong prompt.
+- **`Replayer`** — walks every `guardrail_scan` receipt in a chain, looks up the original input in the store, re-runs against a fresh `Scanner` configured with the counterfactual policy, and emits a typed diff.
+- **`ReplayResult`** — separates **unchanged**, **newly blocked**, **newly allowed**, **newly alerted**, and **missing-input** receipts. Each `ReplayChange` carries the original receipt hash, the verdict transition, and a one-line explanation pulled from the new scan's matched rules.
+- **Scanner integration** — pass `input_store=` to `Scanner()` and every `scan` / `scan_output` / `scan_tool_call` automatically persists the input text to the store. Opt-in, zero-cost when not configured.
+
+### CLI
+
+- **`raucle-detect provenance replay <chain> --input-store <store>`** — table or JSON output. Flags: `--mode` (strict/standard/permissive), `--rules-dir` for custom rule packs, `--show-unchanged` to include receipts whose verdict didn't change. Exit code 0 always (replay always succeeds at the analysis level; the diff is the output).
+
+### How it works end-to-end
+
+```python
+from raucle_detect import AgentIdentity, ProvenanceLogger, Scanner
+from raucle_detect.replay import InputStore
+
+identity = AgentIdentity.generate(agent_id="agent:gateway")
+with (
+    ProvenanceLogger(agent=identity, sink_path="audit/chain.jsonl") as log,
+    InputStore.open("audit/inputs.jsonl") as inputs,
+):
+    scanner = Scanner(mode="standard", provenance_logger=log, input_store=inputs)
+    scanner.scan(user_prompt)   # writes signed receipt + persists prompt
+```
+
+Then, days later, after a near-miss:
+
+```bash
+raucle-detect provenance replay audit/chain.jsonl \
+    --input-store audit/inputs.jsonl \
+    --mode strict
+```
+
+→ table of every receipt whose verdict would have changed, with the rule that would have fired.
+
+### What this is uniquely possible because of
+
+Counterfactual replay is the first feature that *requires* the v0.5.0 provenance primitive. Every other guardrail vendor would have to log raw prompts in plaintext to do this; raucle does it from hash-keyed receipts plus a separately-managed input store, so the *signed* audit trail never has to carry the content. That separation is what makes the feature deployable in regulated environments.
+
+### Stats
+
+- 1 new module (`replay.py`)
+- 1 new CLI subcommand (`provenance replay`)
+- 13 new tests (input store round-trip, idempotency, tamper detection, malformed-line handling, Scanner auto-save, same-policy/strict-policy/missing-input replay, non-guardrail-receipt handling, result-view sanity)
+- 311 tests passing total
+
+### Compatibility
+
+- All new parameters optional. Scanner gains an optional `input_store=` kwarg.
+- No new mandatory dependencies; replay uses the existing crypto stack from v0.4.0/v0.5.0.
+- Version 0.5.0 → 0.6.0.
+
 ## 0.5.0 (2026-05-14)
 
 ### AI Provenance Graph — cryptographic chain-of-custody for the agentic stack
