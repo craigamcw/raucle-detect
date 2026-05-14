@@ -12,7 +12,7 @@ and other adversarial inputs before they reach your AI models.
 MIT License -- Copyright (c) 2026 Raucle Ltd.
 """
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 __author__ = "Raucle"
 __license__ = "MIT"
 
@@ -27,6 +27,16 @@ from raucle_detect.canary import CanaryCheckResult, CanaryManager, CanaryToken, 
 from raucle_detect.export import AttackLog, ExportFormat
 from raucle_detect.middleware import RaucleMiddleware
 from raucle_detect.outcome import OutcomeReport, OutcomeStatus, OutcomeVerifier
+from raucle_detect.provenance import (
+    AgentIdentity,
+    CapabilityStatement,
+    Operation,
+    ProvenanceLogger,
+    ProvenanceReceipt,
+    ProvenanceVerifier,
+    hash_obj,
+    hash_text,
+)
 from raucle_detect.scanner import Scanner, ScanResult
 from raucle_detect.session import SessionScanner, SessionScanResult
 from raucle_detect.verdicts import (
@@ -61,5 +71,14 @@ __all__ = [
     "OutcomeVerifier",
     "OutcomeReport",
     "OutcomeStatus",
+    # v0.5.0 AI Provenance Graph
+    "AgentIdentity",
+    "CapabilityStatement",
+    "Operation",
+    "ProvenanceLogger",
+    "ProvenanceReceipt",
+    "ProvenanceVerifier",
+    "hash_text",
+    "hash_obj",
     "__version__",
 ]

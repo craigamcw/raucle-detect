@@ -80,6 +80,11 @@ class ScanResult:
     receipt: str = ""
     """Optional detached JWS receipt — present when a verdict signer is wired in."""
 
+    provenance_hash: str = ""
+    """Hash of the auto-emitted provenance receipt — present when a
+    :class:`~raucle_detect.provenance.ProvenanceLogger` is wired in.
+    Descendants should pass this as a parent when they record their next step."""
+
     def to_dict(self) -> dict[str, Any]:
         """Serialise to a plain dictionary (JSON-friendly)."""
         d: dict[str, Any] = {
@@ -96,6 +101,8 @@ class ScanResult:
             d["notes"] = self.notes
         if self.receipt:
             d["receipt"] = self.receipt
+        if self.provenance_hash:
+            d["provenance_hash"] = self.provenance_hash
         return d
 
 
@@ -148,6 +155,7 @@ class Scanner:
         verdict_signer: Any = None,
         model_version: str = "",
         tenant: str | None = None,
+        provenance_logger: Any = None,
     ) -> None:
         if mode not in _MODE_THRESHOLDS:
             raise ValueError(f"Unknown mode {mode!r}. Choose from: strict, standard, permissive")
@@ -176,6 +184,7 @@ class Scanner:
         # Compliance / receipt machinery (all optional)
         self._audit_sink = audit_sink
         self._verdict_signer = verdict_signer
+        self._provenance_logger = provenance_logger
         self._model_version = model_version
         self._tenant = tenant
         self._ruleset_hash_cached: str | None = None
@@ -188,8 +197,14 @@ class Scanner:
             self._ruleset_hash_cached = hash_ruleset(self._pattern_layer._rules)
         return self._ruleset_hash_cached
 
-    def _finalize(self, result: ScanResult, input_text: str, scan_kind: str = "scan") -> ScanResult:
-        """Apply signed-receipt + audit-sink side effects to a fresh ScanResult."""
+    def _finalize(
+        self,
+        result: ScanResult,
+        input_text: str,
+        scan_kind: str = "scan",
+        provenance_parents: list[str] | None = None,
+    ) -> ScanResult:
+        """Apply signed-receipt + audit-sink + provenance side effects."""
         if self._verdict_signer is not None:
             try:
                 result.receipt = self._verdict_signer.issue(
@@ -220,6 +235,24 @@ class Scanner:
                 )
             except Exception as exc:
                 logger.warning("Failed to write audit event: %s", exc)
+
+        if self._provenance_logger is not None:
+            try:
+                # Map the scan kind to the target the guardrail acted on.
+                scan_target = {
+                    "scan": "input",
+                    "scan_output": "output",
+                    "scan_tool_call": "tool_call",
+                }.get(scan_kind, "input")
+                result.provenance_hash = self._provenance_logger.record_guardrail_scan(
+                    parents=list(provenance_parents or []),
+                    scanned_text=input_text,
+                    verdict=result.verdict,
+                    ruleset_hash=self._ruleset_hash(),
+                    scan_target=scan_target,
+                )
+            except Exception as exc:
+                logger.warning("Failed to emit provenance receipt: %s", exc)
 
         return result
 
@@ -256,6 +289,7 @@ class Scanner:
         prompt: str,
         context: dict[str, Any] | None = None,
         mode: str | None = None,
+        provenance_parents: list[str] | None = None,
     ) -> ScanResult:
         """Scan a single prompt and return a :class:`ScanResult`.
 
@@ -329,6 +363,7 @@ class Scanner:
             ),
             prompt,
             scan_kind="scan",
+            provenance_parents=provenance_parents,
         )
 
     def scan_output(
@@ -336,6 +371,7 @@ class Scanner:
         output: str,
         original_prompt: str | None = None,
         mode: str | None = None,
+        provenance_parents: list[str] | None = None,
     ) -> ScanResult:
         """Scan LLM output for data leakage, exfiltration, and injection.
 
@@ -420,6 +456,7 @@ class Scanner:
             ),
             output,
             scan_kind="scan_output",
+            provenance_parents=provenance_parents,
         )
 
     def scan_tool_call(
@@ -427,6 +464,7 @@ class Scanner:
         tool_name: str,
         arguments: dict[str, Any],
         mode: str | None = None,
+        provenance_parents: list[str] | None = None,
     ) -> ScanResult:
         """Scan tool call arguments for dangerous patterns before execution.
 
@@ -489,6 +527,7 @@ class Scanner:
             ),
             text,
             scan_kind="scan_tool_call",
+            provenance_parents=provenance_parents,
         )
 
     def scan_batch(
