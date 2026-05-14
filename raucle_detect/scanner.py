@@ -156,6 +156,7 @@ class Scanner:
         model_version: str = "",
         tenant: str | None = None,
         provenance_logger: Any = None,
+        input_store: Any = None,
     ) -> None:
         if mode not in _MODE_THRESHOLDS:
             raise ValueError(f"Unknown mode {mode!r}. Choose from: strict, standard, permissive")
@@ -185,6 +186,7 @@ class Scanner:
         self._audit_sink = audit_sink
         self._verdict_signer = verdict_signer
         self._provenance_logger = provenance_logger
+        self._input_store = input_store
         self._model_version = model_version
         self._tenant = tenant
         self._ruleset_hash_cached: str | None = None
@@ -253,6 +255,15 @@ class Scanner:
                 )
             except Exception as exc:
                 logger.warning("Failed to emit provenance receipt: %s", exc)
+
+        # Optionally persist the original input text so a later counterfactual
+        # replay can re-run the scanner against the same prompts. The store
+        # is hash-keyed and append-only; duplicates are no-ops.
+        if self._input_store is not None:
+            try:
+                self._input_store.add(input_text, tenant=self._tenant)
+            except Exception as exc:
+                logger.warning("Failed to write input store: %s", exc)
 
         return result
 

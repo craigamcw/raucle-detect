@@ -243,6 +243,40 @@ def _build_parser() -> argparse.ArgumentParser:
     prov_graph.add_argument("--chain", required=True, help="JSONL chain file")
     prov_graph.add_argument("--out", help="Write DOT to file (default: stdout)")
 
+    prov_replay = prov_sub.add_parser(
+        "replay",
+        help="Counterfactual replay — re-run a chain against an alternate policy",
+    )
+    prov_replay.add_argument("chain", help="Path to the provenance chain JSONL")
+    prov_replay.add_argument(
+        "--input-store",
+        required=True,
+        help="Path to the input-store JSONL produced alongside the chain",
+    )
+    prov_replay.add_argument(
+        "--mode",
+        choices=_modes,
+        default="strict",
+        help="Counterfactual scanner mode (default: strict)",
+    )
+    prov_replay.add_argument(
+        "--rules-dir",
+        "-r",
+        type=str,
+        help="Optional custom YAML rules directory for the counterfactual scan",
+    )
+    prov_replay.add_argument(
+        "--format",
+        choices=["table", "json"],
+        default="table",
+        help="Output format",
+    )
+    prov_replay.add_argument(
+        "--show-unchanged",
+        action="store_true",
+        help="Include receipts whose verdict did not change in the output",
+    )
+
     return parser
 
 
@@ -723,6 +757,71 @@ def _cmd_provenance_graph(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_provenance_replay(args: argparse.Namespace) -> int:
+    from raucle_detect.replay import InputStore, Replayer
+    from raucle_detect.scanner import Scanner
+
+    store_path = Path(args.input_store)
+    if not store_path.exists():
+        print(f"Error: input store {args.input_store} does not exist", file=sys.stderr)
+        return 1
+
+    chain_path = Path(args.chain)
+    if not chain_path.exists():
+        print(f"Error: chain {args.chain} does not exist", file=sys.stderr)
+        return 1
+
+    with InputStore.open(store_path) as store:
+        scanner = Scanner(mode=args.mode, rules_dir=args.rules_dir)
+        policy_label_parts = [f"mode={args.mode}"]
+        if args.rules_dir:
+            policy_label_parts.append(f"rules_dir={args.rules_dir}")
+        replayer = Replayer(scanner, store, policy_label=" + ".join(policy_label_parts))
+        result = replayer.replay_chain(chain_path)
+
+    if args.format == "json":
+        out = result.to_dict()
+        if args.show_unchanged:
+            out["unchanged"] = [c.to_dict() for c in result.unchanged]
+        print(json.dumps(out, indent=2))
+        return 0
+
+    summary = result.summary()
+    print(f"\nCounterfactual replay against policy: {result.counterfactual_policy}")
+    print(f"  Chain:                 {result.chain_path}")
+    print(f"  Total receipts:        {summary['total_receipts']}")
+    print(f"  Replayable scans:      {summary['replayed']}")
+    print(f"  Missing-input scans:   {summary['missing_inputs']}")
+    print(
+        f"  Unchanged verdicts:    \033[92m{summary['unchanged']}\033[0m   "
+        f"Changed: \033[93m{summary['changed']}\033[0m"
+    )
+    print(
+        f"    Newly BLOCKed: \033[91m{summary['newly_blocked']}\033[0m   "
+        f"Newly ALERTed: \033[93m{summary['newly_alerted']}\033[0m   "
+        f"Newly ALLOWed: \033[92m{summary['newly_allowed']}\033[0m"
+    )
+
+    if result.changes:
+        print("\nChanges:")
+        print(f"  {'Receipt':<22} {'was':<10} {'→':<3} {'now':<10}  Explanation")
+        print("  " + "-" * 78)
+        for c in result.changes:
+            short_hash = c.receipt_hash.split(":")[-1][:18]
+            print(
+                f"  {short_hash:<22} {c.original_action:<10} → "
+                f"{c.counterfactual_action:<10}  {c.explanation}"
+            )
+
+    if args.show_unchanged and result.unchanged:
+        print(f"\nUnchanged ({len(result.unchanged)}):")
+        for c in result.unchanged:
+            short_hash = c.receipt_hash.split(":")[-1][:18]
+            print(f"  {short_hash:<22} {c.original_action:<10}  {c.explanation}")
+
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -753,6 +852,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_provenance_trace(args)
     elif args.command == "provenance" and args.provenance_command == "graph":
         return _cmd_provenance_graph(args)
+    elif args.command == "provenance" and args.provenance_command == "replay":
+        return _cmd_provenance_replay(args)
     else:
         parser.print_help()
         return 0

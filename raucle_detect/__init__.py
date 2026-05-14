@@ -12,7 +12,7 @@ and other adversarial inputs before they reach your AI models.
 MIT License -- Copyright (c) 2026 Raucle Ltd.
 """
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 __author__ = "Raucle"
 __license__ = "MIT"
 
@@ -36,6 +36,13 @@ from raucle_detect.provenance import (
     ProvenanceVerifier,
     hash_obj,
     hash_text,
+)
+from raucle_detect.replay import (
+    InputStore,
+    ReplayChange,
+    Replayer,
+    ReplayResult,
+    StoredInput,
 )
 from raucle_detect.scanner import Scanner, ScanResult
 from raucle_detect.session import SessionScanner, SessionScanResult
@@ -80,5 +87,11 @@ __all__ = [
     "ProvenanceVerifier",
     "hash_text",
     "hash_obj",
+    # v0.6.0 counterfactual replay
+    "InputStore",
+    "StoredInput",
+    "Replayer",
+    "ReplayResult",
+    "ReplayChange",
     "__version__",
 ]

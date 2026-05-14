@@ -8,3 +8,10 @@ build/
 .env
 .coverage
 htmlcov/
+
+# Sibling reference-implementation repos cloned during multi-repo work
+# (raucle-receipt-{ts,go,rs}, raucle-bench). These live in their own repos.
+/raucle-bench/
+/raucle-receipt-go/
+/raucle-receipt-rs/
+/raucle-receipt-ts/
