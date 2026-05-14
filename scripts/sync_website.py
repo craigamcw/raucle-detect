@@ -127,7 +127,10 @@ def _select_headline_features(bullets: list[str], limit: int = 6) -> list[str]:
         if bold and len(bold.group(1)) <= 60:
             # Use the bold phrase as the feature name, but condense
             # the post-em-dash explanation if present.
-            name = bold.group(1).strip()
+            # Strip markdown from the bold phrase too — bullets like
+            # ``**`AgentIdentity`** — …`` carry literal backticks inside the
+            # bold which otherwise render as visible punctuation on the page.
+            name = _strip_markdown(bold.group(1).strip())
             rest = bullet[bold.end() :]
             rest = re.sub(r"^\s*\(`[^`]+`\)\s*", "", rest)  # drop (`code`) refs
             rest = re.sub(r"\s+", " ", rest).strip(" —–-")

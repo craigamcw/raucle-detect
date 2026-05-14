@@ -76,6 +76,19 @@ class TestParseChangelog:
         with pytest.raises(SystemExit, match="not found"):
             sync_website.parse_changelog(_CHANGELOG, "9.9.9")
 
+    def test_backticks_inside_bold_phrase_stripped(self):
+        """Regression: ``**`AgentIdentity`** — …`` should produce a clean
+        feature name ``AgentIdentity`` with no literal backticks rendered."""
+        changelog_with_code_bold = (
+            "## 0.5.0 (2026-05-14)\n\n"
+            "### New Features\n\n"
+            "- **`AgentIdentity`** — Ed25519 keypair plus a signed statement.\n"
+        )
+        notes = sync_website.parse_changelog(changelog_with_code_bold, "0.5.0")
+        joined = " ".join(notes.headline_features)
+        assert "AgentIdentity" in joined
+        assert "`" not in joined
+
 
 class TestRendering:
     def test_version_badge_html_escaped(self):
