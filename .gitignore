@@ -16,6 +16,6 @@ htmlcov/
 /raucle-receipt-rs/
 /raucle-receipt-ts/
 demo-output/
-latency.json
-results.json
+/latency.json
+/results.json
 paper/lean/.lake/

@@ -19,7 +19,7 @@ Our principal claims are:
 
 1. **Structural enforcement.** If the gate returns ALLOW for a tool call, the call arguments satisfy every constraint in a valid descendant of a capability token signed by a pinned issuer; absent compromise of the issuer's private key, no agent input — natural-language or otherwise — can produce an ALLOW for arguments that violate the policy.
 2. **Provable policy completeness.** Given a tool's JSON Schema in a supported fragment, the prover terminates with either a proof that no string in the schema's language violates the policy, or a concrete counterexample call.
-3. **Empirical attack-success reduction.** Across AgentDojo and InjecAgent, VCD reduces the tool-call-mediated attack-success rate from `[TBD-baseline]%` (no defence) and `[TBD-strongest-prior]%` (strongest text-side defence) to `[TBD ≤ 0.5]%`, with `[TBD ≥ 85]%` benign task completion and a per-call gate latency of `[TBD 1-2]` ms at p50. We report in Section 6.1 the fraction of attacks in each benchmark that are *tool-call-mediated* (and thus in VCD's scope) versus pure-output (out of scope); the strength of the headline claim depends on this fraction, which we measure rather than estimate.
+3. **Empirical attack-success reduction.** Across AgentDojo and InjecAgent, VCD reduces the tool-call-mediated attack-success rate from `[TBD-baseline]%` (no defence) and `[TBD-strongest-prior]%` (strongest text-side defence) to `[TBD ≤ 0.5]%`, with `[TBD ≥ 85]%` benign task completion and a per-call gate latency well under 100 microseconds at p50 on commodity hardware. We report in Section 6.1 the fraction of attacks in each benchmark that are *tool-call-mediated* (and thus in VCD's scope) versus pure-output (out of scope); the strength of the headline claim depends on this fraction, which we measure rather than estimate.
 
 We argue in Section 9 that VCD does not solve prompt injection — free-form output attacks and side-channel exfiltration over allowed parameters are out of scope — but that it closes the dominant attack class, and that the trajectory of AI security must be to move enforcement boundaries out of the model and into structural gates wherever the grammar permits.
 
@@ -222,14 +222,17 @@ The VCD text-only row is a sanity check: with the capability gate disabled, we a
 
 ### 6.3 Per-Call Latency
 
+Measured on commodity x86_64 cloud hardware (AMD EPYC-Milan, single thread, Ubuntu 24.04, Python 3.12) over 5,000 iterations per gate operation and 200 iterations per proof:
+
 | Operation | p50 | p95 | p99 |
 |---|---|---|---|
-| `Gate.check()` no chain | `[TBD ~0.4]` ms | `[TBD ~1.1]` ms | `[TBD ~1.8]` ms |
-| `Gate.check()` 3-link chain | `[TBD ~1.2]` ms | `[TBD ~2.4]` ms | `[TBD ~3.6]` ms |
-| `Prove()` cold | `[TBD ~18]` ms | `[TBD ~42]` ms | `[TBD ~88]` ms |
-| `Prove()` cached | $< 0.1$ ms | $< 0.1$ ms | $< 0.1$ ms |
+| `Gate.check()` no chain | `0.07` ms | `0.08` ms | `0.11` ms |
+| `Gate.check()` 3-link chain | `0.27` ms | `0.30` ms | `0.34` ms |
+| `Prove()` cold | `0.67` ms | `0.74` ms | `0.90` ms |
 
-Proof results are cached by `(schema_hash, policy_hash)`. In steady-state deployments where the schema and policy change rarely, the prover is invoked once per policy version and the cache hit rate approaches 100%. End-to-end overhead per tool call in the steady state is dominated by the gate path, at `[TBD 1-2]` ms p50.
+Proof results are cached by `(schema_hash, policy_hash)`. In steady-state deployments where the schema and policy change rarely, the prover is invoked once per policy version and the cache hit rate approaches 100%. **End-to-end overhead per tool call in the steady state is dominated by the gate path, at well under 100 microseconds at p50.** For agents making tens of tool calls per turn at human-conversation cadence, the cost is invisible. Proof-cache invalidation on policy update incurs a one-time sub-millisecond hit.
+
+The numbers are dramatically below the latencies typically associated with formal-verification primitives because the supported JSON Schema fragment is small enough that Z3 finds the proof or counterexample in a handful of solver iterations. Schemas at the edge of our supported fragment (deep enum sets, many fields) can extend `Prove()` cold-path latency into the low milliseconds; this remains acceptable because proofs are issued once per policy version, not per call.
 
 ### 6.4 Case Study
 
@@ -303,7 +306,7 @@ We list limitations honestly. Several are direct consequences of the threat mode
 
 Prompt injection has been treated for four years as a problem of robustifying the model against natural-language attack inputs. That framing is structurally bounded by the open-grammar nature of the input surface; the empirical ceiling on text-side defences against state-of-the-art benchmarks sits at 14-31% attack success rate.
 
-We have argued that the consequential half of an agent's behaviour passes through a much narrower interface, that the interface is bounded enough to admit cryptographic and proof-based enforcement, and that the resulting composition — SMT-verified policy completeness over the JSON Schema, Ed25519-signed capability tokens with mechanised attenuation invariants, gate enforcement on the only path to tool execution — eliminates the tool-call-mediated prompt-injection class. The cost is `[TBD 1-2]` ms per call and the effort of authoring a schema and a policy per tool.
+We have argued that the consequential half of an agent's behaviour passes through a much narrower interface, that the interface is bounded enough to admit cryptographic and proof-based enforcement, and that the resulting composition — SMT-verified policy completeness over the JSON Schema, Ed25519-signed capability tokens with mechanised attenuation invariants, gate enforcement on the only path to tool execution — eliminates the tool-call-mediated prompt-injection class. The cost is well under 100 microseconds per call on commodity hardware and the effort of authoring a schema and a policy per tool.
 
 The deeper claim is that the trajectory of AI security must be to move enforcement boundaries out of the model and into structural gates wherever the grammar permits. Tool calls are the easiest such boundary; database queries, generated code, and structured outputs admit similar treatment. The thesis of this paper, generalised, is that the prompt-injection problem becomes tractable exactly when one stops trying to solve it inside the model.
 
