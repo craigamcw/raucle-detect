@@ -1,41 +1,35 @@
 # Lean development — status
 
 **Toolchain:** Lean 4.10.0 + Mathlib 4.10.0.
-**Build status:** `lake build` completes cleanly. No errors. Two `sorry`s remain.
+**Build status:** `lake build` completes with **zero errors, zero warnings, zero sorrys**.
 
-## What is verified (compiler-checked)
+## All three theorems are mechanised
 
 | Definition / Theorem | File | Status |
 |---|---|---|
-| `Policy` (record + lattice meet) | `VCD/Basic.lean` | type-checks |
-| `Tighter` relation | `VCD/Basic.lean` | type-checks |
-| `Token` (record) | `VCD/Basic.lean` | type-checks |
-| `AgentId.extendsB` (Bool) | `VCD/Basic.lean` | type-checks |
-| `attenuate` (function) | `VCD/Attenuation.lean` | type-checks |
-| `Tighter.refl` | `VCD/Attenuation.lean` | **proved** |
-| `meet_tighter` (all 6 cases) | `VCD/Attenuation.lean` | **proved** |
-| `attenuation_soundness` (**Theorem 1**) | `VCD/Attenuation.lean` | **PROVED** |
-| `Gate.check`, `satisfies_field`, `satisfiesArgs` | `VCD/Gate.lean` | type-checks |
-| `gate_soundness` (Theorem 2) | `VCD/Gate.lean` | `sorry` |
-| `tighter_implies_satisfies_field` (helper) | `VCD/Composition.lean` | `sorry` |
-| `tighter_implies_satisfies` | `VCD/Composition.lean` | **proved modulo helper** |
-| `policy_proof_composition` (**Theorem 3**) | `VCD/Composition.lean` | **PROVED modulo helper + gate** |
+| `Policy` (record + lattice meet) | `VCD/Basic.lean` | ✓ type-checks |
+| `Tighter` relation | `VCD/Basic.lean` | ✓ type-checks |
+| `Token` (record) | `VCD/Basic.lean` | ✓ type-checks |
+| `AgentId.extendsB` (Bool) | `VCD/Basic.lean` | ✓ type-checks |
+| `attenuate` (function) | `VCD/Attenuation.lean` | ✓ type-checks |
+| `Tighter.refl` | `VCD/Attenuation.lean` | **✓ proved** |
+| `meet_tighter` (all 6 cases) | `VCD/Attenuation.lean` | **✓ proved** |
+| **`attenuation_soundness` (Theorem 1)** | `VCD/Attenuation.lean` | **✓ PROVED** |
+| `Gate.check`, `satisfies_field`, `satisfiesArgs` | `VCD/Gate.lean` | ✓ type-checks |
+| **`gate_soundness` (Theorem 2)** | `VCD/Gate.lean` | **✓ PROVED** |
+| `tighter_implies_satisfies_field` | `VCD/Composition.lean` | **✓ proved** |
+| `tighter_implies_satisfies` | `VCD/Composition.lean` | **✓ proved** |
+| **`policy_proof_composition` (Theorem 3)** | `VCD/Composition.lean` | **✓ PROVED** |
 
-## Headline
+## Trust assumptions
 
-**Theorem 1 (attenuation soundness) is fully proved.** Every constraint dimension's monotonicity is mechanically verified. The lattice meet is shown to be tighter than its left operand on all six constraint kinds (`forbidden_values`, `allowed_values`, `max_value`, `min_value`, `required_present`, `forbidden_combos`). The `attenuate` function's output is shown to satisfy the soundness theorem from the structural guard in its definition.
+The mechanisation establishes correctness of the **data model and algorithms**. It does not mechanise:
 
-**Theorem 3 (policy-proof composition) is structurally proved.** The composition argument compiles against the imported axioms (`gate_soundness` and `tighter_implies_satisfies_field`). Closing those two `sorry`s closes the whole theorem.
-
-## What's left
-
-Two `sorry`s:
-
-1. **`tighter_implies_satisfies_field`** (`Composition.lean`): per-field constraint monotonicity. Case analysis on `args f` (none vs some w) and on each of `q`'s constraint kinds. Each subcase applies one of the six conjuncts in `Tighter`. Estimated ~30 lines, ~1-2 hours for a Lean-fluent author.
-
-2. **`gate_soundness`** (`Gate.lean`): walk through the eight gate checks. The structure is `cases hk : K t.key_id` then six `if-then-else` rungs in the `some` branch. `split_ifs at h with h1 h2 ...` is the right tactic but I hit hypothesis-naming issues across the negations and `decide` calls. Estimated ~40 lines, ~half a day for a Lean-fluent author.
-
-Both proofs are conceptually straightforward and mechanically tractable. Neither needs further insight; both need fluent execution.
+- **Ed25519 bit-level correctness** (treated as a trusted oracle via `opaque Ed25519Verify`; see [BHB22] for an independently verified specification).
+- **SHA-256 bit-level correctness** (`opaque Sha256Hex`).
+- **Canonical-JSON encoding correctness** (`opaque canonBody`).
+- **Z3 solver soundness** for the supported fragment (treated as a trusted oracle via the `prover_soundness` axiom; cross-validation against CVC5 recommended for production).
+- **The Python implementation's faithfulness to this Lean model** (we maintain structural correspondence; mechanising the bridge would be a separate paper using PyLean or equivalent).
 
 ## How to reproduce
 
@@ -50,21 +44,33 @@ lake exe cache get    # ~2 min, downloads precompiled Mathlib .olean files
 lake build            # ~30 sec
 ```
 
-First-time disk usage: ~4.5 GB.
+Expected output: every file builds, no warnings, no errors.
 
-## Co-author handoff
+First-time disk usage: ~4.5 GB (Mathlib is large).
 
-The remaining two `sorry`s are the cleanest possible handoff:
+## Line counts
 
-- **`tighter_implies_satisfies_field`** is purely combinatorial: six subconjuncts, each a per-field application of a subset / monotonicity lemma. Anyone fluent in Lean's `Finset`/`Decidable` APIs closes this in an afternoon.
-- **`gate_soundness`** is more tactical: needs the right `split_ifs` / `simp` combination to handle the `decide` calls and double-negations cleanly. Maybe a day.
+```
+$ wc -l VCD/*.lean
+   86 VCD/Attenuation.lean
+   75 VCD/Composition.lean
+   97 VCD/Gate.lean
+   95 VCD/Basic.lean
+  353 total
+```
 
-A Lean co-author closing these two opens the entire trust-graph attestation argument in Section 4 of the paper.
+353 lines of Lean for the full data model + three soundness theorems. Compact because Mathlib's lattice and decidability infrastructure does the heavy lifting.
 
 ## Notes from the iteration
 
-The structural refactors that landed in iteration 1 (Bool-valued predicates everywhere; `satisfies` over a finite `fields` list, not `∀ String`) made iteration 2 dramatically easier. The decidable-instance synthesis problems that blocked progress in iteration 1 are entirely gone.
+Three sessions of compiler iteration on a Linux VM, totalling perhaps an hour of wall-clock time. Key tactic insights:
 
-The key tactic insight for `meet_tighter`: after `unfold`, use `dsimp only` to expose the match, then `rw [hq]` to substitute the *first* scrutinee (because `Tighter` is `(meet p q) ⊑ p`, the hypothesis is about `p` not `q`), then `cases hq2 : q.allowed_values f` to split on the second scrutinee. The witness commits before the case-split via `⟨…, rfl, …⟩`.
+1. **`meet_tighter`'s inner cases** (allowed_values, max_value, min_value): after `unfold`, use `dsimp only` to expose the match, then `rw [hq]` to substitute the *first* scrutinee (`Tighter (meet p q) p`'s hypothesis is about the outer `p`, not `q`), then `cases _hq2 : q.X` to split on the second scrutinee. Commit the witness via `⟨…, rfl, …⟩` before the case split.
 
-The key insight for `attenuation_soundness`: `split_ifs at h` (Mathlib) targets `if` specifically, not `match`, so it doesn't get confused by the inner `match a.narrower_agent_id`. The `else` branch auto-closes because `none = some c` is decidable, so the proof only has the `then` branch.
+2. **`attenuation_soundness`**: `split_ifs at h` targets `if` specifically (unlike `split at h` which picks the innermost `match`). The `else` branch (`none = some c`) auto-closes, leaving only the `then` branch.
+
+3. **`gate_soundness`**: explicit nested `by_cases` on each of the six guards. Each "negative" branch (where the guard's condition is true and the gate denies) is closed by `simp [h_<name>] at h` which substitutes and reduces to a contradiction with `h : .deny _ = .allow`. The final positive branch packs the six conclusions into the conjunction. After `cases hk : K t.key_id` the goal's `K t.key_id` is substituted, so the existential uses `rfl` rather than the equation.
+
+4. **`tighter_implies_satisfies_field`**: `simp only [satisfies_field, Bool.and_eq_true, decide_eq_true_eq]` decomposes both the hypothesis and the goal into a four-way conjunction, after which each subgoal applies one of the six conjuncts of the `Tighter` relation. Compiled on the first try.
+
+The structural decision to use `Bool` (not `Prop`) for the executable parts of the system and to parameterise satisfaction over a finite `fields : List FieldName` (rather than `∀ f : String`) was load-bearing — without it, `Decidable` synthesis blocked the proofs entirely.

@@ -15,7 +15,6 @@ opaque canonBody : Token → String
 def Token.idBinds (t : Token) : Bool :=
   t.token_id = "cap:" ++ (Sha256Hex (canonBody t)).take 24
 
-/-- Boolean check of a single-field constraint against a possibly-absent value. -/
 def satisfies_field (p : Policy) (f : FieldName) (v : Option Value) : Bool :=
   match v with
   | none => decide (f ∉ p.required_present)
@@ -34,7 +33,6 @@ def satisfies_field (p : Policy) (f : FieldName) (v : Option Value) : Bool :=
 def Policy.satisfiesArgs (p : Policy) (args : CallArgs) (fields : List FieldName) : Bool :=
   fields.all (fun f => satisfies_field p f (args f))
 
-/-- The gate. Returns `.allow` iff all checks pass. -/
 def Gate.check
     (K : TrustedIssuers) (t : Token) (call : Call)
     (now : Int) (relevant_fields : List FieldName) : GateDecision :=
@@ -56,7 +54,6 @@ def Gate.check
     else
       .allow
 
-/-- Soundness: ALLOW implies the eight underlying predicates hold. -/
 theorem gate_soundness
     (K : TrustedIssuers) (t : Token) (call : Call) (now : Int)
     (fields : List FieldName)
@@ -67,20 +64,32 @@ theorem gate_soundness
     t.idBinds = true ∧
     now ≥ t.not_before ∧ now < t.expires_at := by
   simp only [Gate.check] at h
-  -- Case on whether the issuer is pinned
   cases hk : K t.key_id with
   | none =>
     rw [hk] at h
-    -- h : .deny "unknown key_id" = .allow, contradiction
-    exact absurd h (by simp)
+    cases h
   | some pem =>
     rw [hk] at h
-    -- The full case split through 6 nested ifs is structurally simple but
-    -- requires precise control over how `split_ifs` names hypotheses across
-    -- branches. Left as `sorry` after several attempts; the remaining work
-    -- is mechanical case analysis over the six guard conditions, applying
-    -- decidability lemmas (`not_not`, `not_lt`, `not_le`, `not_ne_iff`)
-    -- and packing the six positive conclusions into the conjunction.
-    sorry
+    -- Walk through six nested ifs by explicit by_cases.
+    by_cases h_sig : Ed25519Verify pem (canonBody t) t.signature = true
+    case neg => simp [h_sig] at h
+    case pos =>
+      by_cases h_id : t.idBinds = true
+      case neg => simp [h_sig, h_id] at h
+      case pos =>
+        by_cases h_nb : now < t.not_before
+        case pos => simp [h_sig, h_id, h_nb] at h
+        case neg =>
+          by_cases h_exp : now ≥ t.expires_at
+          case pos => simp [h_sig, h_id, h_nb, h_exp] at h
+          case neg =>
+            by_cases h_tool : t.tool = call.tool
+            case neg => simp [h_sig, h_id, h_nb, h_exp, h_tool] at h
+            case pos =>
+              by_cases h_sat : Policy.satisfiesArgs t.constraints call.args fields = true
+              case neg => simp [h_sig, h_id, h_nb, h_exp, h_tool, h_sat] at h
+              case pos =>
+                exact ⟨h_tool, h_sat, ⟨pem, rfl, h_sig⟩, h_id,
+                       le_of_not_lt h_nb, lt_of_not_le h_exp⟩
 
 end VCD

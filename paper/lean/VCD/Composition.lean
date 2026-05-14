@@ -27,15 +27,62 @@ axiom prover_soundness
     ∀ args : CallArgs, SchemaLang schema args →
       Policy.satisfiesArgs P args fields = true
 
-/-- Helper: if p ⊑ q and p satisfies a field, then q satisfies it.
-    Structurally this is a case analysis over `args f` (none / some w),
-    with each subcase using one of the Tighter conjuncts. Verbose but
-    mechanical; left as `sorry` pending a Lean-fluent pass. -/
+/-- Per-field monotonicity: a tighter policy satisfying a field implies the
+    looser policy does too. -/
 theorem tighter_implies_satisfies_field
     (p q : Policy) (f : FieldName) (v : Option Value)
     (h_tight : p ⊑ q) (h_sat : satisfies_field p f v = true) :
     satisfies_field q f v = true := by
-  sorry
+  obtain ⟨h_forb, h_allow, h_max, h_min, h_req, _⟩ := h_tight
+  cases v with
+  | none =>
+    -- satisfies_field p f none = decide (f ∉ p.required_present)
+    simp only [satisfies_field, decide_eq_true_eq] at h_sat ⊢
+    intro hf
+    exact h_sat (h_req hf)
+  | some w =>
+    simp only [satisfies_field, Bool.and_eq_true, decide_eq_true_eq] at h_sat
+    obtain ⟨⟨⟨h_sat_forb, h_sat_allow⟩, h_sat_max⟩, h_sat_min⟩ := h_sat
+    simp only [satisfies_field, Bool.and_eq_true, decide_eq_true_eq]
+    refine ⟨⟨⟨?_, ?_⟩, ?_⟩, ?_⟩
+    · -- ¬ w ∈ q.forbidden_values f
+      intro hw
+      exact h_sat_forb (h_forb f hw)
+    · -- allowed_values
+      cases hqa : q.allowed_values f with
+      | none => rfl
+      | some s =>
+        obtain ⟨s', hps', hs'sub⟩ := h_allow f s hqa
+        rw [hps'] at h_sat_allow
+        simp only [decide_eq_true_eq] at h_sat_allow
+        simp only [decide_eq_true_eq]
+        exact hs'sub h_sat_allow
+    · -- max
+      cases hw : w with
+      | num n =>
+        cases hqm : q.max_value f with
+        | none => simp
+        | some bound =>
+          obtain ⟨a', hpm, ha'le⟩ := h_max f bound hqm
+          rw [hw, hpm] at h_sat_max
+          simp only [decide_eq_true_eq] at h_sat_max
+          simp only [decide_eq_true_eq]
+          exact le_trans h_sat_max ha'le
+      | str _ => simp
+      | bool _ => simp
+    · -- min (symmetric, with reversed inequality direction)
+      cases hw : w with
+      | num n =>
+        cases hqm : q.min_value f with
+        | none => simp
+        | some bound =>
+          obtain ⟨a', hpm, ha'le⟩ := h_min f bound hqm
+          rw [hw, hpm] at h_sat_min
+          simp only [decide_eq_true_eq] at h_sat_min
+          simp only [decide_eq_true_eq]
+          exact le_trans ha'le h_sat_min
+      | str _ => simp
+      | bool _ => simp
 
 theorem tighter_implies_satisfies
     (p q : Policy) (args : CallArgs) (fields : List FieldName)

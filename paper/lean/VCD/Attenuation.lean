@@ -57,21 +57,21 @@ theorem meet_tighter (p q : Policy) : (Policy.meet p q) ⊑ p := by
   · intro f s hq
     dsimp only
     rw [hq]
-    cases hq2 : q.allowed_values f with
+    cases _hq2 : q.allowed_values f with
     | none => exact ⟨s, rfl, subset_refl _⟩
     | some a => exact ⟨s ∩ a, rfl, Finset.inter_subset_left⟩
   -- max_value: meet returns min; need min ≤ a
   · intro f a hq
     dsimp only
     rw [hq]
-    cases hq2 : q.max_value f with
+    cases _hq2 : q.max_value f with
     | none => exact ⟨a, rfl, le_refl _⟩
     | some b => exact ⟨min a b, rfl, min_le_left a b⟩
   -- min_value: meet returns max; need a ≤ max
   · intro f a hq
     dsimp only
     rw [hq]
-    cases hq2 : q.min_value f with
+    cases _hq2 : q.min_value f with
     | none => exact ⟨a, rfl, le_refl _⟩
     | some b => exact ⟨max a b, rfl, le_max_left a b⟩
   · exact Finset.subset_union_left

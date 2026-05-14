@@ -15,7 +15,7 @@ Read of `paper/DRAFT.md` as an S&P reviewer would. Issues recorded here for the 
 
 4. **No comparison to "tool authentication" baselines.** Spotlighting / StruQ are model-side defences; a fair comparison should include a *non-model-side* baseline such as "OpenAI's function-calling allowlist + parameter-type-checking." The honest framing is "we are not the first to add gate enforcement; we are the first to add provably-complete gate enforcement with attenuation invariants." Action: find a representative non-formal gate baseline (e.g., LangChain's `RestrictedPython` or LiteLLM's policy hooks) and benchmark it. Without this, reviewers will land on "this is just authn for tools."
 
-5. **Lean development is a structural skeleton, not a verified artefact.** Submission must compile. Plan: spend Week 4 finishing the proofs. If they don't close, weaken Theorem 3 to "we sketch the composition argument" — still publishable but less of a contribution.
+5. ~~**Lean development is a structural skeleton, not a verified artefact.**~~ **Resolved (2026-05-14).** Full mechanisation lands in `paper/lean/`. 353 lines, zero `sorry`s, compiles under Lean 4.10.0 + Mathlib 4.10.0. All three theorems closed.
 
 ## Medium (would cause revision)
 
