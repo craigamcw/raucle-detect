@@ -307,6 +307,52 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Include receipts whose verdict did not change in the output",
     )
 
+    # ---- Federated signed-IOC feeds (v0.8.0) -----------------------------
+    feed_p = subparsers.add_parser(
+        "feed",
+        help="Federated signed-IOC feeds — publish, verify, and subscribe",
+    )
+    feed_sub = feed_p.add_subparsers(dest="feed_command")
+
+    feed_keygen = feed_sub.add_parser("keygen", help="Generate an issuer Ed25519 keypair")
+    feed_keygen.add_argument("issuer", help="Issuer name, e.g. 'raucle.io'")
+    feed_keygen.add_argument("--out", default="issuer", help="Output prefix (default: 'issuer')")
+
+    feed_sign = feed_sub.add_parser(
+        "sign", help="Sign a JSON list of IOC drafts into a published feed"
+    )
+    feed_sign.add_argument("drafts", help="Path to JSON file: list of IOC drafts")
+    feed_sign.add_argument("--key", required=True, help="Issuer private-key PEM")
+    feed_sign.add_argument("--issuer", required=True, help="Issuer name (must match key)")
+    feed_sign.add_argument("--feed-id", required=True, help="Feed identifier, e.g. 'raucle/core'")
+    feed_sign.add_argument("--out", required=True, help="Output feed JSON path")
+
+    feed_verify = feed_sub.add_parser("verify", help="Verify a feed against a pinned pubkey")
+    feed_verify.add_argument("feed", help="Path to feed JSON")
+    feed_verify.add_argument(
+        "--pubkey", help="Path to pinned public-key PEM (omit to skip pinning check)"
+    )
+
+    feed_pull = feed_sub.add_parser(
+        "pull", help="Fetch a feed over HTTPS, verify, and merge into the local store"
+    )
+    feed_pull.add_argument("url", help="HTTPS URL of the feed JSON")
+    feed_pull.add_argument(
+        "--pubkey", required=True, help="Path to pinned public-key PEM for the issuer"
+    )
+    feed_pull.add_argument(
+        "--store",
+        default="~/.raucle/feeds",
+        help="Local feed store directory (default: ~/.raucle/feeds)",
+    )
+
+    feed_list = feed_sub.add_parser("list", help="List IOCs in the local feed store")
+    feed_list.add_argument(
+        "--store",
+        default="~/.raucle/feeds",
+        help="Local feed store directory (default: ~/.raucle/feeds)",
+    )
+
     return parser
 
 
@@ -965,6 +1011,102 @@ def _cmd_scrub(args: argparse.Namespace) -> int:
     return 2 if hidden else 0
 
 
+def _cmd_feed_keygen(args: argparse.Namespace) -> int:
+    from raucle_detect.feed import IOCSigner
+
+    signer = IOCSigner.generate(issuer=args.issuer)
+    Path(f"{args.out}.key.pem").write_bytes(_dump_priv_pem(signer))
+    Path(f"{args.out}.pub.pem").write_text(signer.public_key_pem)
+    print(f"Issuer:   {args.issuer}")
+    print(f"Key ID:   {signer.key_id}")
+    print(f"Private:  {args.out}.key.pem  (keep secret)")
+    print(f"Public:   {args.out}.pub.pem  (distribute to consumers)")
+    return 0
+
+
+def _dump_priv_pem(signer: object) -> bytes:
+    from cryptography.hazmat.primitives import serialization
+
+    return signer._priv.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+
+
+def _cmd_feed_sign(args: argparse.Namespace) -> int:
+    import json as _json
+
+    from raucle_detect.feed import IOCSigner
+
+    drafts = _json.loads(Path(args.drafts).read_text())
+    if not isinstance(drafts, list):
+        print("error: drafts file must contain a JSON list", file=sys.stderr)
+        return 1
+    signer = IOCSigner.load_private_key(issuer=args.issuer, path=args.key)
+    iocs = [
+        signer.sign_ioc(
+            kind=d["kind"],
+            pattern=d["pattern"],
+            severity=d.get("severity", "medium"),
+            categories=d.get("categories", []),
+            description=d.get("description", ""),
+            revokes=d.get("revokes", []),
+            expires_at=d.get("expires_at"),
+        )
+        for d in drafts
+    ]
+    feed = signer.build_feed(iocs, feed_id=args.feed_id)
+    feed.save(args.out)
+    print(f"Signed {len(iocs)} IOC(s) → {args.out}")
+    print(f"Merkle root: {feed.merkle_root}")
+    return 0
+
+
+def _cmd_feed_verify(args: argparse.Namespace) -> int:
+    from raucle_detect.feed import Feed
+
+    feed = Feed.load(args.feed)
+    pubkey = Path(args.pubkey).read_text() if args.pubkey else None
+    try:
+        feed.verify(pubkey_pem=pubkey)
+    except ValueError as exc:
+        print(f"\033[91mINVALID\033[0m: {exc}", file=sys.stderr)
+        return 2
+    print(f"\033[92mOK\033[0m  feed={feed.feed_id}  issuer={feed.issuer}  iocs={len(feed.iocs)}")
+    print(f"    merkle_root={feed.merkle_root}")
+    return 0
+
+
+def _cmd_feed_pull(args: argparse.Namespace) -> int:
+    from raucle_detect.feed import FeedStore, fetch_feed
+
+    pubkey = Path(args.pubkey).read_text()
+    feed = fetch_feed(args.url)
+    store = FeedStore.open(args.store)
+    try:
+        store.merge(feed, pubkey_pem=pubkey)
+    except ValueError as exc:
+        print(f"\033[91mREJECTED\033[0m: {exc}", file=sys.stderr)
+        return 2
+    print(f"\033[92mMerged\033[0m  feed={feed.feed_id}  iocs={len(feed.iocs)}  → {args.store}")
+    return 0
+
+
+def _cmd_feed_list(args: argparse.Namespace) -> int:
+    from raucle_detect.feed import FeedStore
+
+    store = FeedStore.open(args.store)
+    iocs = store.all_iocs()
+    if not iocs:
+        print("(empty)")
+        return 0
+    for ioc in iocs:
+        print(f"{ioc.severity:8s} {ioc.kind:18s} {ioc.issuer:24s} {ioc.pattern[:60]}")
+    print(f"\nTotal: {len(iocs)} live IOC(s) across {len(store.list_feeds())} feed(s)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -1003,6 +1145,16 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_provenance_graph(args)
     elif args.command == "provenance" and args.provenance_command == "replay":
         return _cmd_provenance_replay(args)
+    elif args.command == "feed" and args.feed_command == "keygen":
+        return _cmd_feed_keygen(args)
+    elif args.command == "feed" and args.feed_command == "sign":
+        return _cmd_feed_sign(args)
+    elif args.command == "feed" and args.feed_command == "verify":
+        return _cmd_feed_verify(args)
+    elif args.command == "feed" and args.feed_command == "pull":
+        return _cmd_feed_pull(args)
+    elif args.command == "feed" and args.feed_command == "list":
+        return _cmd_feed_list(args)
     else:
         parser.print_help()
         return 0

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.8.0 (2026-05-14)
+
+### Federated signed-IOC feeds — Sigstore-shaped threat intel for AI
+
+Every new deployment that subscribes makes every other deployment safer. Novel jailbreaks discovered by one team propagate to every gateway worldwide, cryptographically signed, no central authority, no API token.
+
+- **`SignedIOC`** — content-addressed Indicator of Compromise. Fields: `kind` (`regex` | `substring` | `unicode_signature`), `pattern`, `severity`, `categories`, `issuer`, `key_id`, `issued_at`, optional `revokes` / `expires_at`. Body is canonical-JSON-hashed; `content_hash` is the identifier; Ed25519 `signature` is mandatory.
+- **`Feed`** — a bundle of IOCs from one issuer, plus a Merkle root over sorted content hashes and one manifest signature. Every IOC is *also* individually signed, so partial copies remain verifiable offline.
+- **`IOCSigner`** — publisher API. `generate(issuer=...)`, `sign_ioc(...)`, `build_feed(...)`, `save_private_key(...)`. Pure Ed25519 (`cryptography` extra).
+- **`FeedStore`** — consumer API. Directory-backed, pinned-pubkey verification on every merge, honours intra-issuer `revokes`, drops expired IOCs. Renders the live set as pattern rules consumable by `Scanner(feed_store=...)`.
+- **`Scanner(feed_store=...)`** — one new keyword. Feed-derived rules merge alongside built-ins and custom YAML, with `source: "feed:<issuer>"` carried through to `matched_rules` so downstream audit/receipt can attribute every hit.
+- **Trust model** — no global root. Consumers pin one issuer pubkey per feed. Multiple feeds compose. Hostile cross-issuer revocations are silently ignored: an issuer can only revoke its own IOCs.
+- **CLI** — `raucle-detect feed keygen`, `feed sign`, `feed verify`, `feed pull`, `feed list`.
+- **Composition** — feed-derived rules participate in the ruleset hash bound into every v0.4.0 audit-chain entry and v0.5.0 signed receipt. Subscribing to a feed mutates the verdict surface in a way that is itself attestable.
+
+This is the network-effect layer. Move #6 of the frontier roadmap.
+
 ## 0.7.0 (2026-05-14)
 
 ### Multimodal scanning — the 2026 attack surface

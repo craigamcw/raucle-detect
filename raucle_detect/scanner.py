@@ -157,6 +157,7 @@ class Scanner:
         tenant: str | None = None,
         provenance_logger: Any = None,
         input_store: Any = None,
+        feed_store: Any = None,
     ) -> None:
         if mode not in _MODE_THRESHOLDS:
             raise ValueError(f"Unknown mode {mode!r}. Choose from: strict, standard, permissive")
@@ -173,6 +174,13 @@ class Scanner:
             extra = load_rules_dir(rules_dir)
             if extra:
                 self._pattern_layer.add_rules(extra)
+
+        # Federated signed-IOC feeds (v0.8.0)
+        self._feed_store = feed_store
+        if feed_store is not None:
+            feed_rules = feed_store.as_pattern_rules()
+            if feed_rules:
+                self._pattern_layer.add_rules(feed_rules)
 
         # Semantic layer
         self._heuristic = HeuristicClassifier()
