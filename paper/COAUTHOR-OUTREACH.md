@@ -1,115 +1,13 @@
-# Co-author outreach
+# Co-author outreach — decision
 
-A second author with formal-methods credentials makes §4 (the Lean
-mechanisation) dramatically stronger and converts a solo paper into a
-collaboration — both signals more attractive to FAANG hiring and acquihire
-conversations than the paper alone.
+**Decision (2026-05-14):** solo submission. Not pursuing a co-author.
 
-## Target profile
+The earlier draft of this document (preserved in git history) catalogued
+candidates and an outreach template; that material is retained for future
+reference but is not the plan of record. The Lean development closing
+cleanly without external help, plus the static-upper-bound result, plus
+the pre-registration anchors together make a solo submission defensible.
 
-Looking for one of:
-
-- **PhD student or postdoc** working on formally-verified systems security
-  (capability OS, language-based security, SMT for policy verification).
-- **Industry researcher** at Galois, MITRE, JPL, or a national lab who has
-  shipped Lean / Coq / F* mechanisations of security properties.
-- **Faculty** with prior S&P / USENIX / CCS publications in the
-  capability-discipline or policy-verification lineage who is currently
-  taking on a junior co-author role on a focused project.
-
-The candidate does *not* need prior LLM-security experience. The contribution
-is the formal half of §4 plus a careful review of §3.3 and §3.4. Their
-Lean fluency is the load-bearing skill.
-
-## Where to find them
-
-| Venue / list | Why |
-|---|---|
-| USENIX Security 2024-2026 PC, sub-area "formal methods" | Active, recognisably credentialed |
-| IEEE S&P 2024-2026 authors of capability / policy-verification papers | Same |
-| Lean Zulip — `#mathlib4 > security` and `#general > industry collab` | Strong filter for working Lean expertise |
-| Coq-club mailing list | Same for Coq-fluent candidates |
-| Galois "Cryptol / SAW" team | Industry side, security-focused |
-| Felipe Bañados Schwerter, Jane Street, Tweag, Run-Time Verification Inc. | Industry contractors |
-
-## Email template
-
-Subject: **Co-author on a focused S&P submission — verified capabilities for LLM agents**
-
-> Hi [name],
->
-> I'm reaching out because of your work on [specific paper, e.g. "Verified IFC for Coq-Mtac" / "Mechanising capability discipline in Iris"], which is the closest published prior art to a system I've been building this year and now want to write up.
->
-> Short version: I've shipped an open-source library (~2,500 LoC Python, MIT-licensed, currently on PyPI) that composes SMT-verified completeness of JSON Schema-bounded tool-call policies with Ed25519-signed capability tokens carrying mechanically-enforced attenuation invariants. The empirical claim is that this reduces AgentDojo and InjecAgent attack success to under 1% for tool-call-mediated attacks at production-acceptable latency.
->
-> I have a complete prose draft and a Lean 4 skeleton of three soundness theorems (attenuation monotonicity, gate soundness, policy-proof composition). The proofs are sketched at the data-model level with about 600 lines of mechanical case analysis and lattice reasoning remaining. I'm targeting S&P's December 2026 cycle.
->
-> I'm looking for a co-author who would own §4 (the Lean mechanisation) and review §3 (the formal data model). The empirical work and prose are mine. The draft, Lean skeleton, and review notes are public: [repo URL]/tree/main/paper.
->
-> If this is interesting, I'd love a 30-minute call to walk you through the skeleton and see whether the workload feels right for the next six weeks. If it's not the right fit for you, a pointer to someone who might be is also enormously appreciated.
->
-> Best,
-> [your name]
-
-## Notes on sending
-
-1. **Personalise the first sentence.** A generic email gets deleted; a sentence that proves you read their work gets answered.
-2. **Lead with the deadline.** Six weeks is short. Candidates who can commit need to know up front so they can decline if they can't.
-3. **Send to three at once, not ten.** A 30% reply rate at this profile is realistic; three emails = roughly one reply. If none replies in five working days, send three more.
-4. **Don't offer first authorship in the cold email.** Position the offer as "co-author owning §4". If a strong candidate counter-offers a different role, negotiate from there.
-5. **Be ready with a real public repo link** when sending. The cold email's credibility depends entirely on the recipient being able to inspect the draft and the Lean skeleton in 60 seconds. The links must work.
-
-## Candidates to consider
-
-A starter list — names drawn from recent USENIX/S&P/CCS proceedings and from the active Lean 4 / formal-methods community. **Each entry needs a 60-second sanity check** before sending: verify they're (a) currently active, (b) not on sabbatical, (c) plausibly interested in agent security. Reorder by personal connection where possible — a warm intro from a mutual contact is worth ten cold emails.
-
-| Name | Affiliation | Why a fit | Status |
-|---|---|---|---|
-| Andres Erbsen | Galois / formerly MIT CSAIL | Verified-cryptography mechanisations (Fiat-Crypto, Bedrock2); active in Lean + Coq; security-research register | not contacted |
-| Sandrine Blazy | Univ. Rennes / IRISA | CompCert lineage; mechanised security properties; supervises PhDs on verified systems | not contacted |
-| Joachim Breitner | Tweag / formerly DFINITY | Practical Lean + Haskell formal-methods consulting; small focused-project rhythm matches our 6-week window | not contacted |
-| Bas Spitters | Aarhus University | Verified cryptography and capability systems in Coq; collaborates with industry | not contacted |
-| Tej Chajed | Univ. Wisconsin-Madison | Verified concurrent systems (Perennial); SOSP papers; would appreciate the OS-capability lineage | not contacted |
-| Jules Hedges | Univ. Strathclyde | Open-game theory + applied category theory in Agda/Lean; lateral but creative fit | not contacted |
-| Mario Carneiro | Carnegie Mellon | mathlib4 core dev; would close §4's remaining tactical questions in hours | not contacted |
-| Edoardo Debenedetti | ETH Zürich (Tramèr group) | First author of AgentDojo; would strengthen §6 enormously and signals reviewer alignment | not contacted (highest leverage) |
-| Florian Tramèr | ETH Zürich | AgentDojo senior author; sceptical-but-fair reviewer voice; even a "no thanks, but here's my read" reply is high-value | not contacted |
-| Daniel Kang | UIUC | InjecAgent senior author; same reasoning as Tramèr | not contacted |
-| Sahar Abdelnabi | CISPA | Original indirect-injection paper (Greshake+); deep expertise on the attack side | not contacted |
-| Kai Greshake | independent / CISPA | Same; informally proposed "capabilities for LLM agents" already, would resonate | not contacted |
-
-### Three-round send order
-
-1. **Highest leverage first** (one each): Debenedetti, Mario Carneiro, Sahar Abdelnabi. These three combine domain authority with realistic likelihood of caring about the work.
-2. **If no replies in 5 working days** (one each): Tramèr, Tej Chajed, Greshake.
-3. **Final round** (any of the above): Erbsen, Blazy, Breitner, Spitters, Hedges, Kang.
-
-### What "yes" looks like
-
-A reply of the form "I'd be open to a call — what's the workload look like over the next 6 weeks?" is the typical positive signal. Get the call scheduled within 48 hours; the workload conversation closes the deal or surfaces a deal-breaker fast.
-
-### What "no, but" looks like
-
-A reply pointing at a specific PhD student or postdoc with the right skills. Treat these as gold: warm-intro the student, mention the senior person's referral in the first sentence.
-
-### Tracking sends
-
-Maintain this table inline as you go — set the **Status** column to one of:
-- `not contacted`
-- `sent <date>`
-- `reply: <yes|no|maybe|no but referred to X>`
-- `call scheduled <date>`
-- `signed on`
-
-## Backup plan: no co-author
-
-If three rounds of outreach yield no co-author by end of Week 2:
-
-- Carry the Lean development solo. Plan: spend Week 3 on Lean rather than on
-  the eval harness. Block out three full days; expect mid-week frustration.
-- Weaken Theorem 3's statement to "we sketch the composition argument" if any
-  proof refuses to close cleanly. The paper still lands; the contribution is
-  marginally smaller.
-- Add a third "external reviewer" pass in Week 5 by emailing one formal-methods
-  acquaintance for read-through feedback only (no authorship), at the
-  acknowledgments-line cost rather than the co-author cost.
+If the post-review process surfaces a specific reviewer concern that a
+co-author would resolve (e.g. extensive Coq/Lean specialism beyond the
+mechanisation already in `paper/lean/`), revisit at that point.

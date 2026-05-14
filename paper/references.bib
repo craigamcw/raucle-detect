@@ -59,12 +59,10 @@
   year      = 2024,
 }
 
-@misc{shi2024prompt, %% UNVERIFIED — chosen as illustrative of "prompt-injection-as-privilege-escalation" framing; verify exact title/authors
-  title  = {Prompt Injection as Privilege Escalation},
-  author = {Shi, Y. and Liu, L. and Wang, W. and others},
-  year   = 2024,
-  note   = {arXiv preprint},
-}
+%% Dropped: the "prompt injection as privilege escalation" framing is
+%% adequately covered by Greshake et al. 2023 (which we already cite). No
+%% need for a separate weak reference. If the §7.1 paragraph still names
+%% Shi et al., reword to point at greshake2023not.
 
 %% ---------------------------------------------------------------------------
 %% Capability discipline
@@ -130,11 +128,12 @@
   note      = {Companion volume},
 }
 
-@inproceedings{backes2019iam, %% UNVERIFIED venue and exact title; the IAM/SMT line of work exists at CAV/POPL/etc.
-  title     = {IAM Policy Soundness Via {SMT}},
-  author    = {Backes, John and others},
-  booktitle = {Proceedings of the International Conference on Computer-Aided Verification (CAV)},
-  year      = 2019,
+@inproceedings{backes2018semantic,
+  title     = {Semantic-Based Automated Reasoning for {AWS} Access Policies Using {SMT}},
+  author    = {Backes, John and Bolignano, Pauline and Cook, Byron and Dodge, Catherine and Gacek, Andrew and Luckow, Kasper and Rungta, Neha and Tkachuk, Oksana and Varming, Carsten},
+  booktitle = {Proceedings of the Conference on Formal Methods in Computer-Aided Design (FMCAD)},
+  year      = 2018,
+  note      = {The Zelkova paper; AWS IAM policies as SMT.},
 }
 
 %% ---------------------------------------------------------------------------
@@ -170,11 +169,14 @@
 %% Verified Ed25519 / cryptography infrastructure
 %% ---------------------------------------------------------------------------
 
-@inproceedings{beringer2022ed25519, %% UNVERIFIED — Beringer's HACL*/EverCrypt work covers Ed25519 verified specs; verify CSF year and exact title
-  title     = {Verified Specification and Implementation of {Ed25519}},
-  author    = {Beringer, Lennart and others},
-  booktitle = {IEEE Computer Security Foundations Symposium (CSF)},
-  year      = 2022,
+@inproceedings{erbsen2019simple,
+  title     = {Simple High-Level Code for Cryptographic Arithmetic: With Proofs, Without Compromises},
+  author    = {Erbsen, Andres and Philipoom, Jade and Gross, Jason and Sloan, Robert and Chlipala, Adam},
+  booktitle = {Proceedings of the 40th IEEE Symposium on Security and Privacy (S\&P)},
+  pages     = {1202--1219},
+  year      = 2019,
+  doi       = {10.1109/SP.2019.00005},
+  note      = {Fiat-Crypto; verified specifications and field-arithmetic for Curve25519/Ed25519.},
 }
 
 @misc{pyca,
@@ -209,22 +211,13 @@
 %% Misc / blog / informal
 %% ---------------------------------------------------------------------------
 
-@misc{greshake2025capabilities, %% UNVERIFIED — placeholder for the informal "capabilities for LLM agents" blog-post lineage; replace with a concrete cite or drop
-  title  = {Capabilities for {LLM} Agents},
-  author = {Greshake, Kai},
-  year   = 2025,
-  note   = {Blog post / informal write-up.},
-}
+%% Dropped: greshake2025capabilities was an informal-blog-post placeholder.
+%% The §7.2 paragraph mentioning "capabilities for LLM agents have been
+%% discussed informally" should either drop the cite entirely or replace
+%% with greshake2023not (we already cite it).
 
-@misc{jeffrey2014firewall, %% UNVERIFIED — firewall model-checking line of work; pick a specific paper for the camera-ready
-  title  = {Model-Checking Firewall Configurations},
-  author = {Jeffrey, Alan and others},
-  year   = 2014,
-  note   = {Representative of the firewall-SMT line of work.},
-}
-
-@misc{polyzotis2021policy, %% UNVERIFIED — placeholder for K8s admission-policy verification work; replace with a concrete reference
-  title  = {Policy Verification at Scale},
-  author = {Polyzotis, Neoklis and others},
-  year   = 2021,
-}
+%% Dropped: jeffrey2014firewall and polyzotis2021policy were stand-ins for
+%% "policy-via-SMT exists in firewalls and Kubernetes admission" — neither
+%% citation was load-bearing. The §7.3 paragraph can reduce to just
+%% fisler2005margrave + backes2018semantic, which are both verified
+%% concrete cites covering the same conceptual ground.

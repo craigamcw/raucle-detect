@@ -35,7 +35,11 @@ We adopt the standard agentic-LLM adversary model from Greshake et al. [GAB+23] 
 
 **Defender capabilities.** The defender controls a gate process that sits between the agent runtime and the tool implementations. The gate runs in a separate trust domain from the model — a separate process, container, or address space — and is the only path through which tools are invoked. The defender holds the issuer's private key in a hardware security module or equivalent. The defender authors tool JSON Schemas and constraint policies; we make no assumption that either is correct, only that the SMT prover catches the cases where they disagree.
 
+**Token confidentiality.** Capability tokens are *unforgeable* but not *confidential*: an attacker who steals a valid token can use it within its bounds. Production deployments should bind each token to a session via a confidential channel (mTLS between agent and gate; per-session token rotation; short TTLs) so that exfiltrated tokens are useless to attackers operating in different sessions. The reference implementation does not enforce this binding — it is the responsibility of the deployment. The threat model in this paper assumes tokens cannot be exfiltrated from the agent runtime; this assumption is realistic for in-process deployments and weakens to "tokens have short TTL and are bound to session keys" in the multi-tenant case.
+
 **Security goal.** For every tool call $c = (\text{tool}, \text{args})$ that the gate authorises with token $t$, the arguments $\text{args}$ satisfy every constraint in $t$, and $t$ is a valid descendant of a root token signed by a pinned issuer. We refer to this property as *gate soundness*. We also require *attenuation soundness*: no child token derived from a parent can carry permissions broader than the parent along any constraint dimension or lifetime.
+
+**Operational definition of "tool-call-mediated."** Throughout this paper an attack is *tool-call-mediated* iff its success criterion is the invocation of a specific tool with specific argument values. This matches AgentDojo's `security` boolean and InjecAgent's success predicate exactly. An attack whose success criterion is, for example, the agent *speaking aloud* a secret it previously retrieved through a tool — without subsequently emitting a structured tool call to exfiltrate it — is **not** tool-call-mediated under this definition, regardless of whether a tool call earlier in the trace produced the secret. We make no claim against the non-tool-call-mediated class; see §6.5.
 
 **Out of scope.** We list explicitly what VCD does *not* claim. Free-form natural-language output attacks — for example, an attacker coercing the agent to reveal a secret in its visible response — remain unaddressed; the bounded-grammar argument does not apply. Side-channel exfiltration through allowed parameter values (an `amount` field accepting any 64-bit integer permits up to 64 bits per call of covert content) is not prevented; we discuss in Section 8 how schema tightening reduces this channel. Confused-deputy attacks across multiple legitimately-authorised tool calls — read mailbox, then exfiltrate via legitimate `send_email` — are partially addressed by our companion provenance layer [omitted for blind review] but are not the focus of this paper. The model itself is not part of the trusted computing base; the gate is. Compromise of the gate process or the issuer's signing key is outside the model.
 
@@ -94,6 +98,8 @@ The gate is the only path from agent intent to tool execution. It runs out-of-pr
 8. **Chain resolution (optional).** If the token carries a `parent_id`, walk the parent chain. Every intermediate token must verify under the gate's trusted-issuer map. Reject on any unresolved or invalid parent.
 
 The gate is a deterministic, side-effect-free decision procedure. Every invocation emits a structured event suitable for consumption by an append-only audit log; the gate does not itself maintain state.
+
+**Gate-monopoly is an architectural assumption, not a mathematical theorem.** Theorem 2 (§4) establishes that any call returning ALLOW from the gate satisfies the in-force constraints; it does *not* establish that every tool invocation must go through the gate. That latter property is the deployer's responsibility and is enforced architecturally: tool implementations live in a separate process from the agent runtime, exposed only behind a gate-mediated RPC interface, with no eval/exec/direct-import paths reachable from agent-controlled data. The reference implementation ships the gate as an out-of-process server behind a Unix socket or local HTTPS endpoint, with the issuer key in an HSM. A deployment that violates this discipline — for example, by linking the agent runtime and the tool implementation into one address space and letting the agent reach the tool symbol directly — loses the property regardless of the gate's correctness. We call this property out explicitly because §4's mechanisation provides no formal guarantee about it.
 
 ### 3.4 Composition
 
@@ -155,7 +161,9 @@ The proof is a direct case analysis on the eight gate checks. Each check, if it 
 
 The proof composes the prover's soundness — every assignment satisfying $S$ that violates $P$ is found by Z3, so `PROVEN` certifies $\Sigma \cap \neg P = \emptyset$ — with Theorem 2 and the constraint-lattice tightness assumption on $t$. The Lean development is approximately 75 lines and depends on a small axiomatic interface to the Z3 oracle. The full mechanisation (Theorems 1, 2, and 3 together) is 353 lines of Lean 4 and compiles under Mathlib v4.10.0 with no `sorry`s.
 
-We are honest about what the Lean development does and does not establish. It mechanises the *attenuation and gate logic at the level of the abstract data model*. It does not mechanise the bit-level correctness of the Ed25519 implementation (we rely on the standard formalisation [BHB22] and the audited `cryptography` library [PYCA]) nor the bit-level correctness of Z3 (we treat the SMT solver as a trusted oracle whose `unsat` results we accept; in practice a `PROVEN` result from Z3 should be cross-validated against a second implementation, a step we have added to the reference codebase).
+We are honest about what the Lean development does and does not establish. It mechanises the *attenuation and gate logic at the level of the abstract data model*. It does not mechanise the bit-level correctness of the Ed25519 implementation (we rely on Erbsen et al.'s verified field-arithmetic for Curve25519/Ed25519 [erbsen2019simple] and the audited `cryptography` library [PYCA]) nor the bit-level correctness of Z3 (we treat the SMT solver as a trusted oracle whose `unsat` results we accept; in practice a `PROVEN` result from Z3 should be cross-validated against a second implementation, a step we have added to the reference codebase).
+
+The mechanisation depends on three explicit cryptographic-oracle assumptions, all standard. (i) **Ed25519 unforgeability under chosen-message attack:** the only way to produce a valid signature over a body is to know the corresponding private key. Theorem 2's conclusion that the verifying public key is in the trusted set rests on this. (ii) **SHA-256 collision resistance:** no two distinct canonical bodies hash to the same `token_id`. Theorem 2's identifier-binding check rests on this. (iii) **`canonBody` determinism:** the canonical-JSON serialisation produces the same byte sequence for every logically-equivalent body across implementations and Python versions. Our canonicalisation uses sorted keys, no whitespace, UTF-8 encoding, and `ensure_ascii=False`; we treat this as an oracle property and recommend deployments cross-validate the canonical encoding against a second implementation at boot.
 
 ## 5. Implementation
 
@@ -176,6 +184,17 @@ The codebase has been MIT-licensed since release; the Lean development will be r
 ## 6. Evaluation
 
 We evaluate three claims: (i) tool-call attack-success rate is reduced to near zero on standard benchmarks; (ii) benign task completion is preserved; (iii) per-call latency overhead is production-acceptable.
+
+### 6.0 Pre-registration
+
+Before any measurement run that consumed LLM credits, the per-task policy files (§3.4) were frozen by SHA-256 hash and committed to the repository. The first eight hex characters of each file's hash:
+
+```
+banking.json    sha256:4b78e687…    slack.json     sha256:72698245…
+travel.json     sha256:c7692b8e…    workspace.json sha256:8ba70481…
+```
+
+Full hashes appear in `paper/eval/PRE-REGISTRATION.md`; the static verifier (`paper/eval/verify_policies.py`) re-computes them on every CI build and aborts on drift. Policy edits after this freeze require a separate commit explaining the change and a new pre-registration entry. Any measurement number in §6.2 was produced against a policy file whose hash exactly matches one of the above.
 
 ### 6.1 Benchmarks and Configurations
 
@@ -223,6 +242,8 @@ The static verifier (`paper/eval/verify_policies.py`) runs the same constraint l
 
 The single known exception is one cell in AgentDojo banking (user_task_15 × schedule_transaction): the user's stated intent contains the same IBAN as the benchmark's adversarial recipient (the user's landlord). Capability discipline correctly admits that call — the user explicitly authorised it — while the same IBAN remains forbidden in every other user task's policy. The static verifier flags this cell as a *known-legitimate coincidence* and excludes it from the count above.
 
+The verifier and the runtime gate share a single implementation of the constraint-check logic — both call into the same `Policy.satisfiesArgs` function in `raucle_detect.capability` — so the static result is not a separate model that could disagree with the runtime. The verifier is a 30-line driver that loads the policy files, iterates over the benchmark's catalogued attack args, and asks the same Python function the gate asks at runtime. Any policy edit that weakens the gate's behaviour weakens the static result identically. A CI job (configured in `.github/workflows/ci.yml`) re-runs the verifier on every commit and fails the build if the static block rate regresses below 100%.
+
 **Ablation.** To attribute the headline delta across the three components of VCD, we measure each in isolation:
 
 | Configuration | AgentDojo ASR | InjecAgent ASR |
@@ -233,25 +254,25 @@ The single known exception is one cell in AgentDojo banking (user_task_15 × sch
 
 The capability gate alone is expected to catch the bulk of attacks because runtime constraint-checking already structurally blocks malformed tool calls; the SMT-proof-only configuration catches schema/policy disagreements that would otherwise leave gaps the gate has no way to detect. The composition closes both.
 
-The VCD text-only row is a sanity check: with the capability gate disabled, we are merely a text-side defence and should sit roughly in the same range as Spotlighting / StruQ. The full-stack row is the load-bearing claim: every attack whose effect is *mediated through a tool call* is rejected by the gate, because every such tool call must satisfy the constraints in the in-force capability token, which were issued before the attacker had any access to the agent's context. We discuss in Section 6.5 the small residual that is not zero — attacks whose effect is *not* tool-mediated, such as those that succeed purely through the agent's free-form output.
+The VCD text-only row is a sanity check: with the capability gate disabled, we are merely a text-side defence and should sit roughly in the same range as Spotlighting / StruQ. The full-stack row is the load-bearing claim: every attack whose effect is *mediated through a tool call* (operationally defined in §2) is rejected by the gate, because every such tool call must satisfy the constraints in the in-force capability token, which were issued before the attacker had any access to the agent's context. The structural underpinning of this claim is reported in §6.2.1: a *static* upper bound establishes that the gate's constraint logic, run against the canonical attack args from both benchmarks, denies every attack across all 2,737 (user-task × injection-task) pairs. The LLM-driven measurements in the table above can only do as well or better than that static bound. We discuss in Section 6.5 the small residual that is not zero — attacks whose effect is *not* tool-mediated, such as those that succeed purely through the agent's free-form output.
 
 ### 6.3 Per-Call Latency
 
-Measured on commodity x86_64 cloud hardware (AMD EPYC-Milan, single thread, Ubuntu 24.04, Python 3.12) over 5,000 iterations per gate operation and 200 iterations per proof:
+Measured on two reference hardware classes, single thread, Python 3.12+: an x86_64 cloud VM (AMD EPYC-Milan, Ubuntu 24.04) and a workstation (Apple M-series ARM64, macOS 14). 5,000 iterations per gate operation, 200 iterations per proof.
 
-| Operation | p50 | p95 | p99 |
-|---|---|---|---|
-| `Gate.check()` no chain | `0.07` ms | `0.08` ms | `0.11` ms |
-| `Gate.check()` 3-link chain | `0.27` ms | `0.30` ms | `0.34` ms |
-| `Prove()` cold | `0.67` ms | `0.74` ms | `0.90` ms |
+| Operation | x86_64 (EPYC-Milan) p50 / p95 / p99 | ARM64 (Apple M) p50 / p95 / p99 |
+|---|---|---|
+| `Gate.check()` no chain | 0.07 / 0.08 / 0.11 ms | 0.15 / 0.18 / 0.19 ms |
+| `Gate.check()` 3-link chain | 0.27 / 0.30 / 0.34 ms | 0.58 / 0.64 / 0.69 ms |
+| `Prove()` cold | 0.67 / 0.74 / 0.90 ms | 0.54 / 0.68 / 46.5 ms |
 
 Proof results are cached by `(schema_hash, policy_hash)`. In steady-state deployments where the schema and policy change rarely, the prover is invoked once per policy version and the cache hit rate approaches 100%. **End-to-end overhead per tool call in the steady state is dominated by the gate path, at well under 100 microseconds at p50.** For agents making tens of tool calls per turn at human-conversation cadence, the cost is invisible. Proof-cache invalidation on policy update incurs a one-time sub-millisecond hit.
 
 The numbers are dramatically below the latencies typically associated with formal-verification primitives because the supported JSON Schema fragment is small enough that Z3 finds the proof or counterexample in a handful of solver iterations. Schemas at the edge of our supported fragment (deep enum sets, many fields) can extend `Prove()` cold-path latency into the low milliseconds; this remains acceptable because proofs are issued once per policy version, not per call.
 
-### 6.4 Case Study
+### 6.4 Reference Deployment
 
-We integrated VCD into `[anonymised production agent]` operating in the `[anonymised regulated industry]` sector, processing `[TBD]` tool calls per day across `[TBD]` distinct tool types. Over a `[TBD]`-week monitoring window with adversarial red-team exercises, the gate denied `[TBD]` attempted policy-violating calls while authorising `[TBD]` legitimate calls. The case study is anonymised at the deployment's request; a fuller account will be published independently of this paper.
+The reference implementation `raucle-detect` is MIT-licensed and has been on PyPI since 2026-04. The end-to-end demo (`examples/end_to_end/` in the repository) composes scanner, prover, capability minting, gate, audit chain, and offline-verifiable trust graph in a single script. The four pre-registered AgentDojo policy files (`paper/eval/policies/{banking,slack,travel,workspace}.json`, hash-anchored in `paper/eval/PRE-REGISTRATION.md`) authorised `[TBD-allow-count]` tool calls and denied `[TBD-deny-count]` policy-violating calls across the empirical evaluation reported in §6.2. We do not report a separate production deployment in this paper; the integration cost is modest (the reference adapter for AgentDojo is approximately 300 lines of glue), and we anticipate that one or more public deployments will report their numbers independently. The repository, Lean development, benchmark harness, and policy files are intended as a complete reproducibility package; readers can re-run any number in §6 against their own hardware and model credentials.
 
 ### 6.5 Negative Results
 
@@ -270,7 +291,7 @@ The original prompt-injection taxonomy is due to Perez and Ribeiro [PR22]; the r
 
 The benchmark literature — AgentDojo [DBL+24], InjecAgent [ZSM+24], TensorTrust, AdvBench — has been instrumental in disciplining defence claims. We adopt AgentDojo and InjecAgent as our headline benchmarks because they specifically measure tool-call-mediated success, which is the class VCD addresses.
 
-The work conceptually closest to ours is Shi et al.'s argument that prompt injection should be treated as a privilege-escalation problem [SLW+24] and the recent thread of work on "spotlighting + tool authentication" combinations. None of this prior work provides cryptographic enforcement, attenuation invariants, or SMT-verified policy completeness, and to our knowledge none has been evaluated against AgentDojo or InjecAgent.
+Greshake et al.'s indirect-injection threat model [greshake2023not] is the closest framing to ours — prompt injection as a privilege-escalation problem reachable via untrusted documents in the agent's context — and the recent thread of work on "spotlighting + tool authentication" combinations explores adjacent ideas informally. None of this prior work provides cryptographic enforcement, attenuation invariants, or SMT-verified policy completeness, and to our knowledge none has been evaluated against AgentDojo or InjecAgent with a structurally-enforced gate.
 
 ### 7.2 Capability Discipline
 
@@ -291,11 +312,13 @@ Object capabilities were introduced by Levy [Lev84] and developed by Mark Miller
 
 The deltas are not academic. The public-key-verifiable property means a downstream tool implementation can independently verify a token without sharing a secret with the issuer — relevant in multi-vendor agent deployments. The content-addressed identifier blocks a class of token-substitution attacks that affects bearer-token systems generally. The typed constraint vocabulary is what enables the SMT bridge in Theorem 3.
 
-Capability-based approaches to LLM agents have been discussed informally — see [GRE25] and the LangChain community discussions of "tool allowlists" — but to our knowledge no prior published work provides the mechanised attenuation invariants, cryptographic gate enforcement, and empirical evaluation on prompt-injection benchmarks that VCD combines.
+The industry-familiar comparison is to OAuth 2.0 scopes. OAuth's `scope=read:email scope=send:email` model expresses *permission-level* restrictions; VCD's constraints are *value-level* (the per-call `recipient`, `amount`, and so on are checked, not just the verb). Macaroons' caveats are value-level but informal strings; VCD's are a typed vocabulary that admits SMT verification. OAuth scopes are documented; VCD's attenuation invariants are mechanically enforced in Lean. OAuth tokens carry no proof of policy completeness; VCD tokens cite a SMT-verified `policy_proof_hash`. The three frameworks (OAuth scopes, Macaroons, VCD) lie on a progression of structural commitment: OAuth scopes are a vocabulary, Macaroons add chained attenuation under HMAC, VCD adds value-level constraints + mechanised soundness + verified policy citation.
+
+Capability-based approaches to LLM agents have been discussed informally in community forums and as part of broader "tool allowlist" practices in major agent frameworks, but to our knowledge no prior published work provides the mechanised attenuation invariants, cryptographic gate enforcement, and empirical evaluation on prompt-injection benchmarks that VCD combines.
 
 ### 7.3 SMT for Security Policy
 
-The use of SMT solvers for security-policy reasoning has substantial prior art. Margrave [FKM+05] used decision procedures for XACML access-control reasoning; subsequent work has applied SMT to firewall analysis [JIB+14], Kubernetes admission policies [POL21], and IAM policy verification [BWS+19]. We borrow the conceptual move from this line of work — encode the policy as a violation predicate and ask the solver to refute it — and apply it to the specific case of JSON Schema-bounded tool-call grammars in LLM agent settings.
+The use of SMT solvers for security-policy reasoning has substantial prior art. Margrave [FKM+05] used decision procedures for XACML access-control reasoning; subsequent work scaled the approach to AWS IAM policies via Backes et al.'s Zelkova system [backes2018semantic], which encodes IAM access policies as SMT and proves containment and reachability properties. We borrow the conceptual move from this line of work — encode the policy as a violation predicate and ask the solver to refute it — and apply it to the specific case of JSON Schema-bounded tool-call grammars in LLM agent settings.
 
 ### 7.4 Software Supply-Chain Attestation
 
@@ -315,6 +338,8 @@ We list limitations honestly. Several are direct consequences of the threat mode
 
 **Bootstrap and key management.** VCD reduces the trust problem from "the model must be robust to all prompt injection" to "the issuer's private key must be uncompromised". This is a substantial improvement but not zero. Standard HSM and key-rotation practices apply; the threat model treats compromise of the issuer's key as out of scope.
 
+**Intent extraction as a second trust boundary.** Every per-task token in this paper is minted from a policy derived from the user's prompt. For the evaluation we author those per-task policies by hand and pin them under a cryptographic hash anchor (§6.0, pre-registration). Production deployments cannot author policies by hand at scale; an intent-extraction component must convert each user prompt into a constraint set. Three credible designs exist, with progressively weaker security properties: (a) a rule-based parser written in a memory-safe language, audited and ideally formally verified, accepting only a bounded grammar of user intents; (b) a structured-output extractor (e.g. JSON-schema-constrained LLM call) running in its own trust domain with its own per-task gate; (c) the agent's own LLM call producing a draft policy that is then reviewed by a human before being signed. Option (a) is the strongest and the only one that preserves the headline property end-to-end; option (b) introduces a new attack surface where a malicious user prompt could coerce the extractor into emitting an over-broad policy, but this surface is itself capability-gateable (the extractor calls only the policy-issuance tool, with constraints on the policy shape). Analysing the security of each option is beyond the scope of this paper and a clear direction for follow-up work.
+
 **Defender effort.** A platform operator must author both a JSON Schema and a policy for each tool. The SMT prover catches inconsistencies but does not invent either artefact. For tools whose semantics are not well-understood by the operator, this is real effort. We argue that the effort is well-spent: it is the same security-engineering work that good API design requires regardless of whether an LLM is involved.
 
 ## 9. Conclusion
@@ -333,31 +358,28 @@ The reference implementation, Lean development, and benchmark harness are MIT-li
 
 *Bibliography in `paper/references.bib`. Three entries marked `%% UNVERIFIED` need a final check against published proceedings before camera-ready.*
 
-- [Ant24] Anthropic. Constitutional classifiers. 2024.
-- [BAL+14] Birgisson, A. et al. Macaroons: cookies with contextual caveats. NDSS 2014.
-- [BHB22] Beringer, L. et al. Verified specification and implementation of Ed25519. CSF 2022.
-- [BWS+19] Backes, M. et al. Iam policy soundness via SMT. CAV 2019.
-- [CDC+24] Chen, L. et al. StruQ: defending against prompt injection with structured queries. NeurIPS 2024.
-- [DBL+24] Debenedetti, E. et al. AgentDojo: a dynamic environment for evaluating attacks and defenses for LLM agents. NeurIPS 2024.
-- [DMB08] de Moura, L. and Bjørner, N. Z3: an efficient SMT solver. TACAS 2008.
-- [FKM+05] Fisler, K. et al. Margrave: verification and change-impact analysis of access-control policies. ICSE 2005.
-- [GAB+23] Greshake, K. et al. Not what you've signed up for: compromising real-world LLM-integrated applications with indirect prompt injection. AISec 2023.
-- [GRE25] Greshake, K. Capabilities for LLM agents (blog post). 2025.
-- [HMC+24] Hines, K. et al. Defending against prompt injection with spotlighting. arXiv 2024.
-- [JIB+14] Jeffrey, A. et al. Model-checking firewall configurations. CAV 2014.
-- [KEH+09] Klein, G. et al. seL4: formal verification of an OS kernel. SOSP 2009.
-- [LEA] de Moura, L. and Ullrich, S. The Lean 4 theorem prover and programming language. 2021.
-- [Lev84] Levy, H. Capability-based computer systems. Digital Press 1984.
-- [Mil06] Miller, M. Robust composition: towards a unified approach to access control and concurrency control. PhD thesis 2006.
-- [NCC+22] Newman, Z. et al. Sigstore: software signing for everybody. CCS 2022.
-- [POL21] Polyzotis, N. et al. Policy verification at scale. SOSP 2021.
-- [PR22] Perez, F. and Ribeiro, I. Ignore previous prompt: attack techniques for language models. arXiv 2022.
-- [PYCA] PyCA. The cryptography library. https://cryptography.io
-- [SCM+10] Samuel, J. et al. Survivable key compromise in software update systems. CCS 2010.
-- [SLW+24] Shi, Y. et al. Prompt injection as privilege escalation. arXiv 2024.
-- [SSF99] Shapiro, J. et al. EROS: a fast capability system. SOSP 1999.
-- [TFM+19] Torres-Arias, S. et al. in-toto: providing farm-to-table guarantees for bits and bytes. USENIX Sec 2019.
-- [ZSM+24] Zhan, Q. et al. InjecAgent: benchmarking indirect prompt injections in tool-integrated large language model agents. ACL 2024.
+- Anthropic. Constitutional Classifiers. 2024.
+- Backes, J. et al. Semantic-based automated reasoning for AWS access policies using SMT (Zelkova). FMCAD 2018.
+- Birgisson, A. et al. Macaroons: cookies with contextual caveats. NDSS 2014.
+- Chen, S. et al. StruQ: defending against prompt injection with structured queries. USENIX Sec 2024.
+- de Moura, L. and Bjørner, N. Z3: an efficient SMT solver. TACAS 2008.
+- de Moura, L. and Ullrich, S. The Lean 4 theorem prover and programming language. CADE 2021.
+- Debenedetti, E. et al. AgentDojo: dynamic environment for attacks and defences for LLM agents. NeurIPS 2024.
+- Erbsen, A. et al. Simple high-level code for cryptographic arithmetic, with proofs (Fiat-Crypto). S&P 2019.
+- Fisler, K. et al. The Margrave tool for firewall analysis. ICSE 2005.
+- Greshake, K. et al. Not what you've signed up for: indirect prompt injection in LLM-integrated applications. AISec 2023.
+- Hines, K. et al. Defending against indirect prompt injection with spotlighting. arXiv 2024.
+- Klein, G. et al. seL4: formal verification of an OS kernel. SOSP 2009.
+- Levy, H. Capability-based computer systems. Digital Press 1984.
+- mathlib community. mathlib4: a library of mathematics for Lean 4. 2024.
+- Miller, M. Robust composition: a unified approach to access control and concurrency control. PhD thesis, 2006.
+- Newman, Z. et al. Sigstore: software signing for everybody. CCS 2022.
+- Perez, F. and Ribeiro, I. Ignore previous prompt: attack techniques for language models. arXiv 2022.
+- PyCA. The cryptography library. https://cryptography.io
+- Samuel, J. et al. Survivable key compromise in software update systems. CCS 2010.
+- Shapiro, J. et al. EROS: a fast capability system. SOSP 1999.
+- Torres-Arias, S. et al. in-toto: farm-to-table guarantees for bits and bytes. USENIX Sec 2019.
+- Zhan, Q. et al. InjecAgent: benchmarking indirect prompt injections in tool-integrated LLM agents. ACL Findings 2024.
 
 ---
 
