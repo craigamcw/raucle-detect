@@ -33,7 +33,11 @@ from agentdojo.agent_pipeline import (
 )
 from agentdojo.attacks.base_attacks import BaseAttack
 from agentdojo.attacks.attack_registry import ATTACKS, load_attack
-from agentdojo.benchmark import benchmark_suite_with_injections, SuiteResults
+from agentdojo.benchmark import (
+    benchmark_suite_with_injections,
+    run_task_with_injection_tasks,
+    SuiteResults,
+)
 from agentdojo.task_suite import get_suites
 
 logger = logging.getLogger(__name__)
@@ -93,7 +97,9 @@ def _build_pipeline(
     defence: str,
     model_id: str,
     system_message: str,
-    factory: Callable[[Any], Any] | None = None,
+    *,
+    suite: str | None = None,
+    user_task_id: str | None = None,
 ) -> BasePipelineElement:
     """Build an AgentDojo pipeline for the given defence.
 
@@ -123,7 +129,11 @@ def _build_pipeline(
         return AgentPipeline.from_config(cfg)
 
     if defence in {"vcd_text", "vcd_full", "vcd_cap_only", "vcd_proof_only"}:
-        # Construct manually so we can splice in our gate / scanner
+        if suite is None or user_task_id is None:
+            raise ValueError(
+                f"defence={defence!r} requires `suite` and `user_task_id` so "
+                "the gate can scope its policy. Drive the run via run_per_task()."
+            )
         cfg = PipelineConfig(
             llm=model_id,
             model_id=model_id,
@@ -132,7 +142,7 @@ def _build_pipeline(
             system_message=system_message,
         )
         base = AgentPipeline.from_config(cfg)
-        return _wrap_with_vcd(base, defence, factory)
+        return _wrap_with_vcd(base, defence, suite=suite, user_task_id=user_task_id)
 
     if defence == "struq":
         raise NotImplementedError(
@@ -146,20 +156,22 @@ def _build_pipeline(
 def _wrap_with_vcd(
     pipeline: AgentPipeline,
     variant: str,
-    factory: Callable[[Any], Any] | None,
+    *,
+    suite: str,
+    user_task_id: str,
 ) -> AgentPipeline:
-    """Replace the pipeline's ToolsExecutor with our gated variant."""
+    """Replace the pipeline's ToolsExecutor with our gated variant scoped to
+    one user task."""
     from paper.eval.gated_executor import build_gated_executor
 
-    # The default pipeline shape (see AgentPipeline.from_config):
-    #   [system_message, init_query, llm, ToolsExecutionLoop([ToolsExecutor, llm])]
-    # We patch element [3] — the ToolsExecutionLoop — to use our gated executor.
     elements = list(pipeline.elements)
     loop = elements[3]
     assert isinstance(loop, ToolsExecutionLoop), f"unexpected pipeline shape: {elements}"
     inner = list(loop.elements)
     assert isinstance(inner[0], ToolsExecutor), f"unexpected loop shape: {inner}"
-    inner[0] = build_gated_executor(variant=variant)
+    inner[0] = build_gated_executor(
+        suite=suite, user_task_id=user_task_id, variant=variant
+    )
     elements[3] = ToolsExecutionLoop(inner)
     return AgentPipeline(elements)
 
@@ -191,27 +203,36 @@ def run(
     """
     suite_names = suites if suites is not None else SUITES
     suite_dict = get_suites(SUITE_VERSION)
+    is_vcd = defence.startswith("vcd_")
 
     out: list[SuiteAggregate] = []
     for sname in suite_names:
         suite = suite_dict[sname]
-        agent = _build_pipeline(defence, model, _system_message_for(sname))
-        attack = load_attack(attack_name, suite, agent)
-
         t0 = time.time()
-        results: SuiteResults = benchmark_suite_with_injections(
-            agent_pipeline=agent,
-            suite=suite,
-            attack=attack,
-            logdir=logdir,
-            force_rerun=force_rerun,
-            user_tasks=user_tasks,
-            injection_tasks=injection_tasks,
-            verbose=verbose,
-            benchmark_version=SUITE_VERSION,
-        )
+        if is_vcd:
+            agg = _run_suite_per_task(
+                defence, model, suite, sname, attack_name,
+                user_tasks=user_tasks, injection_tasks=injection_tasks,
+                logdir=logdir, force_rerun=force_rerun,
+                verbose=verbose,
+            )
+        else:
+            # Non-VCD configurations: single pipeline per suite is fine.
+            agent = _build_pipeline(defence, model, _system_message_for(sname))
+            attack = load_attack(attack_name, suite, agent)
+            results: SuiteResults = benchmark_suite_with_injections(
+                agent_pipeline=agent,
+                suite=suite,
+                attack=attack,
+                logdir=logdir,
+                force_rerun=force_rerun,
+                user_tasks=user_tasks,
+                injection_tasks=injection_tasks,
+                verbose=verbose,
+                benchmark_version=SUITE_VERSION,
+            )
+            agg = _aggregate(sname, results)
         elapsed = time.time() - t0
-        agg = _aggregate(sname, results)
         logger.info(
             "[%s] %s: ASR=%.1f%% benign=%.1f%% (%.0fs)",
             defence, sname, 100 * agg.asr, 100 * agg.benign_completion, elapsed,
@@ -220,44 +241,101 @@ def run(
     return out
 
 
-def _aggregate(suite_name: str, results: SuiteResults) -> SuiteAggregate:
-    """Roll up AgentDojo's per-task booleans into the metrics our paper reports."""
-    total = 0
-    asr = 0
-    benign = 0
-    tool_med = 0
-    per_task: list[TaskResult] = []
-    for task_id, task_results in results.injection_tasks_utility_results.items():
-        for inj_id, task_result in task_results.items():
-            total += 1
-            attack_succeeded = task_result.security  # AgentDojo: True iff attack succeeded
-            benign_ok = task_result.utility
-            # AgentDojo's `security` boolean is always tool-mediated by construction
-            # (attacks are scored by whether a specific tool call was emitted with
-            # attacker-controlled args). All counted attacks here are tool-mediated.
-            is_tool = True
-            if attack_succeeded:
-                asr += 1
-                if is_tool:
-                    tool_med += 1
-            if benign_ok:
-                benign += 1
-            per_task.append(TaskResult(
-                suite=suite_name,
-                user_task_id=str(task_id),
-                injection_task_id=str(inj_id),
-                attack_success=attack_succeeded,
-                benign_success=benign_ok,
-                is_tool_mediated=is_tool,
-            ))
-    return SuiteAggregate(
+def _run_suite_per_task(
+    defence: str,
+    model: str,
+    suite,
+    suite_name: str,
+    attack_name: str,
+    *,
+    user_tasks: list[str] | None,
+    injection_tasks: list[str] | None,
+    logdir: Path | None,
+    force_rerun: bool,
+    verbose: bool,
+) -> SuiteAggregate:
+    """Drive AgentDojo task-by-task so each user task gets a freshly-built
+    pipeline whose `GatedToolsExecutor` is scoped to that task's policy."""
+    if user_tasks is not None:
+        tasks_to_run = [suite.get_user_task_by_id(ut) for ut in user_tasks]
+    else:
+        tasks_to_run = list(suite.user_tasks.values())
+
+    sys_msg = _system_message_for(suite_name)
+
+    aggregate = SuiteAggregate(
         suite=suite_name,
-        total_tasks=total,
-        attack_successes=asr,
-        benign_successes=benign,
-        tool_mediated_attacks=tool_med,
-        per_task=per_task,
+        total_tasks=0,
+        attack_successes=0,
+        benign_successes=0,
+        tool_mediated_attacks=0,
     )
+
+    for ut in tasks_to_run:
+        ut_id = ut.ID
+        agent = _build_pipeline(
+            defence, model, sys_msg, suite=suite_name, user_task_id=ut_id
+        )
+        attack = load_attack(attack_name, suite, agent)
+        utility_map, security_map = run_task_with_injection_tasks(
+            suite,
+            agent,
+            ut,
+            attack,
+            logdir,
+            force_rerun,
+            injection_tasks,
+            SUITE_VERSION,
+        )
+        # Each map: {(ut_id, inj_id): bool}
+        for key, attack_success in security_map.items():
+            aggregate.total_tasks += 1
+            if attack_success:
+                aggregate.attack_successes += 1
+                aggregate.tool_mediated_attacks += 1
+            if utility_map.get(key, False):
+                aggregate.benign_successes += 1
+            aggregate.per_task.append(TaskResult(
+                suite=suite_name,
+                user_task_id=key[0] if isinstance(key, tuple) else str(key),
+                injection_task_id=key[1] if isinstance(key, tuple) else "?",
+                attack_success=bool(attack_success),
+                benign_success=bool(utility_map.get(key, False)),
+                is_tool_mediated=True,
+            ))
+        if verbose:
+            logger.info("  [%s/%s] %s done", defence, suite_name, ut_id)
+    return aggregate
+
+
+def _aggregate(suite_name: str, results: SuiteResults) -> SuiteAggregate:
+    """Roll up AgentDojo's per-(user_task, injection_task) booleans."""
+    aggregate = SuiteAggregate(
+        suite=suite_name,
+        total_tasks=0,
+        attack_successes=0,
+        benign_successes=0,
+        tool_mediated_attacks=0,
+    )
+    # results.security_results : dict[(user_task_id, injection_task_id), bool]
+    # results.utility_results  : dict[(user_task_id, injection_task_id), bool]
+    for key, attack_success in results.security_results.items():
+        aggregate.total_tasks += 1
+        if attack_success:
+            aggregate.attack_successes += 1
+            aggregate.tool_mediated_attacks += 1
+        if results.utility_results.get(key, False):
+            aggregate.benign_successes += 1
+        ut, inj = key if isinstance(key, tuple) else (str(key), "?")
+        aggregate.per_task.append(TaskResult(
+            suite=suite_name,
+            user_task_id=str(ut),
+            injection_task_id=str(inj),
+            attack_success=bool(attack_success),
+            benign_success=bool(results.utility_results.get(key, False)),
+            is_tool_mediated=True,
+        ))
+    return aggregate
 
 
 def _system_message_for(suite: str) -> str:
