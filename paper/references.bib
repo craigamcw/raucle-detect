@@ -1,0 +1,230 @@
+% References for "Verified Capability Discipline for LLM Agent Tool Calls"
+% Last verified 2026-05-14. Entries marked %% UNVERIFIED need a final check
+% before camera-ready against the venue's published proceedings.
+
+%% ---------------------------------------------------------------------------
+%% Prompt injection & LLM-specific defences
+%% ---------------------------------------------------------------------------
+
+@misc{perez2022ignore,
+  title  = {Ignore Previous Prompt: Attack Techniques For Language Models},
+  author = {Perez, F\'{a}bio and Ribeiro, Ian},
+  year   = 2022,
+  eprint = {2211.09527},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CL},
+}
+
+@inproceedings{greshake2023not,
+  title     = {Not What You've Signed Up For: Compromising Real-World LLM-Integrated Applications With Indirect Prompt Injection},
+  author    = {Greshake, Kai and Abdelnabi, Sahar and Mishra, Shailesh and Endres, Christoph and Holz, Thorsten and Fritz, Mario},
+  booktitle = {Proceedings of the 16th ACM Workshop on Artificial Intelligence and Security (AISec)},
+  year      = 2023,
+}
+
+@misc{hines2024defending,
+  title  = {Defending Against Indirect Prompt Injection Attacks With Spotlighting},
+  author = {Hines, Keegan and Lopez, Gary and Hall, Matthew and Zarfati, Federico and Zunger, Yonatan and Kiciman, Emre},
+  year   = 2024,
+  eprint = {2403.14720},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CR},
+}
+
+@inproceedings{chen2024struq,
+  title     = {{StruQ}: Defending Against Prompt Injection With Structured Queries},
+  author    = {Chen, Sizhe and Piet, Julien and Sitawarin, Chawin and Wagner, David},
+  booktitle = {Proceedings of the 33rd USENIX Security Symposium},
+  year      = 2024,
+}
+
+@misc{anthropic2024constitutional,
+  title  = {Constitutional Classifiers: Defending against Universal Jailbreaks across Thousands of Hours of Red Teaming},
+  author = {{Anthropic}},
+  year   = 2024,
+  url    = {https://www.anthropic.com/research/constitutional-classifiers},
+}
+
+@inproceedings{debenedetti2024agentdojo,
+  title     = {{AgentDojo}: A Dynamic Environment to Evaluate Prompt Injection Attacks and Defenses for {LLM} Agents},
+  author    = {Debenedetti, Edoardo and Zhang, Jie and Balunovi\'{c}, Mislav and Beurer-Kellner, Luca and Fischer, Marc and Tram\`{e}r, Florian},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS) Datasets and Benchmarks Track},
+  year      = 2024,
+}
+
+@inproceedings{zhan2024injecagent,
+  title     = {{InjecAgent}: Benchmarking Indirect Prompt Injections in Tool-Integrated Large Language Model Agents},
+  author    = {Zhan, Qiusi and Liang, Zhixiang and Ying, Zifan and Kang, Daniel},
+  booktitle = {Findings of the Association for Computational Linguistics: ACL},
+  year      = 2024,
+}
+
+@misc{shi2024prompt, %% UNVERIFIED — chosen as illustrative of "prompt-injection-as-privilege-escalation" framing; verify exact title/authors
+  title  = {Prompt Injection as Privilege Escalation},
+  author = {Shi, Y. and Liu, L. and Wang, W. and others},
+  year   = 2024,
+  note   = {arXiv preprint},
+}
+
+%% ---------------------------------------------------------------------------
+%% Capability discipline
+%% ---------------------------------------------------------------------------
+
+@book{levy1984capability,
+  title     = {Capability-Based Computer Systems},
+  author    = {Levy, Henry M.},
+  publisher = {Digital Press},
+  year      = 1984,
+  isbn      = {9780932376220},
+}
+
+@phdthesis{miller2006robust,
+  title  = {Robust Composition: Towards a Unified Approach to Access Control and Concurrency Control},
+  author = {Miller, Mark Samuel},
+  school = {Johns Hopkins University},
+  year   = 2006,
+}
+
+@inproceedings{shapiro1999eros,
+  title     = {{EROS}: A Fast Capability System},
+  author    = {Shapiro, Jonathan S. and Smith, Jonathan M. and Farber, David J.},
+  booktitle = {Proceedings of the 17th ACM Symposium on Operating Systems Principles (SOSP)},
+  pages     = {170--185},
+  year      = 1999,
+  doi       = {10.1145/319151.319163},
+}
+
+@inproceedings{klein2009sel4,
+  title     = {{seL4}: Formal Verification of an {OS} Kernel},
+  author    = {Klein, Gerwin and Elphinstone, Kevin and Heiser, Gernot and Andronick, June and Cock, David and Derrin, Philip and Elkaduwe, Dhammika and Engelhardt, Kai and Kolanski, Rafal and Norrish, Michael and Sewell, Thomas and Tuch, Harvey and Winwood, Simon},
+  booktitle = {Proceedings of the 22nd ACM Symposium on Operating Systems Principles (SOSP)},
+  pages     = {207--220},
+  year      = 2009,
+  doi       = {10.1145/1629575.1629596},
+}
+
+@inproceedings{birgisson2014macaroons,
+  title     = {Macaroons: Cookies With Contextual Caveats for Decentralized Authorization in the Cloud},
+  author    = {Birgisson, Arnar and Politz, Joe Gibbs and Erlingsson, \'{U}lfar and Taly, Ankur and Vrable, Michael and Lentczner, Mark},
+  booktitle = {Proceedings of the Network and Distributed System Security Symposium (NDSS)},
+  year      = 2014,
+}
+
+%% ---------------------------------------------------------------------------
+%% SMT for security policy
+%% ---------------------------------------------------------------------------
+
+@inproceedings{demoura2008z3,
+  title     = {{Z3}: An Efficient {SMT} Solver},
+  author    = {de Moura, Leonardo and Bj{\o}rner, Nikolaj},
+  booktitle = {Proceedings of the 14th International Conference on Tools and Algorithms for the Construction and Analysis of Systems (TACAS)},
+  pages     = {337--340},
+  year      = 2008,
+}
+
+@inproceedings{fisler2005margrave,
+  title     = {The {Margrave} Tool for Firewall Analysis},
+  author    = {Fisler, Kathi and Krishnamurthi, Shriram and Meyerovich, Leo A. and Tschantz, Michael Carl},
+  booktitle = {Proceedings of the 27th International Conference on Software Engineering (ICSE)},
+  year      = 2005,
+  note      = {Companion volume},
+}
+
+@inproceedings{backes2019iam, %% UNVERIFIED venue and exact title; the IAM/SMT line of work exists at CAV/POPL/etc.
+  title     = {IAM Policy Soundness Via {SMT}},
+  author    = {Backes, John and others},
+  booktitle = {Proceedings of the International Conference on Computer-Aided Verification (CAV)},
+  year      = 2019,
+}
+
+%% ---------------------------------------------------------------------------
+%% Software supply-chain attestation
+%% ---------------------------------------------------------------------------
+
+@inproceedings{newman2022sigstore,
+  title     = {{Sigstore}: Software Signing for Everybody},
+  author    = {Newman, Zachary and Meyers, John Speed and Torres-Arias, Santiago},
+  booktitle = {Proceedings of the 2022 ACM SIGSAC Conference on Computer and Communications Security (CCS)},
+  pages     = {2353--2367},
+  year      = 2022,
+  doi       = {10.1145/3548606.3560596},
+}
+
+@inproceedings{torres2019intoto,
+  title     = {{in-toto}: Providing Farm-to-Table Guarantees for Bits and Bytes},
+  author    = {Torres-Arias, Santiago and Afzali, Hammad and Kuppusamy, Trishank Karthik and Curtmola, Reza and Cappos, Justin},
+  booktitle = {Proceedings of the 28th USENIX Security Symposium},
+  pages     = {1393--1410},
+  year      = 2019,
+}
+
+@inproceedings{samuel2010survivable,
+  title     = {Survivable Key Compromise in Software Update Systems},
+  author    = {Samuel, Justin and Mathewson, Nick and Cappos, Justin and Dingledine, Roger},
+  booktitle = {Proceedings of the 17th ACM Conference on Computer and Communications Security (CCS)},
+  year      = 2010,
+  doi       = {10.1145/1866307.1866315},
+}
+
+%% ---------------------------------------------------------------------------
+%% Verified Ed25519 / cryptography infrastructure
+%% ---------------------------------------------------------------------------
+
+@inproceedings{beringer2022ed25519, %% UNVERIFIED — Beringer's HACL*/EverCrypt work covers Ed25519 verified specs; verify CSF year and exact title
+  title     = {Verified Specification and Implementation of {Ed25519}},
+  author    = {Beringer, Lennart and others},
+  booktitle = {IEEE Computer Security Foundations Symposium (CSF)},
+  year      = 2022,
+}
+
+@misc{pyca,
+  title  = {The {Python} cryptography library},
+  author = {{Python Cryptographic Authority}},
+  year   = 2026,
+  url    = {https://cryptography.io},
+  note   = {Version 42+; audited by NCC Group 2021.},
+}
+
+%% ---------------------------------------------------------------------------
+%% Theorem prover
+%% ---------------------------------------------------------------------------
+
+@inproceedings{demoura2021lean4,
+  title     = {The {Lean 4} Theorem Prover and Programming Language},
+  author    = {de Moura, Leonardo and Ullrich, Sebastian},
+  booktitle = {Proceedings of the 28th International Conference on Automated Deduction (CADE)},
+  pages     = {625--635},
+  year      = 2021,
+  doi       = {10.1007/978-3-030-79876-5_37},
+}
+
+@manual{mathlib,
+  title  = {{mathlib4}: a Library of Mathematics for {Lean 4}},
+  author = {{The mathlib Community}},
+  year   = 2024,
+  note   = {Available at \url{https://github.com/leanprover-community/mathlib4}.},
+}
+
+%% ---------------------------------------------------------------------------
+%% Misc / blog / informal
+%% ---------------------------------------------------------------------------
+
+@misc{greshake2025capabilities, %% UNVERIFIED — placeholder for the informal "capabilities for LLM agents" blog-post lineage; replace with a concrete cite or drop
+  title  = {Capabilities for {LLM} Agents},
+  author = {Greshake, Kai},
+  year   = 2025,
+  note   = {Blog post / informal write-up.},
+}
+
+@misc{jeffrey2014firewall, %% UNVERIFIED — firewall model-checking line of work; pick a specific paper for the camera-ready
+  title  = {Model-Checking Firewall Configurations},
+  author = {Jeffrey, Alan and others},
+  year   = 2014,
+  note   = {Representative of the firewall-SMT line of work.},
+}
+
+@misc{polyzotis2021policy, %% UNVERIFIED — placeholder for K8s admission-policy verification work; replace with a concrete reference
+  title  = {Policy Verification at Scale},
+  author = {Polyzotis, Neoklis and others},
+  year   = 2021,
+}

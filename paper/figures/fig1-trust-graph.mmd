@@ -1,0 +1,30 @@
+%% Figure 1: The trust graph (§3.4)
+%%
+%% Every solid arrow is a content-addressed reference; every signed
+%% artefact is verifiable offline against a pinned issuer or audit key.
+
+flowchart TD
+    S["JSON Schema S"]
+    P["Policy P"]
+    PR["ProofResult ρ<br/>status: PROVEN | REFUTED"]
+    TOK["Capability Token<br/>(Ed25519-signed)"]
+    CHILD["Child Token<br/>(attenuated)"]
+    GATE["Gate.check(token, tool, args)"]
+    DEC{"ALLOW or DENY"}
+    AUDIT["Hash-chained audit log<br/>(Merkle root, periodically signed)"]
+
+    S -- "grammar_hash" --> PR
+    P -- "policy_hash" --> PR
+    PR -- "proof_hash<br/>cited by token" --> TOK
+    TOK -- "attenuate" --> CHILD
+    CHILD --> GATE
+    TOK --> GATE
+    GATE --> DEC
+    DEC -- "structured event" --> AUDIT
+
+    classDef hashed fill:#f4f8ff,stroke:#2563eb,stroke-width:1px;
+    classDef signed fill:#ecfdf5,stroke:#059669,stroke-width:1px;
+    classDef gate   fill:#fef3c7,stroke:#d97706,stroke-width:1px;
+    class S,P,PR hashed;
+    class TOK,CHILD,AUDIT signed;
+    class GATE,DEC gate;

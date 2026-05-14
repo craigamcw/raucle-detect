@@ -1,0 +1,19 @@
+%% Figure 2: ASR comparison across defence configurations (§6.2)
+%%
+%% Bars are filled when the LLM-driven measurements land. Static upper bound
+%% (VCD rows on AgentDojo + InjecAgent) is already at 0%.
+%%
+%% Numbers in brackets are the per-bar text labels the camera-ready figure
+%% should display; the placeholder bar heights below will be replaced with
+%% the actual measured ASRs.
+
+%%{init: {"theme":"base"}}%%
+xychart-beta
+    title "Tool-call-mediated attack-success rate across defence configurations"
+    x-axis ["None", "Spotlighting", "StruQ", "Prompt shields", "VCD text-only", "VCD full stack"]
+    y-axis "ASR (%)" 0 --> 60
+    bar [47, 22, 14, 18, 31, 0]
+    bar [52, 28, 19, 23, 34, 0]
+%% First bar series: AgentDojo. Second bar series: InjecAgent.
+%% TBD: replace the placeholder values above with measured ones from
+%% paper/eval/results.json once the run lands.

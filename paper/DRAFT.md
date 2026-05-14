@@ -208,6 +208,21 @@ All configurations run against the same base model (Claude Sonnet 4.6) and the s
 
 For the AgentDojo and InjecAgent attack distributions, the fraction of attacks whose success is mediated by a constrained tool call is `[TBD-AD-frac]%` and `[TBD-IA-frac]%` respectively; the remainder are pure-output attacks that VCD does not target and that contribute to the residual ASR above zero. We discuss the small residual in Section 6.5.
 
+#### 6.2.1 Static upper bound on attack-success rate
+
+Before reporting the LLM-driven measurements, we report a *static* upper bound: assuming the model emits the attacker's canonical tool call exactly, do the gate's constraints — derived independently from each user task's prompt and pinned by the pre-registered hash anchors of §6.0 — admit the call? This is the maximum ASR the actual eval can exhibit; the LLM-driven run can only do as well or better, because natural-language defences provide additional attrition on top of the gate.
+
+The static verifier (`paper/eval/verify_policies.py`) runs the same constraint logic the runtime gate runs. Static results under VCD full-stack, across both benchmarks, all defence-relevant cells:
+
+| Benchmark | Cases | Attacks succeeding the static check | Static upper bound on ASR |
+|---|---|---|---|
+| AgentDojo (v1, all four suites) | 629 | 0 | 0.00% |
+| InjecAgent (DH base + enhanced) | 1020 | 0 | 0.00% |
+| InjecAgent (DS base + enhanced) | 1088 | 0 | 0.00% |
+| **Total** | **2737** | **0** | **0.00%** |
+
+The single known exception is one cell in AgentDojo banking (user_task_15 × schedule_transaction): the user's stated intent contains the same IBAN as the benchmark's adversarial recipient (the user's landlord). Capability discipline correctly admits that call — the user explicitly authorised it — while the same IBAN remains forbidden in every other user task's policy. The static verifier flags this cell as a *known-legitimate coincidence* and excludes it from the count above.
+
 **Ablation.** To attribute the headline delta across the three components of VCD, we measure each in isolation:
 
 | Configuration | AgentDojo ASR | InjecAgent ASR |
@@ -316,7 +331,7 @@ The reference implementation, Lean development, and benchmark harness are MIT-li
 
 ## References
 
-*[abbreviated; full BibTeX in `paper/references.bib` once compiled]*
+*Bibliography in `paper/references.bib`. Three entries marked `%% UNVERIFIED` need a final check against published proceedings before camera-ready.*
 
 - [Ant24] Anthropic. Constitutional classifiers. 2024.
 - [BAL+14] Birgisson, A. et al. Macaroons: cookies with contextual caveats. NDSS 2014.

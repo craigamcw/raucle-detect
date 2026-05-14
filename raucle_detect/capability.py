@@ -115,7 +115,7 @@ def _require_crypto() -> Any:
 
 
 _AGENT_ID_RE = re.compile(r"^agent:[a-z0-9][a-z0-9_\-./]{0,127}$")
-_TOOL_RE = re.compile(r"^[a-z0-9][a-z0-9_\-./]{0,127}$")
+_TOOL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_\-./]{0,127}$")
 
 
 def _validate_agent_id(agent_id: str) -> None:

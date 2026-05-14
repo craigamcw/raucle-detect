@@ -61,13 +61,45 @@ Subject: **Co-author on a focused S&P submission — verified capabilities for L
 
 ## Candidates to consider
 
-*(Placeholder — populate from the venues above before sending.)*
+A starter list — names drawn from recent USENIX/S&P/CCS proceedings and from the active Lean 4 / formal-methods community. **Each entry needs a 60-second sanity check** before sending: verify they're (a) currently active, (b) not on sabbatical, (c) plausibly interested in agent security. Reorder by personal connection where possible — a warm intro from a mutual contact is worth ten cold emails.
 
-| Name | Affiliation | Why | Status |
+| Name | Affiliation | Why a fit | Status |
 |---|---|---|---|
-| — | — | — | not contacted |
-| — | — | — | not contacted |
-| — | — | — | not contacted |
+| Andres Erbsen | Galois / formerly MIT CSAIL | Verified-cryptography mechanisations (Fiat-Crypto, Bedrock2); active in Lean + Coq; security-research register | not contacted |
+| Sandrine Blazy | Univ. Rennes / IRISA | CompCert lineage; mechanised security properties; supervises PhDs on verified systems | not contacted |
+| Joachim Breitner | Tweag / formerly DFINITY | Practical Lean + Haskell formal-methods consulting; small focused-project rhythm matches our 6-week window | not contacted |
+| Bas Spitters | Aarhus University | Verified cryptography and capability systems in Coq; collaborates with industry | not contacted |
+| Tej Chajed | Univ. Wisconsin-Madison | Verified concurrent systems (Perennial); SOSP papers; would appreciate the OS-capability lineage | not contacted |
+| Jules Hedges | Univ. Strathclyde | Open-game theory + applied category theory in Agda/Lean; lateral but creative fit | not contacted |
+| Mario Carneiro | Carnegie Mellon | mathlib4 core dev; would close §4's remaining tactical questions in hours | not contacted |
+| Edoardo Debenedetti | ETH Zürich (Tramèr group) | First author of AgentDojo; would strengthen §6 enormously and signals reviewer alignment | not contacted (highest leverage) |
+| Florian Tramèr | ETH Zürich | AgentDojo senior author; sceptical-but-fair reviewer voice; even a "no thanks, but here's my read" reply is high-value | not contacted |
+| Daniel Kang | UIUC | InjecAgent senior author; same reasoning as Tramèr | not contacted |
+| Sahar Abdelnabi | CISPA | Original indirect-injection paper (Greshake+); deep expertise on the attack side | not contacted |
+| Kai Greshake | independent / CISPA | Same; informally proposed "capabilities for LLM agents" already, would resonate | not contacted |
+
+### Three-round send order
+
+1. **Highest leverage first** (one each): Debenedetti, Mario Carneiro, Sahar Abdelnabi. These three combine domain authority with realistic likelihood of caring about the work.
+2. **If no replies in 5 working days** (one each): Tramèr, Tej Chajed, Greshake.
+3. **Final round** (any of the above): Erbsen, Blazy, Breitner, Spitters, Hedges, Kang.
+
+### What "yes" looks like
+
+A reply of the form "I'd be open to a call — what's the workload look like over the next 6 weeks?" is the typical positive signal. Get the call scheduled within 48 hours; the workload conversation closes the deal or surfaces a deal-breaker fast.
+
+### What "no, but" looks like
+
+A reply pointing at a specific PhD student or postdoc with the right skills. Treat these as gold: warm-intro the student, mention the senior person's referral in the first sentence.
+
+### Tracking sends
+
+Maintain this table inline as you go — set the **Status** column to one of:
+- `not contacted`
+- `sent <date>`
+- `reply: <yes|no|maybe|no but referred to X>`
+- `call scheduled <date>`
+- `signed on`
 
 ## Backup plan: no co-author
 

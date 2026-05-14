@@ -1,0 +1,28 @@
+%% Figure 3: Gate decision flow (§3.3)
+%%
+%% The eight checks the gate performs, in order. Every `else` returns DENY
+%% with a structured reason; the all-pass path returns ALLOW.
+
+flowchart TD
+    START([Gate.check]) --> C1{Issuer pinned?}
+    C1 -- "no" --> D1["DENY: unknown key_id"]
+    C1 -- "yes" --> C2{Ed25519 signature<br/>verifies?}
+    C2 -- "no" --> D2["DENY: bad signature"]
+    C2 -- "yes" --> C3{"token_id matches<br/>SHA-256 of body?"}
+    C3 -- "no" --> D3["DENY: token_id mismatch"]
+    C3 -- "yes" --> C4{"now ≥ not_before?"}
+    C4 -- "no" --> D4["DENY: not yet valid"]
+    C4 -- "yes" --> C5{"now < expires_at?"}
+    C5 -- "no" --> D5["DENY: expired"]
+    C5 -- "yes" --> C6{"tool matches?"}
+    C6 -- "no" --> D6["DENY: tool mismatch"]
+    C6 -- "yes" --> C7{"agent matches<br/>or extends?"}
+    C7 -- "no" --> D7["DENY: agent mismatch"]
+    C7 -- "yes" --> C8{"every constraint<br/>holds against args?"}
+    C8 -- "no" --> D8["DENY: constraint violated"]
+    C8 -- "yes" --> ALLOW["ALLOW"]
+
+    classDef ok fill:#ecfdf5,stroke:#059669;
+    classDef no fill:#fef2f2,stroke:#dc2626;
+    class ALLOW ok;
+    class D1,D2,D3,D4,D5,D6,D7,D8 no;
