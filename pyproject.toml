@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "raucle-detect"
-version = "0.7.0"
+version = "0.8.0"
 description = "Open-source prompt injection detection for LLM applications"
 readme = "README.md"
 license = "MIT"
