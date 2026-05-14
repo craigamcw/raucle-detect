@@ -1,0 +1,23 @@
+{
+  "fields": [
+    "event_id",
+    "timestamp",
+    "decision",
+    "deny_reason",
+    "deny_check",
+    "tool",
+    "agent_id",
+    "caller_session",
+    "args_hash",
+    "token_id",
+    "issuer_key_id",
+    "policy_proof_hash",
+    "gate_id",
+    "gate_version",
+    "prev_event_hash",
+    "chain_index",
+    "signature"
+  ],
+  "notes": "Event-body hashing excludes event_id and signature. See standards/owasp-ai-exchange/03-gate-decision-profile.md.",
+  "version": "gate-decision:v1"
+}

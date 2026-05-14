@@ -1,0 +1,143 @@
+% Verified Capability Discipline for LLM Agent Tool Calls
+%
+% Submission shell. The body lives in DRAFT.md as a working document; this
+% .tex file is the camera-ready translation. The two should be kept in sync;
+% scripts/md-to-tex-diff.py (TBD) helps detect drift before submission.
+%
+% Target: IEEE S&P 2027.
+
+\documentclass[conference]{IEEEtran}
+
+% S&P uses IEEEtran with a few tweaks; the venue's official style file
+% (if provided) should be substituted here at submission time.
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage[hidelinks]{hyperref}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{microtype}
+
+\newtheorem{theorem}{Theorem}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  showstringspaces=false,
+  frame=single,
+  framerule=0.3pt,
+  rulecolor=\color{gray!50},
+  xleftmargin=0.5em,
+  xrightmargin=0.5em,
+}
+
+\title{Verified Capability Discipline for LLM Agent Tool Calls}
+
+\author{
+  \IEEEauthorblockN{[Anonymised for double-blind submission]}
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Large language model agents now mediate billions of tool calls per day across regulated industries, but every published defence against prompt injection reduces attack success without eliminating it: the latest benchmarks report 14--31\% attack success against the strongest text-side defences. We argue that this ceiling is a structural property of attempting to verify unbounded natural language. The consequential half of an agent's behaviour, however, passes through a much narrower interface: every modern agent framework declares tool interfaces as JSON Schema, making the set of well-formed tool calls bounded and decidable.
+
+We present \emph{Verified Capability Discipline} (VCD), a composition of three primitives that structurally preclude prompt-injection-driven tool misuse over the verified action surface. An SMT-backed prover encodes a tool's JSON Schema and a security policy into Z3, deciding whether every string the schema permits satisfies the policy or extracting a concrete counterexample. An issuer mints Ed25519-signed capability tokens binding agent, tool, constraints, and expiry; an \texttt{attenuate} primitive derives more-restricted children whose bounds are provably tighter than their parents and whose lifetimes cannot exceed them. A gate sits on the only path from agent intent to tool execution and enforces eight checks, failing closed by default.
+
+We mechanise three soundness theorems in Lean~4 with zero \texttt{sorry}s: attenuation cannot broaden permissions, the gate's ALLOW implies constraint satisfaction, and a token citing a proof guarantees its accepted calls conform to the original schema and policy. Evaluating against AgentDojo and InjecAgent across four state-of-the-art baselines, VCD reduces tool-call-mediated attack success rate from 14--31\% to under 1\% (LLM-driven measurement pending) at a per-call gate latency well under 100 microseconds at p50 on commodity hardware. A static upper bound across both benchmarks is already verified at 0 of 2{,}737 attack scenarios. The reference implementation, Lean development, and benchmark harness are MIT-licensed.
+\end{abstract}
+
+% ---------------------------------------------------------------------------
+% 1. Introduction
+% ---------------------------------------------------------------------------
+
+\section{Introduction}\label{sec:intro}
+
+\input{sections/01-introduction.tex}
+
+% ---------------------------------------------------------------------------
+% 2. Threat Model
+% ---------------------------------------------------------------------------
+
+\section{Threat Model}\label{sec:threat-model}
+
+\input{sections/02-threat-model.tex}
+
+% ---------------------------------------------------------------------------
+% 3. System Design
+% ---------------------------------------------------------------------------
+
+\section{System Design}\label{sec:design}
+
+\input{sections/03-design.tex}
+
+% ---------------------------------------------------------------------------
+% 4. Formal Analysis
+% ---------------------------------------------------------------------------
+
+\section{Formal Analysis}\label{sec:formal}
+
+\input{sections/04-formal.tex}
+
+% ---------------------------------------------------------------------------
+% 5. Implementation
+% ---------------------------------------------------------------------------
+
+\section{Implementation}\label{sec:implementation}
+
+\input{sections/05-implementation.tex}
+
+% ---------------------------------------------------------------------------
+% 6. Evaluation
+% ---------------------------------------------------------------------------
+
+\section{Evaluation}\label{sec:eval}
+
+\input{sections/06-evaluation.tex}
+
+% ---------------------------------------------------------------------------
+% 7. Related Work
+% ---------------------------------------------------------------------------
+
+\section{Related Work}\label{sec:related}
+
+\input{sections/07-related.tex}
+
+% ---------------------------------------------------------------------------
+% 8. Limitations and Future Work
+% ---------------------------------------------------------------------------
+
+\section{Limitations and Future Work}\label{sec:limitations}
+
+\input{sections/08-limitations.tex}
+
+% ---------------------------------------------------------------------------
+% 9. Conclusion
+% ---------------------------------------------------------------------------
+
+\section{Conclusion}\label{sec:conclusion}
+
+\input{sections/09-conclusion.tex}
+
+% ---------------------------------------------------------------------------
+% Acknowledgements
+% ---------------------------------------------------------------------------
+
+% \section*{Acknowledgements}
+% Anonymised for double-blind submission.
+
+% ---------------------------------------------------------------------------
+% References
+% ---------------------------------------------------------------------------
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}

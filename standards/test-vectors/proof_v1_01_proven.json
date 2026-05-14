@@ -1,0 +1,11 @@
+{
+  "counterexample": null,
+  "grammar_hash": "sha256:626b59670206e3fc3deba16f04e4ed9677a2cafe29265d434bf7fea9ccca1072",
+  "hash": "sha256:d42fc5441283e9b50861642b6dbee7527f37247bf5048ae22082b650405a22a6",
+  "notes": [],
+  "policy_hash": "sha256:5634991f8da77aae4b74a0d3e57a81e387e18219e153169e536ec7e6f631ebc3",
+  "prover": "JSONSchemaProver",
+  "prover_version": "jsonschema-prover/v1",
+  "status": "PROVEN",
+  "timeout_ms": 5000
+}

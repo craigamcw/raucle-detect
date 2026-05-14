@@ -1,0 +1,14 @@
+{
+  "agent_id": "agent:demo",
+  "constraints": {},
+  "expires_at": 1747227600,
+  "issued_at": 1747224000,
+  "issuer": "vectors.example",
+  "key_id": "f0ff50dacf109dea",
+  "not_before": 1747224000,
+  "parent_id": null,
+  "policy_proof_hash": null,
+  "signature": "zvWTNtsZVUb9dwXhgQMc0jNfXutGvP6zv8LHZm0a6WkCZ9kc-GQ194ekUtH9_Sy09qVDMgUNVFg4cUXJQna3CQ",
+  "token_id": "cap:0b23b6d6c72b93c0571c9de8",
+  "tool": "echo"
+}

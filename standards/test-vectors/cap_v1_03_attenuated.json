@@ -1,0 +1,25 @@
+{
+  "agent_id": "agent:billing",
+  "constraints": {
+    "allowed_values": {
+      "currency": [
+        "EUR",
+        "GBP",
+        "USD"
+      ]
+    },
+    "max_value": {
+      "amount": 50
+    }
+  },
+  "expires_at": 1747227600,
+  "issued_at": 1747224000,
+  "issuer": "vectors.example",
+  "key_id": "f0ff50dacf109dea",
+  "not_before": 1747224000,
+  "parent_id": "cap:8049f073963f3b2f07cd9ab3",
+  "policy_proof_hash": null,
+  "signature": "ULzpIJTOU3XSDxCPJ6DG1oz4SCnmqtXPBIkcvU9dyzr_P8a0gbOs8eqh7I7b5NNODVZQGJKB3Xk4b-1x2BS7DA",
+  "token_id": "cap:7a763f734864e3075d95f0ed",
+  "tool": "transfer_funds"
+}

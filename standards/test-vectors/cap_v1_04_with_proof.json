@@ -1,0 +1,18 @@
+{
+  "agent_id": "agent:billing",
+  "constraints": {
+    "max_value": {
+      "amount": 100
+    }
+  },
+  "expires_at": 1747227600,
+  "issued_at": 1747224000,
+  "issuer": "vectors.example",
+  "key_id": "f0ff50dacf109dea",
+  "not_before": 1747224000,
+  "parent_id": null,
+  "policy_proof_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "signature": "Anc4ja7jGqZXXyYPCLiBIoDfjUD93jVxtEL-na2YbUMLzRY-eTCNP0EDdnT6oM2WWl1Jz7i0H06p7zZ6yIt7Dw",
+  "token_id": "cap:31178dd46c2536f2c32ef33a",
+  "tool": "transfer_funds"
+}

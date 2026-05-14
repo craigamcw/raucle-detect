@@ -1,0 +1,15 @@
+{
+  "counterexample": {
+    "amount": 51,
+    "currency": "GBP",
+    "to": "bob@example.com"
+  },
+  "grammar_hash": "sha256:626b59670206e3fc3deba16f04e4ed9677a2cafe29265d434bf7fea9ccca1072",
+  "hash": "sha256:3ffdb76ed69b6d406736b81230871f3ed5d7fc46817f116ff3ab05cc335e6a42",
+  "notes": [],
+  "policy_hash": "sha256:d5b559db6fe029b0a8d6e875d117278f2baab5a97b9229a7fa23cab38d1ca4a3",
+  "prover": "JSONSchemaProver",
+  "prover_version": "jsonschema-prover/v1",
+  "status": "REFUTED",
+  "timeout_ms": 5000
+}
