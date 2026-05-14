@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "raucle-detect"
-version = "0.8.0"
+version = "0.9.0"
 description = "Open-source prompt injection detection for LLM applications"
 readme = "README.md"
 license = "MIT"
@@ -47,13 +47,16 @@ multimodal = [
     "pytesseract>=0.3.10", # OCR (requires tesseract on PATH)
     "pypdf>=4.0",         # PDF stream extraction
 ]
+proof = [
+    "z3-solver>=4.12",    # SMT engine for formal-verification provers
+]
 dev = [
     "raucle-detect[rules,server,compliance]",
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "ruff>=0.4",
 ]
-all = ["raucle-detect[rules,ml,server,compliance,multimodal]"]
+all = ["raucle-detect[rules,ml,server,compliance,multimodal,proof]"]
 
 [project.scripts]
 raucle-detect = "raucle_detect.cli:main"

@@ -353,6 +353,26 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Local feed store directory (default: ~/.raucle/feeds)",
     )
 
+    # ---- Formal verification of bounded guardrails (v0.9.0) -------------
+    prove_p = subparsers.add_parser(
+        "prove",
+        help="Formal-verification provers for bounded policy grammars (JSON / URL / SQL)",
+    )
+    prove_sub = prove_p.add_subparsers(dest="prove_command")
+
+    prove_json = prove_sub.add_parser("json", help="Prove a JSON-Schema tool-call policy")
+    prove_json.add_argument("--schema", required=True, help="JSON Schema file (object type)")
+    prove_json.add_argument("--policy", required=True, help="Policy JSON file")
+    prove_json.add_argument("--timeout-ms", type=int, default=5000)
+
+    prove_url = prove_sub.add_parser("url", help="Prove a URL allowlist + query policy")
+    prove_url.add_argument("--grammar", required=True, help="URL grammar JSON")
+    prove_url.add_argument("--policy", required=True, help="URL policy JSON")
+
+    prove_sql = prove_sub.add_parser("sql", help="Prove a bounded read-only SQL policy")
+    prove_sql.add_argument("--grammar", required=True, help="SQL grammar JSON")
+    prove_sql.add_argument("--policy", required=True, help="SQL policy JSON")
+
     return parser
 
 
@@ -1107,6 +1127,38 @@ def _cmd_feed_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_prove(args: argparse.Namespace, kind: str) -> int:
+    import json as _json
+
+    from raucle_detect.prove import JSONSchemaProver, SQLClauseProver, URLPolicyProver
+
+    if kind == "json":
+        schema = _json.loads(Path(args.schema).read_text())
+        policy = _json.loads(Path(args.policy).read_text())
+        result = JSONSchemaProver(timeout_ms=args.timeout_ms).prove(schema, policy)
+    elif kind == "url":
+        grammar = _json.loads(Path(args.grammar).read_text())
+        policy = _json.loads(Path(args.policy).read_text())
+        result = URLPolicyProver().prove(grammar, policy)
+    elif kind == "sql":
+        grammar = _json.loads(Path(args.grammar).read_text())
+        policy = _json.loads(Path(args.policy).read_text())
+        result = SQLClauseProver().prove(grammar, policy)
+    else:
+        return 1
+
+    if result.status == "PROVEN":
+        print(f"\033[92mPROVEN\033[0m  prover={result.prover}  hash={result.hash}")
+        return 0
+    elif result.status == "REFUTED":
+        print(f"\033[91mREFUTED\033[0m  prover={result.prover}", file=sys.stderr)
+        print(f"  counterexample: {result.counterexample}", file=sys.stderr)
+        return 2
+    else:
+        print(f"\033[93mUNDECIDED\033[0m  prover={result.prover}  notes={result.notes}")
+        return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -1155,6 +1207,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_feed_pull(args)
     elif args.command == "feed" and args.feed_command == "list":
         return _cmd_feed_list(args)
+    elif args.command == "prove" and args.prove_command in {"json", "url", "sql"}:
+        return _cmd_prove(args, args.prove_command)
     else:
         parser.print_help()
         return 0
