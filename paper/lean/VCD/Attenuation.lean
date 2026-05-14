@@ -53,14 +53,27 @@ theorem meet_tighter (p q : Policy) : (Policy.meet p q) ⊑ p := by
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro f
     exact Finset.subset_union_left
-  -- The three inner cases (allowed_values, max_value, min_value) are
-  -- analogous: cases on the parent's value, reduce the match, apply
-  -- ⟨witness, reflexivity, monotonicity-lemma⟩. The reflexivity step
-  -- needs a particular `simp`/`dsimp` discipline to reduce the match
-  -- after `cases`; left for the Lean-fluent pass.
-  · sorry
-  · sorry
-  · sorry
+  -- allowed_values: hq is about outer p (Tighter's q); first scrutinee is p's.
+  · intro f s hq
+    dsimp only
+    rw [hq]
+    cases hq2 : q.allowed_values f with
+    | none => exact ⟨s, rfl, subset_refl _⟩
+    | some a => exact ⟨s ∩ a, rfl, Finset.inter_subset_left⟩
+  -- max_value: meet returns min; need min ≤ a
+  · intro f a hq
+    dsimp only
+    rw [hq]
+    cases hq2 : q.max_value f with
+    | none => exact ⟨a, rfl, le_refl _⟩
+    | some b => exact ⟨min a b, rfl, min_le_left a b⟩
+  -- min_value: meet returns max; need a ≤ max
+  · intro f a hq
+    dsimp only
+    rw [hq]
+    cases hq2 : q.min_value f with
+    | none => exact ⟨a, rfl, le_refl _⟩
+    | some b => exact ⟨max a b, rfl, le_max_left a b⟩
   · exact Finset.subset_union_left
   · exact Finset.subset_union_left
 
@@ -82,14 +95,11 @@ theorem attenuation_soundness
     c.constraints ⊑ a.parent.constraints ∧
     c.expires_at ≤ a.parent.expires_at ∧
     c.tool = a.parent.tool := by
-  -- The remaining work: invert `attenuate a = some c` to extract the guard
-  -- and the structure literal. The `split at h` tactic picks the inner
-  -- `match a.narrower_agent_id` (used to define `agent_ok`) before the
-  -- outer `if`; the cleanest fix is to refactor `attenuate` to lift the
-  -- guards into named lets so they are obviously the split target, or to
-  -- use `Option.bind`/`Option.guard` so the structure of `attenuate` is
-  -- a direct chain of monadic guards rather than nested ifs.
-  -- Mechanical work; left as sorry pending the refactor.
-  sorry
+  simp only [attenuate] at h
+  split_ifs at h with hguard
+  obtain rfl := (Option.some.inj h).symm
+  rw [Bool.and_eq_true] at hguard
+  refine ⟨meet_tighter _ _, ?_, rfl⟩
+  exact of_decide_eq_true hguard.2
 
 end VCD

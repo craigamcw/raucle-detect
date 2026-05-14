@@ -21,27 +21,37 @@ structure ProofResult where
   policy_hash   : String
   proof_hash    : String
 
-/-- Oracle property: PROVEN means every schema-conformant args satisfies the policy.
-    We axiomatise the prover; its bit-level correctness is out of scope for this
-    paper and treated as a trusted external dependency. -/
 axiom prover_soundness
     (schema : String) (P : Policy) (fields : List FieldName) (ρ : ProofResult)
     (h : ρ.status = ProofStatus.proven) :
     ∀ args : CallArgs, SchemaLang schema args →
       Policy.satisfiesArgs P args fields = true
 
+/-- Helper: if p ⊑ q and p satisfies a field, then q satisfies it.
+    Structurally this is a case analysis over `args f` (none / some w),
+    with each subcase using one of the Tighter conjuncts. Verbose but
+    mechanical; left as `sorry` pending a Lean-fluent pass. -/
+theorem tighter_implies_satisfies_field
+    (p q : Policy) (f : FieldName) (v : Option Value)
+    (h_tight : p ⊑ q) (h_sat : satisfies_field p f v = true) :
+    satisfies_field q f v = true := by
+  sorry
+
 theorem tighter_implies_satisfies
     (p q : Policy) (args : CallArgs) (fields : List FieldName)
     (h_tight : p ⊑ q) (h_sat : Policy.satisfiesArgs p args fields = true) :
     Policy.satisfiesArgs q args fields = true := by
-  sorry
+  unfold Policy.satisfiesArgs at *
+  rw [List.all_eq_true] at *
+  intro f hf
+  exact tighter_implies_satisfies_field p q f (args f) h_tight (h_sat f hf)
 
 theorem policy_proof_composition
     (K : TrustedIssuers) (schema : String) (P : Policy)
     (fields : List FieldName)
     (ρ : ProofResult) (t : Token) (call : Call) (now : Int)
-    (h_proof   : ρ.status = ProofStatus.proven)
-    (h_cite    : t.policy_proof_hash = some ρ.proof_hash)
+    (_h_proof  : ρ.status = ProofStatus.proven)
+    (_h_cite   : t.policy_proof_hash = some ρ.proof_hash)
     (h_tighter : t.constraints ⊑ P)
     (h_lang    : SchemaLang schema call.args)
     (h_gate    : Gate.check K t call now fields = .allow) :

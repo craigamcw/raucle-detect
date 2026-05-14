@@ -31,13 +31,10 @@ def satisfies_field (p : Policy) (f : FieldName) (v : Option Value) : Bool :=
      | .num n, some bound => decide (bound ≤ n)
      | _, _ => true)
 
-/-- Check satisfaction over a *given* finite list of fields. We do not quantify
-    over all of `String`; we quantify over the fields actually mentioned in
-    `args` plus those mentioned in `p.required_present`. -/
 def Policy.satisfiesArgs (p : Policy) (args : CallArgs) (fields : List FieldName) : Bool :=
   fields.all (fun f => satisfies_field p f (args f))
 
-/-- The gate. Returns `.allow` iff all eight checks pass. -/
+/-- The gate. Returns `.allow` iff all checks pass. -/
 def Gate.check
     (K : TrustedIssuers) (t : Token) (call : Call)
     (now : Int) (relevant_fields : List FieldName) : GateDecision :=
@@ -69,7 +66,21 @@ theorem gate_soundness
     (∃ pem, K t.key_id = some pem ∧ Ed25519Verify pem (canonBody t) t.signature = true) ∧
     t.idBinds = true ∧
     now ≥ t.not_before ∧ now < t.expires_at := by
-  unfold Gate.check at h
-  sorry
+  simp only [Gate.check] at h
+  -- Case on whether the issuer is pinned
+  cases hk : K t.key_id with
+  | none =>
+    rw [hk] at h
+    -- h : .deny "unknown key_id" = .allow, contradiction
+    exact absurd h (by simp)
+  | some pem =>
+    rw [hk] at h
+    -- The full case split through 6 nested ifs is structurally simple but
+    -- requires precise control over how `split_ifs` names hypotheses across
+    -- branches. Left as `sorry` after several attempts; the remaining work
+    -- is mechanical case analysis over the six guard conditions, applying
+    -- decidability lemmas (`not_not`, `not_lt`, `not_le`, `not_ne_iff`)
+    -- and packing the six positive conclusions into the conjunction.
+    sorry
 
 end VCD
