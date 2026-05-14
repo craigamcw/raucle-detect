@@ -184,6 +184,65 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     mcp_scan.add_argument("--sarif-out", help="Write SARIF output to this file")
 
+    # -- provenance ---------------------------------------------------------
+    prov_p = subparsers.add_parser(
+        "provenance",
+        help="AI Provenance Graph — emit and verify signed receipts across agents/tools/models",
+    )
+    prov_sub = prov_p.add_subparsers(dest="provenance_command")
+
+    prov_keygen = prov_sub.add_parser(
+        "keygen", help="Generate a new agent identity (keypair + capability statement)"
+    )
+    prov_keygen.add_argument("agent_id", help="Agent identifier, e.g. 'agent:billing-summariser'")
+    prov_keygen.add_argument("--out", default=None, help="Output prefix (default: <agent_id>)")
+    prov_keygen.add_argument(
+        "--allowed-models",
+        nargs="*",
+        default=[],
+        help="Models this agent may call (omit for unrestricted)",
+    )
+    prov_keygen.add_argument(
+        "--allowed-tools",
+        nargs="*",
+        default=[],
+        help="Tools this agent may call (omit for unrestricted)",
+    )
+    prov_keygen.add_argument(
+        "--ttl-days",
+        type=int,
+        default=None,
+        help="Capability statement TTL in days (omit for non-expiring)",
+    )
+
+    prov_verify = prov_sub.add_parser("verify", help="Verify a provenance chain")
+    prov_verify.add_argument("path", help="JSONL chain file")
+    prov_verify.add_argument(
+        "--pubkeys",
+        nargs="+",
+        required=True,
+        help="One or more capability-statement JSON files OR public-key PEM files",
+    )
+    prov_verify.add_argument(
+        "--format", choices=["table", "json"], default="table", help="Output format"
+    )
+
+    prov_trace = prov_sub.add_parser(
+        "trace", help="Walk the DAG backwards from a receipt to all roots"
+    )
+    prov_trace.add_argument("receipt_hash", help="The leaf receipt to trace from")
+    prov_trace.add_argument("--chain", required=True, help="JSONL chain file")
+    prov_trace.add_argument(
+        "--format", choices=["table", "json"], default="table", help="Output format"
+    )
+
+    prov_graph = prov_sub.add_parser(
+        "graph", help="Export the ancestor DAG of a receipt as Graphviz DOT"
+    )
+    prov_graph.add_argument("receipt_hash", help="The leaf receipt to render")
+    prov_graph.add_argument("--chain", required=True, help="JSONL chain file")
+    prov_graph.add_argument("--out", help="Write DOT to file (default: stdout)")
+
     return parser
 
 
@@ -540,6 +599,130 @@ def _cmd_mcp_scan(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_provenance_keygen(args: argparse.Namespace) -> int:
+    from raucle_detect.provenance import AgentIdentity
+
+    ttl = args.ttl_days * 86400 if args.ttl_days else None
+    identity = AgentIdentity.generate(
+        agent_id=args.agent_id,
+        allowed_models=args.allowed_models,
+        allowed_tools=args.allowed_tools,
+        ttl_seconds=ttl,
+    )
+
+    prefix = args.out or args.agent_id.replace(":", "_").replace("/", "_")
+    priv_path = Path(f"{prefix}-private.pem")
+    stmt_path = Path(f"{prefix}-capability.json")
+
+    priv_path.write_bytes(identity.private_key_pem())
+    priv_path.chmod(0o600)
+    stmt_path.write_text(json.dumps(identity.statement.to_dict(), indent=2))
+
+    print("Generated agent identity:")
+    print(f"  Agent ID:           {identity.agent_id}")
+    print(f"  Key ID:             {identity.key_id}")
+    print(f"  Private key:        {priv_path} (chmod 600)")
+    print(f"  Capability stmt:    {stmt_path}")
+    print(f"  Allowed models:     {identity.statement.allowed_models or 'unrestricted'}")
+    print(f"  Allowed tools:      {identity.statement.allowed_tools or 'unrestricted'}")
+    print()
+    print("Distribute the capability statement to verifiers. Keep the private key secret.")
+    return 0
+
+
+def _cmd_provenance_verify(args: argparse.Namespace) -> int:
+    from raucle_detect.provenance import CapabilityStatement, ProvenanceVerifier
+
+    public_keys: dict[str, bytes] = {}
+    for src in args.pubkeys:
+        path = Path(src)
+        content = path.read_bytes()
+        # Try JSON capability statement first; fall back to raw PEM.
+        try:
+            d = json.loads(content)
+            stmt = CapabilityStatement.from_dict(d)
+            public_keys[stmt.key_id] = stmt.public_key_pem.encode("ascii")
+        except (json.JSONDecodeError, KeyError):
+            # Raw PEM — derive key_id from the bytes
+            import hashlib
+
+            key_id = hashlib.sha256(content).hexdigest()[:16]
+            public_keys[key_id] = content
+
+    report = ProvenanceVerifier(public_keys=public_keys).verify_chain(args.path)
+
+    if args.format == "json":
+        print(json.dumps(report.to_dict(), indent=2))
+    else:
+        status = "\033[92mVALID\033[0m" if report.valid else "\033[91mINVALID\033[0m"
+        print(f"Provenance chain: {status}")
+        print(f"  Receipts:                  {report.receipt_count}")
+        print(f"  Signature failures:        {report.signature_failures}")
+        print(f"  Parent-link failures:      {report.parent_link_failures}")
+        print(f"  Taint monotonicity fails:  {report.taint_monotonicity_failures}")
+        if report.tampered_receipts:
+            print(f"  Tampered receipts:         {len(report.tampered_receipts)}")
+        if report.errors:
+            print("\nErrors:")
+            for e in report.errors[:10]:
+                print(f"  - {e}")
+            if len(report.errors) > 10:
+                print(f"  … and {len(report.errors) - 10} more")
+
+    return 0 if report.valid else 2
+
+
+def _cmd_provenance_trace(args: argparse.Namespace) -> int:
+    from raucle_detect.provenance import ProvenanceVerifier
+
+    verifier = ProvenanceVerifier(public_keys={})  # signature check skipped here
+    try:
+        receipts = verifier.trace(args.receipt_hash, args.chain)
+    except KeyError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    if args.format == "json":
+        print(json.dumps([r.to_dict() for r in receipts], indent=2))
+    else:
+        print(f"\nDAG ancestors of {args.receipt_hash} ({len(receipts)} receipts):\n")
+        header = f"{'Operation':<18} {'Agent':<32} {'Detail':<28} {'Receipt':<20}"
+        print(header)
+        print("-" * len(header))
+        for r in receipts:
+            detail_parts: list[str] = []
+            if r.model:
+                detail_parts.append(f"model={r.model}")
+            if r.tool:
+                detail_parts.append(f"tool={r.tool}")
+            if r.corpus:
+                detail_parts.append(f"corpus={r.corpus}")
+            if r.guardrail_verdict:
+                detail_parts.append(f"verdict={r.guardrail_verdict}")
+            detail = ", ".join(detail_parts) or "—"
+            short = r.receipt_hash.split(":")[-1][:16]
+            print(f"{r.operation.value:<18} {r.agent_id[:31]:<32} {detail[:27]:<28} {short:<20}")
+    return 0
+
+
+def _cmd_provenance_graph(args: argparse.Namespace) -> int:
+    from raucle_detect.provenance import ProvenanceVerifier
+
+    verifier = ProvenanceVerifier(public_keys={})
+    try:
+        dot = verifier.to_dot(args.receipt_hash, args.chain)
+    except KeyError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    if args.out:
+        Path(args.out).write_text(dot)
+        print(f"DOT graph written to {args.out}", file=sys.stderr)
+    else:
+        print(dot)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -562,6 +745,14 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_mcp_serve(args)
     elif args.command == "mcp" and args.mcp_command == "scan":
         return _cmd_mcp_scan(args)
+    elif args.command == "provenance" and args.provenance_command == "keygen":
+        return _cmd_provenance_keygen(args)
+    elif args.command == "provenance" and args.provenance_command == "verify":
+        return _cmd_provenance_verify(args)
+    elif args.command == "provenance" and args.provenance_command == "trace":
+        return _cmd_provenance_trace(args)
+    elif args.command == "provenance" and args.provenance_command == "graph":
+        return _cmd_provenance_graph(args)
     else:
         parser.print_help()
         return 0
