@@ -1,0 +1,87 @@
+name: Publish to PyPI
+
+# Fires on every v* tag. Uses PyPI Trusted Publishing (OIDC) so no API
+# tokens are stored in the repository — PyPI verifies the request came
+# from this workflow on this repo on a matching tag.
+#
+# One-time setup at https://pypi.org/manage/account/publishing/ — add
+# a "pending publisher" with:
+#   Project name:     raucle-detect
+#   Owner:            craigamcw
+#   Repository:       raucle-detect
+#   Workflow:         publish.yml
+#   Environment:      pypi
+# Once the first publish lands the pending entry becomes a normal
+# trusted publisher and subsequent releases need zero further setup.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'pypi or testpypi'
+        required: true
+        default: 'pypi'
+        type: choice
+        options:
+          - pypi
+          - testpypi
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install build tooling
+        run: pip install --upgrade build
+      - name: Build sdist + wheel
+        run: python -m build
+      - name: Verify metadata
+        run: |
+          pip install --upgrade twine
+          twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish-testpypi:
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/raucle-detect/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  publish-pypi:
+    needs: build
+    if: |
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.target == 'pypi')
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/raucle-detect/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
