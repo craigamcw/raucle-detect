@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.10.0 (2026-05-14)
+
+### Capability-based agent permissions — unforgeable tool handles
+
+Every prompt-injection mitigation in 2026 still asks an LLM, in English, not to misuse its tools. v0.10.0 replaces that polite request with an OS-style capability discipline: a tool refuses to execute unless the caller presents an Ed25519-signed `Capability` token whose constraints are satisfied by the actual call arguments. Prompt injection becomes structurally irrelevant for tool calls — the malicious instruction has nothing to act with.
+
+- **`Capability`** — the token. Binds `(agent_id, tool, constraints, nbf, exp, parent_id, policy_proof_hash, issuer, key_id)` under one Ed25519 signature. Constraint schema mirrors v0.9.0's `JSONSchemaProver` policy keys: `forbidden_values`, `allowed_values`, `max_value`/`min_value`, `required_present`, `forbidden_field_combinations`.
+- **`CapabilityIssuer`** — mints fresh tokens; attenuates parents into more-restricted children.
+- **`CapabilityIssuer.attenuate()`** — the killer property. A child cannot outlive its parent. A child's bounds can only narrow (min of two `max_value`s; intersection of two `allowed_values`; union of two `forbidden_values`). A child's `agent_id` must be a prefix-extension of the parent's. Broadening is structurally impossible.
+- **`CapabilityGate`** — the choke point. `check(token, tool, args)` verifies issuer pinning, signature, `token_id` binding, time bounds, tool match, agent match, and every constraint against the supplied args. Optional `parent_resolver` walks the full attenuation chain. Fails closed by default.
+- **`policy_proof_hash`** — a token can cite a v0.9.0 `ProofResult.hash`, claiming "these constraints are formally complete over this tool's schema". The proof, the receipt, the audit chain, and the capability all reference each other by hash. The trust graph closes.
+- **CLI** — `raucle-detect cap keygen | mint | verify | check | attenuate`. Exit codes: 0 OK / ALLOW, 2 INVALID / DENY.
+- 20 new tests covering signing, expiry, tampering, every attenuation invariant, full chain verification, and serialisation round-trip.
+
+This is Move #2 of the revolutionary roadmap. With v0.9.0 (proofs over the tool grammar) and v0.10.0 (unforgeable handles to invoke that tool), the strongest agent-safety story on the market is now MIT-licensed open source.
+
 ## 0.9.0 (2026-05-14)
 
 ### Formal verification of bounded guardrails — proofs, not statistics

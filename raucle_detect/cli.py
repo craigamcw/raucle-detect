@@ -373,6 +373,49 @@ def _build_parser() -> argparse.ArgumentParser:
     prove_sql.add_argument("--grammar", required=True, help="SQL grammar JSON")
     prove_sql.add_argument("--policy", required=True, help="SQL policy JSON")
 
+    # ---- Capability-based agent permissions (v0.10.0) -------------------
+    cap_p = subparsers.add_parser(
+        "cap",
+        help="Capability tokens — unforgeable per-tool, per-agent permissions",
+    )
+    cap_sub = cap_p.add_subparsers(dest="cap_command")
+
+    cap_keygen = cap_sub.add_parser("keygen", help="Generate an issuer Ed25519 keypair")
+    cap_keygen.add_argument("issuer", help="Issuer name, e.g. 'platform.example'")
+    cap_keygen.add_argument("--out", default="cap-issuer", help="Output prefix")
+
+    cap_mint = cap_sub.add_parser("mint", help="Mint a fresh capability token")
+    cap_mint.add_argument("--key", required=True, help="Issuer private-key PEM")
+    cap_mint.add_argument("--issuer", required=True)
+    cap_mint.add_argument("--agent-id", required=True)
+    cap_mint.add_argument("--tool", required=True)
+    cap_mint.add_argument("--constraints", help="Path to constraints JSON file")
+    cap_mint.add_argument("--ttl-seconds", type=int, default=3600)
+    cap_mint.add_argument("--policy-proof-hash", help="Optional v0.9.0 ProofResult.hash to bind in")
+    cap_mint.add_argument("--out", required=True, help="Output token JSON path")
+
+    cap_verify = cap_sub.add_parser("verify", help="Verify a token's signature + expiry")
+    cap_verify.add_argument("token", help="Path to token JSON")
+    cap_verify.add_argument("--pubkey", required=True, help="Pinned issuer public-key PEM")
+
+    cap_check = cap_sub.add_parser("check", help="Run a token through the gate against args")
+    cap_check.add_argument("token", help="Path to token JSON")
+    cap_check.add_argument("--pubkey", required=True)
+    cap_check.add_argument("--tool", required=True)
+    cap_check.add_argument("--args", required=True, help="Path to call-args JSON")
+    cap_check.add_argument("--agent-id", help="Caller agent_id (optional, must match token)")
+
+    cap_atten = cap_sub.add_parser(
+        "attenuate", help="Derive a more-restricted child token from a parent"
+    )
+    cap_atten.add_argument("--parent", required=True, help="Path to parent token JSON")
+    cap_atten.add_argument("--key", required=True, help="Issuer private-key PEM")
+    cap_atten.add_argument("--issuer", required=True)
+    cap_atten.add_argument("--extra-constraints", help="Path to extra-constraints JSON to merge in")
+    cap_atten.add_argument("--ttl-seconds", type=int)
+    cap_atten.add_argument("--narrower-agent-id")
+    cap_atten.add_argument("--out", required=True)
+
     return parser
 
 
@@ -1159,6 +1202,100 @@ def _cmd_prove(args: argparse.Namespace, kind: str) -> int:
         return 1
 
 
+def _cmd_cap_keygen(args: argparse.Namespace) -> int:
+    from raucle_detect.capability import CapabilityIssuer
+
+    issuer = CapabilityIssuer.generate(issuer=args.issuer)
+    issuer.save_private_key(f"{args.out}.key.pem")
+    Path(f"{args.out}.pub.pem").write_text(issuer.public_key_pem)
+    print(f"Issuer:  {args.issuer}")
+    print(f"Key ID:  {issuer.key_id}")
+    print(f"Private: {args.out}.key.pem")
+    print(f"Public:  {args.out}.pub.pem")
+    return 0
+
+
+def _cmd_cap_mint(args: argparse.Namespace) -> int:
+    import json as _json
+
+    from raucle_detect.capability import CapabilityIssuer
+
+    issuer = CapabilityIssuer.load_private_key(issuer=args.issuer, path=args.key)
+    constraints = {}
+    if args.constraints:
+        constraints = _json.loads(Path(args.constraints).read_text())
+    cap = issuer.mint(
+        agent_id=args.agent_id,
+        tool=args.tool,
+        constraints=constraints,
+        ttl_seconds=args.ttl_seconds,
+        policy_proof_hash=args.policy_proof_hash,
+    )
+    cap.save(args.out)
+    print(f"Minted {cap.token_id} → {args.out}")
+    print(f"  expires at: {cap.expires_at}")
+    return 0
+
+
+def _cmd_cap_verify(args: argparse.Namespace) -> int:
+    from raucle_detect.capability import Capability, CapabilityGate
+
+    cap = Capability.load(args.token)
+    pubkey = Path(args.pubkey).read_text()
+    gate = CapabilityGate(trusted_issuers={cap.key_id: pubkey})
+    decision = gate.check(cap, tool=cap.tool, args={})
+    # `decision` may DENY for constraint reasons even on a valid token, so
+    # we re-test only signature + expiry by passing no args and the token's
+    # own tool. Constraint violations on empty args mean the token requires
+    # something we didn't pass — for a pure verify, that still indicates
+    # signature/expiry are fine.
+    sig_ok = "bad signature" not in decision.reason and "expired" not in decision.reason
+    if sig_ok and decision.token_id == cap.token_id:
+        print(f"\033[92mOK\033[0m  token={cap.token_id}")
+        print(f"    agent={cap.agent_id}  tool={cap.tool}  exp={cap.expires_at}")
+        return 0
+    print(f"\033[91mINVALID\033[0m: {decision.reason}", file=sys.stderr)
+    return 2
+
+
+def _cmd_cap_check(args: argparse.Namespace) -> int:
+    import json as _json
+
+    from raucle_detect.capability import Capability, CapabilityGate
+
+    cap = Capability.load(args.token)
+    pubkey = Path(args.pubkey).read_text()
+    call_args = _json.loads(Path(args.args).read_text())
+    gate = CapabilityGate(trusted_issuers={cap.key_id: pubkey})
+    decision = gate.check(cap, tool=args.tool, agent_id=args.agent_id, args=call_args)
+    if decision.allowed:
+        print(f"\033[92mALLOW\033[0m  token={decision.token_id}")
+        return 0
+    print(f"\033[91mDENY\033[0m: {decision.reason}", file=sys.stderr)
+    return 2
+
+
+def _cmd_cap_attenuate(args: argparse.Namespace) -> int:
+    import json as _json
+
+    from raucle_detect.capability import Capability, CapabilityIssuer
+
+    parent = Capability.load(args.parent)
+    issuer = CapabilityIssuer.load_private_key(issuer=args.issuer, path=args.key)
+    extra = {}
+    if args.extra_constraints:
+        extra = _json.loads(Path(args.extra_constraints).read_text())
+    child = issuer.attenuate(
+        parent,
+        extra_constraints=extra,
+        narrower_ttl_seconds=args.ttl_seconds,
+        narrower_agent_id=args.narrower_agent_id,
+    )
+    child.save(args.out)
+    print(f"Attenuated → {child.token_id} (parent {parent.token_id})")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -1209,6 +1346,16 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_feed_list(args)
     elif args.command == "prove" and args.prove_command in {"json", "url", "sql"}:
         return _cmd_prove(args, args.prove_command)
+    elif args.command == "cap" and args.cap_command == "keygen":
+        return _cmd_cap_keygen(args)
+    elif args.command == "cap" and args.cap_command == "mint":
+        return _cmd_cap_mint(args)
+    elif args.command == "cap" and args.cap_command == "verify":
+        return _cmd_cap_verify(args)
+    elif args.command == "cap" and args.cap_command == "check":
+        return _cmd_cap_check(args)
+    elif args.command == "cap" and args.cap_command == "attenuate":
+        return _cmd_cap_attenuate(args)
     else:
         parser.print_help()
         return 0
