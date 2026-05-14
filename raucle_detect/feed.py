@@ -258,8 +258,7 @@ class Feed:
             expected_h = ioc.compute_content_hash()
             if expected_h != ioc.content_hash:
                 raise ValueError(
-                    f"ioc content_hash mismatch: declared {ioc.content_hash}, "
-                    f"computed {expected_h}"
+                    f"ioc content_hash mismatch: declared {ioc.content_hash}, computed {expected_h}"
                 )
             _ed25519_verify(pub, _canonical_json(ioc.body()), _b64d(ioc.signature))
 
@@ -365,9 +364,7 @@ class IOCSigner:
     def build_feed(self, iocs: list[SignedIOC], *, feed_id: str) -> Feed:
         for ioc in iocs:
             if ioc.issuer != self.issuer or ioc.key_id != self.key_id:
-                raise ValueError(
-                    f"ioc {ioc.content_hash} was signed by a different issuer/key"
-                )
+                raise ValueError(f"ioc {ioc.content_hash} was signed by a different issuer/key")
         feed = Feed(
             feed_id=feed_id,
             issuer=self.issuer,
