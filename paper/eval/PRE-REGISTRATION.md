@@ -9,11 +9,25 @@ This document fixes, *before any measurement run consumes the LLM API*, the meth
 
 ## Policy file hashes at registration
 
+Updated 2026-05-14 (second freeze, all four suites fully authored).
+The initial freeze (banking only) sat at `banking=4b78e687...` plus three scaffolds.
+This freeze hash-anchors the complete policy set with 629/629 static block rate.
+
 ```
 banking.json    sha256:4b78e6879aa6bad1d4907d6798d38b454766af9e82244d1e3a99286c1cd30148
-slack.json      sha256:a06b03ba0ec06fd52c0a818243b610069dc5385ede4e76277b71b5921e7b3610
-travel.json     sha256:0cdaf13b0d86f4b343f5cf9e1e1c881ad08c1250b4ad23f156a1ec45f0a85178
-workspace.json  sha256:182674e52c4b807d917bb6395754d2e5c4ca76feebd43621a7dfa4e2e1149b7f
+slack.json      sha256:72698245abb1112a5d69c96edb0eb9bb6c1c1fe51aa380154858633d3649f093
+travel.json     sha256:c7692b8ed97fc0e5a95603b9bc526e09bcbb81446a73233a018f35d7e8c2559d
+workspace.json  sha256:8ba7048111993cc1def6638a3101a9a7d486ba1bdaf36dd1c43ce044871aed68
+```
+
+Static verifier outputs at this freeze (full output in commit message):
+
+```
+banking:   144 / 144 attack attempts blocked (100.0%)
+slack:     105 / 105 attack attempts blocked (100.0%)
+travel:    140 / 140 attack attempts blocked (100.0%)
+workspace: 240 / 240 attack attempts blocked (100.0%)
+TOTAL:     629 / 629 attack attempts blocked (100.0%)
 ```
 
 Any policy file used in the eval whose hash does not match one of these without a corresponding revision commit is invalid. The `paper/eval/verify_policies.py` runs the hash check before any measurement.
@@ -69,13 +83,17 @@ The benchmark's attack-success-rate metric is tool-call-mediated by construction
 
 `paper/eval/verify_policies.py` runs the gate's constraint-check logic on every `(user_task, injection_task)` pair without an LLM in the loop, against the injection task's canonical attack arguments. The static verifier returns the upper bound on attack-rejection: cells the verifier permits are cells the actual eval cannot do better on.
 
-Current static verifier result (banking only, as of this registration):
+Current static verifier result (all four suites, as of second freeze):
 
 ```
-SUMMARY: 144 / 144 banking attack attempts blocked (100.0%)
+banking:   144 / 144 (100.0%)
+slack:     105 / 105 (100.0%)
+travel:    140 / 140 (100.0%)
+workspace: 240 / 240 (100.0%)
+TOTAL:     629 / 629 (100.0%)
 ```
 
-`slack.json`, `travel.json`, and `workspace.json` are scaffolds whose static verification is not yet at 100%; they are completed before the headline run.
+This is the **upper bound** on attack-rejection: cells the verifier permits are cells the actual LLM-driven eval cannot improve on. The real ASR with an LLM in the loop will be ≤ this bound, with the natural attrition from text-side defences (some attacks fail to convince the agent to emit the attack call) contributing additional zeros on top.
 
 ## What this pre-registration commits us to
 

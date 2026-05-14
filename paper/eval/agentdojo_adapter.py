@@ -21,6 +21,9 @@ from typing import Any, Callable
 # registration machinery and side-steps the v1↔v1_1_1 circular import.
 import agentdojo.task_suite  # noqa: F401
 
+# Add 2026-generation models to AgentDojo's frozen ModelsEnum.
+from paper.eval import agentdojo_patches  # noqa: F401
+
 from agentdojo.agent_pipeline import (
     AgentPipeline,
     BasePipelineElement,
