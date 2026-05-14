@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.9.0 (2026-05-14)
+
+### Formal verification of bounded guardrails — proofs, not statistics
+
+Every other AI security product on the market ships with the same line: *"tested against 10,000 attacks."* That is statistics over a sample. For bounded sub-languages — tool-call JSON, URL allowlists, read-only SQL — we can do dramatically better: produce an actual **proof** that no string in the grammar bypasses a given policy. v0.9.0 is the first release of that machinery.
+
+- **`JSONSchemaProver`** — SMT-backed (Z3). Given a JSON Schema (type=object with primitive properties + enum + min/max) and a policy (`forbidden_values`, `max_value` / `min_value`, `required_present`, `forbidden_field_combinations`), returns `PROVEN` or a **concrete counterexample tool-call**. The right thing to point at every agent's tool-call interface.
+- **`URLPolicyProver`** — enumerative. `require_https`, `forbid_query_keys`, `host_allowlist` (with `*.example.com` wildcards), `max_path_depth`. Counterexamples are concrete URLs.
+- **`SQLClauseProver`** — bounded read-only-ish policy over a finite set of statement templates. `forbidden_tokens` (DROP, DELETE, TRUNCATE…), `allow_statement_chaining`, `allowed_tables`. Counterexamples include the offending template plus the rule that broke.
+- **`ProofResult`** — canonical-JSON-hashed artifact carrying `(status, prover, prover_version, grammar_hash, policy_hash, counterexample, notes, timeout_ms)`. The hash drops straight into the v0.5.0 receipt and v0.4.0 audit chain — proof artifacts become first-class citizens of the trust graph.
+- **`UnsupportedGrammar`** — explicit refusal. Recursive schemas, arbitrary string regex constraints, and full SQL grammars raise instead of pretending to prove something they can't. Honest scope beats lying coverage.
+- **CLI** — `raucle-detect prove json --schema tool.json --policy policy.json`, `prove url --grammar grammar.json --policy policy.json`, `prove sql --grammar grammar.json --policy policy.json`. Exit codes: 0 PROVEN, 2 REFUTED, 1 UNDECIDED.
+- **Optional `[proof]` extra** — `pip install 'raucle-detect[proof]'` pulls Z3. Core stays dependency-free.
+- 19 new tests covering positive proofs, refutation paths with concrete counterexample inspection, hash determinism, and the rejection of unsupported grammars.
+
+This is the depth play. The v0.8.0 feed is breadth — fast distribution of known badness. v0.9.0 is depth — cryptographic guarantees about declared interfaces. Together they bracket the field.
+
+Move #3 of the revolutionary roadmap.
+
 ## 0.8.0 (2026-05-14)
 
 ### Federated signed-IOC feeds — Sigstore-shaped threat intel for AI
