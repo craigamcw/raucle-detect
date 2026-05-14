@@ -57,6 +57,36 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Output format",
     )
 
+    # -- scan-image / scan-pdf / scrub (multimodal v0.7.0) ------------------
+    scan_image = subparsers.add_parser(
+        "scan-image", help="Scan an image: OCR + EXIF + scrub then text-scan"
+    )
+    scan_image.add_argument("path", help="Path to the image file")
+    scan_image.add_argument("--mode", "-m", choices=_modes, default="standard")
+    scan_image.add_argument(
+        "--rules-dir", "-r", type=str, help="Path to custom YAML rules directory"
+    )
+    scan_image.add_argument(
+        "--format", choices=["table", "json"], default="table", help="Output format"
+    )
+
+    scan_pdf = subparsers.add_parser(
+        "scan-pdf", help="Scan a PDF: extract text + scrub then text-scan"
+    )
+    scan_pdf.add_argument("path", help="Path to the PDF file")
+    scan_pdf.add_argument("--mode", "-m", choices=_modes, default="standard")
+    scan_pdf.add_argument("--rules-dir", "-r", type=str, help="Path to custom YAML rules directory")
+    scan_pdf.add_argument(
+        "--format", choices=["table", "json"], default="table", help="Output format"
+    )
+
+    scrub = subparsers.add_parser(
+        "scrub", help="Inspect text for invisible / formatting Unicode chars"
+    )
+    scrub.add_argument("text", nargs="?", help="Text to inspect (or use --file)")
+    scrub.add_argument("--file", "-f", type=str, help="Read text from a file")
+    scrub.add_argument("--format", choices=["table", "json"], default="table", help="Output format")
+
     # -- serve --------------------------------------------------------------
     serve_p = subparsers.add_parser("serve", help="Start the REST API server")
     serve_p.add_argument(
@@ -822,12 +852,131 @@ def _cmd_provenance_replay(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_multimodal_result(result, path: str | None = None) -> None:
+    """Render a MultimodalScanResult to stdout in table form."""
+    verdict_colour = {
+        "MALICIOUS": "\033[91m",
+        "SUSPICIOUS": "\033[93m",
+        "CLEAN": "\033[92m",
+    }.get(result.combined_verdict, "")
+    if path:
+        print(f"Input:       {path}")
+    print(
+        f"Verdict:     {verdict_colour}{result.combined_verdict}\033[0m   "
+        f"Action: {result.combined_action}"
+    )
+    if result.findings:
+        print(f"\nFindings ({len(result.findings)}):")
+        for f in result.findings:
+            sev_colour = {"HIGH": "\033[91m", "MEDIUM": "\033[93m", "LOW": "\033[2m"}.get(
+                f.severity, ""
+            )
+            print(f"  [{sev_colour}{f.severity}\033[0m] {f.kind}: {f.detail}")
+    if result.scan_result:
+        sr = result.scan_result
+        print("\nText-scan result on extracted/scrubbed content:")
+        print(f"  Verdict:     {sr.verdict}")
+        print(f"  Confidence:  {sr.confidence:.1%}")
+        if sr.matched_rules:
+            print(f"  Rules:       {', '.join(sr.matched_rules)}")
+        if sr.attack_technique:
+            print(f"  Technique:   {sr.attack_technique}")
+
+
+def _cmd_scan_image(args: argparse.Namespace) -> int:
+    from raucle_detect.multimodal import MultimodalScanner
+
+    scanner = Scanner(mode=args.mode, rules_dir=args.rules_dir)
+    mm = MultimodalScanner(scanner)
+    try:
+        result = mm.scan_image(args.path)
+    except ImportError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    except (FileNotFoundError, OSError) as exc:
+        print(f"Error reading image: {exc}", file=sys.stderr)
+        return 1
+
+    if args.format == "json":
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        _print_multimodal_result(result, path=args.path)
+
+    return {"CLEAN": 0, "SUSPICIOUS": 1, "MALICIOUS": 2}[result.combined_verdict]
+
+
+def _cmd_scan_pdf(args: argparse.Namespace) -> int:
+    from raucle_detect.multimodal import MultimodalScanner
+
+    scanner = Scanner(mode=args.mode, rules_dir=args.rules_dir)
+    mm = MultimodalScanner(scanner)
+    try:
+        result = mm.scan_pdf(args.path)
+    except ImportError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    except (FileNotFoundError, OSError) as exc:
+        print(f"Error reading PDF: {exc}", file=sys.stderr)
+        return 1
+
+    if args.format == "json":
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        _print_multimodal_result(result, path=args.path)
+
+    return {"CLEAN": 0, "SUSPICIOUS": 1, "MALICIOUS": 2}[result.combined_verdict]
+
+
+def _cmd_scrub(args: argparse.Namespace) -> int:
+    from raucle_detect.multimodal import strip_invisible_unicode
+
+    if args.text:
+        text = args.text
+    elif args.file:
+        text = Path(args.file).read_text(encoding="utf-8")
+    else:
+        if sys.stdin.isatty():
+            print("Reading from stdin (Ctrl+D to finish):", file=sys.stderr)
+        text = sys.stdin.read()
+
+    scrubbed, hidden = strip_invisible_unicode(text)
+    out = {
+        "original_length": len(text),
+        "scrubbed_length": len(scrubbed),
+        "hidden_codepoints": hidden,
+        "scrubbed_text": scrubbed,
+    }
+    if args.format == "json":
+        print(json.dumps(out, indent=2))
+    else:
+        if hidden:
+            print(
+                f"\033[91mFound {sum(int(h.split('×')[1].rstrip(')')) for h in hidden)} "
+                f"invisible codepoint(s)\033[0m across {len(hidden)} kind(s):"
+            )
+            for h in hidden:
+                print(f"  - {h}")
+            print(f"\nOriginal length:  {len(text)} chars")
+            print(f"Scrubbed length:  {len(scrubbed)} chars")
+            print("\nScrubbed text:")
+            print(scrubbed)
+        else:
+            print("\033[92mNo invisible Unicode found.\033[0m")
+    return 2 if hidden else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
     if args.command == "scan":
         return _cmd_scan(args)
+    elif args.command == "scan-image":
+        return _cmd_scan_image(args)
+    elif args.command == "scan-pdf":
+        return _cmd_scan_pdf(args)
+    elif args.command == "scrub":
+        return _cmd_scrub(args)
     elif args.command == "serve":
         return _cmd_serve(args)
     elif args.command == "rules" and args.rules_command == "list":

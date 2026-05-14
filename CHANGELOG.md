@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.7.0 (2026-05-14)
+
+### Multimodal scanning — the 2026 attack surface
+
+Attackers are no longer typing `ignore all previous instructions`. They hide it inside images (OCR + invisible-pixel encoding), audio (steganography), ASCII art (the ArtPrompt class), EXIF metadata, PDF streams, and zero-width Unicode wrapped around innocent-looking text. This release adds the detection layer text-only scanners miss.
+
+- **`strip_invisible_unicode(text)`** — dep-free, always available. Strips zero-width spaces (U+200B/C/D), bidi overrides (U+202A–E, U+2066–9), variation selectors (U+FE00–F, U+E0100–1EF), word joiners (U+2060–4), the entire **tag-character block** (U+E0001–7F) used in 2024-era invisible-prompt attacks, the BOM, and the soft hyphen. Returns the cleaned string plus a list of every codepoint that was hidden, so the finding can be surfaced rather than silently sanitised away.
+- **`detect_ascii_art(text)`** — dep-free heuristic for the **ArtPrompt** class. Identifies blocks of 5+ consecutive art-shaped rows (high fill-character density, low alphanumerics), then matches each 6-column slice against a library of 13 letter glyphs (A, B, E, G, I, N, O, P, R, S, T, U, V) at a 70% structural-similarity threshold. Catches the canonical "draw the word IGNORE in `#` characters and ask the model to read it" attack without needing OCR.
+- **`MultimodalScanner`** — orchestrator that wraps a `Scanner` and pre-processes input through every detector. Returns a typed `MultimodalScanResult` with a `combined_verdict` that auto-escalates to MALICIOUS when any HIGH-severity finding is present — *seeing* invisible-Unicode in prose is itself evidence of bad intent, separate from what the scrubbed text scans as.
+- **Image scanning** via Tesseract OCR + EXIF inspection. Extracts text from `.png`/`.jpg`/etc., inspects EXIF for prompt-bearing metadata, concatenates everything, and feeds it back through the standard text scanner. Requires the `[multimodal]` extra (Pillow + pytesseract + tesseract on PATH).
+- **PDF scanning** via `pypdf` stream extraction. Same pattern: extract text, scrub, scan.
+
+### New CLI
+
+- **`raucle-detect scan-image <path>`** — full pipeline. `--mode`, `--rules-dir`, `--format table|json`. Exit code 0/1/2 by verdict.
+- **`raucle-detect scan-pdf <path>`** — same options.
+- **`raucle-detect scrub <text>`** — quick utility. Reports every invisible codepoint in the input and prints the scrubbed text.
+
+### Deliberately not done yet
+
+- Audio steganography — needs librosa/audio deps; deferred to a future release with its own `[audio]` extra.
+- Image-pixel-encoded prompts (least-significant-bit steganography) — separate detector, separate PR.
+- Multimodal LLM input correlation — Scanner currently treats text and image as separate scans.
+
+### Stats
+
+- 1 new module (`multimodal.py`)
+- 3 new CLI commands (`scan-image`, `scan-pdf`, `scrub`)
+- 22 new tests (20 dep-free + 2 that gracefully skip without Pillow/pypdf)
+- 333 tests passing total
+- New optional dependency group: `pip install 'raucle-detect[multimodal]'`
+
+### Compatibility
+
+All new functionality additive. `Scanner` unchanged. Existing chains, receipts, replay flows continue to work. Version 0.6.0 → 0.7.0.
+
 ## 0.6.0 (2026-05-14)
 
 ### Counterfactual replay — the SOC killer feature
