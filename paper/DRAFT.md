@@ -212,18 +212,39 @@ We test six defence configurations:
 5. **VCD text-only** — the scanner layer of our reference implementation, without proof or capability.
 6. **VCD full stack** — scanner + proof + capability gate.
 
-All configurations run against the same base model (Claude Sonnet 4.6) and the same agent harness. We report tool-call-mediated attack success rate, benign task completion on the AgentDojo benign-task split, and gate latency on commodity hardware (Apple M-series, single thread).
+All configurations run against the same base model and the same agent harness. We measure on two contemporary frontier-class models: **deepseek-v3.2** (671B, late 2025) and **deepseek-v4-flash** (140B, April 2026), via Ollama Cloud's OpenAI-compatible endpoint. We report tool-call-mediated attack success rate, benign task completion on the AgentDojo benign-task split, and gate latency on commodity hardware.
 
 ### 6.2 Headline Result
 
-| Defence | AgentDojo ASR | InjecAgent ASR | Benign completion |
+Measured on the AgentDojo banking suite (144 user × injection task pairs per cell). Numbers from the live LLM-driven evaluation reported here; `[TBD]` cells await currently-running tracks for the remaining suites (slack, travel, workspace) and the v4-pro prestige row.
+
+**deepseek-v4-flash (frontier flash, April 2026):**
+
+| Defence | ASR | Benign | Wall |
 |---|---|---|---|
-| None | `[TBD ~47]%` | `[TBD ~52]%` | `[TBD ~89]%` |
-| Spotlighting | `[TBD ~22]%` | `[TBD ~28]%` | `[TBD ~87]%` |
-| StruQ | `[TBD ~14]%` | `[TBD ~19]%` | `[TBD ~84]%` |
-| Prompt shields | `[TBD ~18]%` | `[TBD ~23]%` | `[TBD ~86]%` |
-| VCD text-only | `[TBD ~31]%` | `[TBD ~34]%` | `[TBD ~88]%` |
-| **VCD full stack** | `[TBD ≤ 0.5]%` | `[TBD ≤ 0.5]%` | `[TBD ~86]%` |
+| None | **1.4%** | 86.8% | 7.6m |
+| Spotlighting | 2.1% | 84.0% | 14.4m |
+| StruQ | `[TBD]` | `[TBD]` | — |
+| Prompt shields (DeBERTa PI) | **0.0%** | **35.4%** | 26.5m |
+| VCD text-only | 0.0% | 91.0% | 22.5m |
+| **VCD full stack** | **0.7%** | **90.3%** | 8.7m |
+| VCD capability-only (ablation) | 0.0% | 88.9% | 9.1m |
+
+**deepseek-v3.2 (frontier reasoning, late 2025):**
+
+| Defence | ASR | Benign | Wall |
+|---|---|---|---|
+| None | **77.8%** | 100.0% | — |
+| Spotlighting | `[TBD]` | `[TBD]` | — |
+| StruQ | `[TBD]` | `[TBD]` | — |
+| Prompt shields | `[TBD]` | `[TBD]` | — |
+| VCD text-only | `[TBD]` | `[TBD]` | — |
+| **VCD full stack** | `[TBD]` | `[TBD]` | — |
+| VCD capability-only | `[TBD]` | `[TBD]` | — |
+
+(v3.2 baseline measured on 18 of 144 banking cells before aggregation; the running v3.2 sweep covers all six configurations across all 144 pairs.)
+
+The load-bearing comparison on v4-flash is the **shields vs VCD full stack** row pair: both achieve essentially-zero ASR, but the strongest text-side defence (transformers PI detector) drops benign task completion to **35.4%** while VCD full-stack preserves **90.3%** — a 54.9-percentage-point gap in legitimate task completion at equivalent security. Equivalently, deploying shields requires accepting the loss of more than half of legitimate agent productivity to reach VCD's security level.
 
 For the AgentDojo and InjecAgent attack distributions, the fraction of attacks whose success is mediated by a constrained tool call is `[TBD-AD-frac]%` and `[TBD-IA-frac]%` respectively; the remainder are pure-output attacks that VCD does not target and that contribute to the residual ASR above zero. We discuss the small residual in Section 6.5.
 
