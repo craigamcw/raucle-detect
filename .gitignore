@@ -19,3 +19,4 @@ demo-output/
 /latency.json
 /results.json
 paper/lean/.lake/
+.claude/
