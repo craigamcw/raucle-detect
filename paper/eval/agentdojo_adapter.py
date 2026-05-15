@@ -177,7 +177,13 @@ def _wrap_with_vcd(
         suite=suite, user_task_id=user_task_id, variant=variant
     )
     elements[3] = ToolsExecutionLoop(inner)
-    return AgentPipeline(elements)
+    # Preserve the pipeline name. The important_instructions attack template
+    # reads pipeline.name to compose the injection prompt — see
+    # agentdojo.attacks.base_attacks.get_model_name_from_pipeline. If we
+    # leave name unset the attack raises "Pipeline name is `None`".
+    wrapped = AgentPipeline(elements)
+    wrapped.name = f"{pipeline.name}-{variant}" if pipeline.name else variant
+    return wrapped
 
 
 # ---------------------------------------------------------------------------
