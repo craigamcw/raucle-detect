@@ -237,6 +237,51 @@ def run(
     return out
 
 
+def _run_one_user_task_subprocess(
+    ut_id: str,
+    defence: str,
+    model: str,
+    sys_msg: str,
+    suite_name: str,
+    attack_name: str,
+    injection_tasks: list[str] | None,
+    logdir_str: str | None,
+    force_rerun: bool,
+):
+    """Worker-side helper for ProcessPoolExecutor.
+
+    Each subprocess has its own Python interpreter state (no shared
+    contextvar mutable-default bug). Rebuilds the suite, pipeline, and
+    attack inside the worker so we only pickle plain strings across the
+    boundary, not AgentDojo objects.
+    """
+    from pathlib import Path
+    # Re-apply the AgentDojo patches in the subprocess (ModelsEnum, providers,
+    # MODEL_NAMES, get_llm). This import has side effects via its top-level
+    # apply() call.
+    from paper.eval import agentdojo_patches  # noqa
+    import agentdojo.task_suite  # noqa
+    from agentdojo.task_suite import get_suites
+    from agentdojo.attacks.attack_registry import load_attack
+    from agentdojo.benchmark import run_task_with_injection_tasks
+    from agentdojo.logging import OutputLogger
+
+    suite = get_suites(SUITE_VERSION)[suite_name]
+    ut = suite.get_user_task_by_id(ut_id)
+    agent = _build_pipeline(
+        defence, model, sys_msg, suite=suite_name, user_task_id=ut_id
+    )
+    attack = load_attack(attack_name, suite, agent)
+
+    logdir = Path(logdir_str) if logdir_str else None
+    with OutputLogger(logdir=logdir_str):
+        utility_map, security_map = run_task_with_injection_tasks(
+            suite, agent, ut, attack,
+            logdir, force_rerun, injection_tasks, SUITE_VERSION,
+        )
+    return ut_id, utility_map, security_map
+
+
 def _run_suite_per_task(
     defence: str,
     model: str,
@@ -305,11 +350,27 @@ def _run_suite_per_task(
     else:
         import concurrent.futures
         logger.info(
-            "  parallel: %d workers across %d user tasks",
+            "  parallel: %d workers (processes) across %d user tasks",
             max_workers, len(tasks_to_run),
         )
-        pool = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
-        futures = [pool.submit(_run_one_user_task, ut) for ut in tasks_to_run]
+        # ProcessPoolExecutor not ThreadPoolExecutor: AgentDojo's
+        # LOGGER_STACK is a ContextVar with a mutable list default, which
+        # threads share and trample on. Each subprocess gets its own Python
+        # interpreter state so the bug is structurally avoided.
+        # Task objects must be picklable; AgentDojo's UserTask classes are.
+        pool = concurrent.futures.ProcessPoolExecutor(max_workers=max_workers)
+        # Pass identifiers (str) and rebuild the task on the worker side, to
+        # avoid pickling the full TaskSuite / agent pipeline.
+        ut_ids = [ut.ID for ut in tasks_to_run]
+        futures = [
+            pool.submit(
+                _run_one_user_task_subprocess,
+                ut_id, defence, model, sys_msg,
+                suite_name, attack_name,
+                injection_tasks, str(logdir) if logdir else None, force_rerun,
+            )
+            for ut_id in ut_ids
+        ]
         results_iter = (f.result() for f in concurrent.futures.as_completed(futures))
 
     for ut_id, utility_map, security_map in results_iter:
