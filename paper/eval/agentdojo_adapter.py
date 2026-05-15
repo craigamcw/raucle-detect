@@ -41,6 +41,7 @@ from agentdojo.benchmark import (
     run_task_with_injection_tasks,
     SuiteResults,
 )
+from agentdojo.logging import OutputLogger
 from agentdojo.task_suite import get_suites
 
 logger = logging.getLogger(__name__)
@@ -209,38 +210,30 @@ def run(
     is_vcd = defence.startswith("vcd_")
 
     out: list[SuiteAggregate] = []
-    for sname in suite_names:
-        suite = suite_dict[sname]
-        t0 = time.time()
-        if is_vcd:
+    # AgentDojo's benchmark machinery uses OutputLogger as a context manager
+    # to make `logdir` available to TraceLogger downstream. Without this wrap
+    # the run crashes on `NullLogger.logdir` lookup.
+    log_dir_str = str(logdir) if logdir else None
+    with OutputLogger(logdir=log_dir_str):
+        for sname in suite_names:
+            suite = suite_dict[sname]
+            t0 = time.time()
+            # Both VCD and non-VCD route through _run_suite_per_task. For
+            # non-VCD, the per-task pipeline rebuild is a small overhead but
+            # buys us parallelism across user tasks. _build_pipeline accepts
+            # suite/user_task_id for both paths; non-VCD ignores them.
             agg = _run_suite_per_task(
                 defence, model, suite, sname, attack_name,
                 user_tasks=user_tasks, injection_tasks=injection_tasks,
                 logdir=logdir, force_rerun=force_rerun,
                 verbose=verbose,
             )
-        else:
-            # Non-VCD configurations: single pipeline per suite is fine.
-            agent = _build_pipeline(defence, model, _system_message_for(sname))
-            attack = load_attack(attack_name, suite, agent)
-            results: SuiteResults = benchmark_suite_with_injections(
-                agent_pipeline=agent,
-                suite=suite,
-                attack=attack,
-                logdir=logdir,
-                force_rerun=force_rerun,
-                user_tasks=user_tasks,
-                injection_tasks=injection_tasks,
-                verbose=verbose,
-                benchmark_version=SUITE_VERSION,
+            elapsed = time.time() - t0
+            logger.info(
+                "[%s] %s: ASR=%.1f%% benign=%.1f%% (%.0fs)",
+                defence, sname, 100 * agg.asr, 100 * agg.benign_completion, elapsed,
             )
-            agg = _aggregate(sname, results)
-        elapsed = time.time() - t0
-        logger.info(
-            "[%s] %s: ASR=%.1f%% benign=%.1f%% (%.0fs)",
-            defence, sname, 100 * agg.asr, 100 * agg.benign_completion, elapsed,
-        )
-        out.append(agg)
+            out.append(agg)
     return out
 
 
@@ -256,9 +249,16 @@ def _run_suite_per_task(
     logdir: Path | None,
     force_rerun: bool,
     verbose: bool,
+    max_workers: int | None = None,
 ) -> SuiteAggregate:
     """Drive AgentDojo task-by-task so each user task gets a freshly-built
-    pipeline whose `GatedToolsExecutor` is scoped to that task's policy."""
+    pipeline whose `GatedToolsExecutor` is scoped to that task's policy.
+
+    When ``max_workers`` is set (or RAUCLE_PARALLEL env var is set), user tasks
+    run concurrently via a thread pool. Bounded by the LLM provider's
+    concurrent-request limit. For Ollama Cloud at 10 concurrent, set 8 to
+    leave headroom for retries.
+    """
     if user_tasks is not None:
         tasks_to_run = [suite.get_user_task_by_id(ut) for ut in user_tasks]
     else:
@@ -274,7 +274,9 @@ def _run_suite_per_task(
         tool_mediated_attacks=0,
     )
 
-    for ut in tasks_to_run:
+    # Per-user-task closure; builds its own pipeline+attack so threads
+    # don't share mutable state.
+    def _run_one_user_task(ut):
         ut_id = ut.ID
         agent = _build_pipeline(
             defence, model, sys_msg, suite=suite_name, user_task_id=ut_id
@@ -290,7 +292,27 @@ def _run_suite_per_task(
             injection_tasks,
             SUITE_VERSION,
         )
-        # Each map: {(ut_id, inj_id): bool}
+        return ut_id, utility_map, security_map
+
+    import os
+    if max_workers is None:
+        env_workers = os.getenv("RAUCLE_PARALLEL")
+        max_workers = int(env_workers) if env_workers else 1
+
+    if max_workers <= 1:
+        # Serial path — original behaviour.
+        results_iter = (_run_one_user_task(ut) for ut in tasks_to_run)
+    else:
+        import concurrent.futures
+        logger.info(
+            "  parallel: %d workers across %d user tasks",
+            max_workers, len(tasks_to_run),
+        )
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
+        futures = [pool.submit(_run_one_user_task, ut) for ut in tasks_to_run]
+        results_iter = (f.result() for f in concurrent.futures.as_completed(futures))
+
+    for ut_id, utility_map, security_map in results_iter:
         for key, attack_success in security_map.items():
             aggregate.total_tasks += 1
             if attack_success:
