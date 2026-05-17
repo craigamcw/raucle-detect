@@ -13,6 +13,7 @@ agentdojo_adapter does so automatically.
 from __future__ import annotations
 
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,7 @@ def apply() -> None:
 
     _patch_get_llm()
     _patch_model_names()
+    _patch_xml_tool_calls()
 
 
 def _patch_model_names() -> None:
@@ -150,6 +152,109 @@ def _patch_get_llm() -> None:
 
     ap_mod.get_llm = patched_get_llm
     logger.debug("patched get_llm to handle ollama provider")
+
+
+_FUNCTION_CALLS_RE = re.compile(
+    r"<function_calls>(?P<body>.*?)</function_calls>", re.DOTALL | re.IGNORECASE
+)
+_INVOKE_RE = re.compile(
+    r'<invoke\s+name=(?:"([^"]+)"|\'([^\']+)\')\s*>(?P<inner>.*?)</invoke>',
+    re.DOTALL | re.IGNORECASE,
+)
+_PARAM_RE = re.compile(
+    r'<parameter\s+name=(?:"([^"]+)"|\'([^\']+)\')[^>]*>(?P<val>.*?)</parameter>',
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def _coerce_param_value(raw: str) -> object:
+    """Best-effort type-coerce an XML-extracted parameter value.
+
+    The Claude-style XML used by deepseek-v3.2 (under some prompt sizes via
+    Ollama Cloud) does not always carry a usable type tag. JSON-decode first
+    so booleans/numbers/objects round-trip; fall back to the raw string.
+    """
+    import json as _json
+    s = raw.strip()
+    try:
+        return _json.loads(s)
+    except Exception:
+        return s
+
+
+def _parse_xml_tool_calls(content: str):
+    """Extract OpenAI-style tool_calls from a Claude-style XML response.
+
+    Returns a list of dicts shaped like:
+        [{"id": "call_0", "name": "tool", "args": {...}}, ...]
+    or an empty list if no XML tool-call block is present.
+    """
+    if not content or "<function_calls>" not in content.lower():
+        return []
+    block = _FUNCTION_CALLS_RE.search(content)
+    if not block:
+        return []
+    calls = []
+    for idx, m in enumerate(_INVOKE_RE.finditer(block.group("body"))):
+        name = (m.group(1) or m.group(2) or "").strip()
+        if not name:
+            continue
+        args = {}
+        for pm in _PARAM_RE.finditer(m.group("inner")):
+            pname = (pm.group(1) or pm.group(2) or "").strip()
+            if not pname:
+                continue
+            args[pname] = _coerce_param_value(pm.group("val"))
+        calls.append({"id": f"call_{idx}", "name": name, "args": args})
+    return calls
+
+
+def _patch_xml_tool_calls() -> None:
+    """Teach AgentDojo's OpenAI message converter to recover XML tool calls.
+
+    deepseek-v3.2 on Ollama Cloud emits Claude-style `<function_calls>` XML
+    blocks in the message *content* on longer system prompts (slack, travel,
+    workspace), and never populates the OpenAI `tool_calls` field. Without
+    this patch the agent's trajectory terminates after the first assistant
+    turn with no tool execution. We post-process the converted assistant
+    message: if its OpenAI `tool_calls` is empty but the content contains a
+    parseable XML tool-call block, synthesise the structured tool_calls and
+    blank the content.
+    """
+    import agentdojo.agent_pipeline.llms.openai_llm as openai_llm_mod
+
+    original_convert = openai_llm_mod._openai_to_assistant_message
+
+    def patched_convert(msg):
+        result = original_convert(msg)
+        # The assistant message dict in AgentDojo has 'tool_calls' and 'content' keys.
+        existing_calls = result.get("tool_calls") or []
+        if existing_calls:
+            return result
+        content = result.get("content")
+        # content may be a list of {type: text, content: ...} or a string
+        text = ""
+        if isinstance(content, list):
+            for piece in content:
+                if isinstance(piece, dict) and piece.get("type") == "text":
+                    text += piece.get("content") or ""
+        elif isinstance(content, str):
+            text = content
+        synth = _parse_xml_tool_calls(text)
+        if not synth:
+            return result
+        from agentdojo.functions_runtime import FunctionCall
+        result["tool_calls"] = [
+            FunctionCall(id=c["id"], function=c["name"], args=c["args"])
+            for c in synth
+        ]
+        # Blank the content so the agent harness doesn't double-process it.
+        result["content"] = [{"type": "text", "content": ""}]
+        logger.debug("recovered %d XML tool_call(s) from assistant content", len(synth))
+        return result
+
+    openai_llm_mod._openai_to_assistant_message = patched_convert
+    logger.debug("patched _openai_to_assistant_message to recover XML tool_calls")
 
 
 # Apply at import.
