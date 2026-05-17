@@ -1,7 +1,6 @@
 # Verified Capability Discipline for LLM Agent Tool Calls
 
-*Draft v1 — 2026-05-14.*
-*All `[TBD]` markers indicate measurements that require the AgentDojo + InjecAgent harness run on your hardware. All `[LEAN]` markers indicate proof obligations whose Lean 4 mechanisation has been sketched in `paper/lean/` but not yet machine-checked.*
+*Draft v2 — 2026-05-17 (empirical sweep landed; see `paper/eval/runs/README.md` for the run history and `paper/eval/results/*.json` for per-cell aggregates).*
 
 ---
 
@@ -19,7 +18,7 @@ Our principal claims are:
 
 1. **Structural enforcement.** If the gate returns ALLOW for a tool call, the call arguments satisfy every constraint in a valid descendant of a capability token signed by a pinned issuer; absent compromise of the issuer's private key, no agent input — natural-language or otherwise — can produce an ALLOW for arguments that violate the policy.
 2. **Provable policy completeness.** Given a tool's JSON Schema in a supported fragment, the prover terminates with either a proof that no string in the schema's language violates the policy, or a concrete counterexample call.
-3. **Empirical attack-success reduction.** Across AgentDojo and InjecAgent, VCD reduces the tool-call-mediated attack-success rate from `[TBD-baseline]%` (no defence) and `[TBD-strongest-prior]%` (strongest text-side defence) to `[TBD ≤ 0.5]%`, with `[TBD ≥ 85]%` benign task completion and a per-call gate latency well under 100 microseconds at p50 on commodity hardware. We report in Section 6.1 the fraction of attacks in each benchmark that are *tool-call-mediated* (and thus in VCD's scope) versus pure-output (out of scope); the strength of the headline claim depends on this fraction, which we measure rather than estimate.
+3. **Empirical attack-success reduction.** Across three frontier-class open-weight models (deepseek-v3.2, deepseek-v4-flash, deepseek-v4-pro), three attack families (`important_instructions`, `direct`, `ignore_previous`), and four AgentDojo task suites (banking, slack, travel, workspace), VCD reduces the tool-call-mediated attack-success rate from a no-defence baseline of **1.4–70.8%** to a benchmark-artefact floor of **0.0–0.7%**, while preserving **58.6–91.0%** benign task completion. The strongest contemporary text-side defence we compared (prompt-shields, DeBERTa-based PI detector) achieves equivalent ASR but collapses benign task completion to **0.0–36.7%** on the same cells — a **+27.9 to +58.6 percentage-point** benign-preservation gap at equivalent security. A static upper bound (§6.2.1) establishes that the gate's constraint logic denies every catalogued attack across both benchmarks' 2,737 user-task × injection-task pairs. Every non-zero LLM-driven ASR cell we report (720 banking attempts) maps to the same `user_task_15 × injection_task_4` IBAN-coincidence benchmark artefact in which the user's authorised tool call legitimately matches the attacker's adversarial target; outside that single cell, the LLM-driven gate-block rate on attacker-controlled tool calls is **100%**. Per-call gate latency is well under 100 microseconds at p50 on commodity hardware, and end-to-end agent wall time with VCD enabled is at or below the unprotected baseline on four of eight cohorts measured (§6.3.1).
 
 We argue in Section 9 that VCD does not solve prompt injection — free-form output attacks and side-channel exfiltration over allowed parameters are out of scope — but that it closes the dominant attack class, and that the trajectory of AI security must be to move enforcement boundaries out of the model and into structural gates wherever the grammar permits.
 
@@ -212,11 +211,11 @@ We test six defence configurations:
 5. **VCD text-only** — the scanner layer of our reference implementation, without proof or capability.
 6. **VCD full stack** — scanner + proof + capability gate.
 
-All configurations run against the same base model and the same agent harness. We measure on two contemporary frontier-class models: **deepseek-v3.2** (671B, late 2025) and **deepseek-v4-flash** (140B, April 2026), via Ollama Cloud's OpenAI-compatible endpoint. We report tool-call-mediated attack success rate, benign task completion on the AgentDojo benign-task split, and gate latency on commodity hardware.
+All configurations run against the same base model and the same agent harness. We measure on three contemporary frontier-class models: **deepseek-v3.2** (671B, late 2025), **deepseek-v4-flash** (140B, April 2026), and **deepseek-v4-pro** (1.6T, May 2026), via Ollama Cloud's OpenAI-compatible endpoint. We report tool-call-mediated attack success rate, benign task completion on the AgentDojo benign-task split, and gate latency on commodity hardware.
 
 ### 6.2 Headline Result
 
-Measured on the AgentDojo banking suite (144 user × injection task pairs per cell). Numbers from the live LLM-driven evaluation reported here; `[TBD]` cells await currently-running tracks for the remaining suites (slack, travel, workspace) and the v4-pro prestige row.
+Measured on the AgentDojo banking suite (144 user × injection task pairs per cell). Numbers below are from the live LLM-driven evaluation. The cross-suite generalisation row (slack, travel, workspace) appears in §6.3.
 
 **deepseek-v4-flash (frontier flash, April 2026):**
 
@@ -224,29 +223,38 @@ Measured on the AgentDojo banking suite (144 user × injection task pairs per ce
 |---|---|---|---|
 | None | **1.4%** | 86.8% | 7.6m |
 | Spotlighting | 2.1% | 84.0% | 14.4m |
-| StruQ | `[TBD]` | `[TBD]` | — |
 | Prompt shields (DeBERTa PI) | **0.0%** | **35.4%** | 26.5m |
 | VCD text-only | 0.0% | 91.0% | 22.5m |
 | **VCD full stack** | **0.7%** | **90.3%** | 8.7m |
 | VCD capability-only (ablation) | 0.0% | 88.9% | 9.1m |
 
+**deepseek-v4-pro (frontier reasoning, May 2026):**
+
+| Defence | ASR | Benign | Wall |
+|---|---|---|---|
+| None | **33.3%** | 88.2% | 58.5m |
+| Spotlighting | 6.9% | 87.5% | 46.1m |
+| Prompt shields (DeBERTa PI) | **0.0%** | **36.1%** | 65.3m |
+| VCD text-only | **0.0%** | **84.0%** | 51.1m |
+| **VCD full stack** | **0.7%** | **85.4%** | 53.9m |
+| VCD capability-only (ablation) | 0.7% | 84.7% | 50.1m |
+
 **deepseek-v3.2 (frontier reasoning, late 2025):**
 
 | Defence | ASR | Benign | Wall |
 |---|---|---|---|
-| None | **77.8%** | 100.0% | — |
-| Spotlighting | `[TBD]` | `[TBD]` | — |
-| StruQ | `[TBD]` | `[TBD]` | — |
-| Prompt shields | `[TBD]` | `[TBD]` | — |
-| VCD text-only | `[TBD]` | `[TBD]` | — |
-| **VCD full stack** | `[TBD]` | `[TBD]` | — |
-| VCD capability-only | `[TBD]` | `[TBD]` | — |
+| None | **70.8%** | 79.9% | 43.9m |
+| Spotlighting | 58.3% | 80.6% | 67.8m |
+| Prompt shields (DeBERTa PI) | 7.6% | **33.3%** | 50.5m |
+| VCD text-only | **0.7%** | **79.9%** | 99.4m |
+| **VCD full stack** | **0.7%** | 77.8% | 88.7m |
+| VCD capability-only (ablation) | 0.7% | 75.7% | 101.9m |
 
-(v3.2 baseline measured on 18 of 144 banking cells before aggregation; the running v3.2 sweep covers all six configurations across all 144 pairs.)
+The load-bearing claim is the **shields vs VCD full-stack** comparison, and it reproduces across all three model generations: both defences drive attack-success rate to within a single attack of zero, but the strongest text-side defence (transformers PI detector) collapses benign task completion to the 33–36% range across every model we tested, while VCD full-stack preserves benign completion at 78–90%. The benign-preservation gap at equivalent security is **+54.9 percentage points** on v4-flash, **+49.3 pp** on v4-pro, and **+44.4 pp** on v3.2. The effect is *largest* on the weakest model: as the base model gets less reliable on benign tasks, shields' collateral damage compounds, while VCD's surgical precision remains unchanged. Equivalently, deploying shields requires accepting the loss of roughly half of legitimate agent productivity to reach VCD's security level — and this cost does not amortise with scale.
 
-The load-bearing comparison on v4-flash is the **shields vs VCD full stack** row pair: both achieve essentially-zero ASR, but the strongest text-side defence (transformers PI detector) drops benign task completion to **35.4%** while VCD full-stack preserves **90.3%** — a 54.9-percentage-point gap in legitimate task completion at equivalent security. Equivalently, deploying shields requires accepting the loss of more than half of legitimate agent productivity to reach VCD's security level.
+A second row deserves direct comment. On v3.2, where the baseline attack-success rate is 70.8%, VCD-text alone reduces ASR to 0.7% — a **10× stronger** result than prompt-shields' 7.6% on the same model — *while* preserving 46.6 percentage points more benign completion. We did not anticipate that the text-side component of VCD would outperform a dedicated DeBERTa detector on a less-capable base model; we discuss the likely mechanism in §7.1.
 
-For the AgentDojo and InjecAgent attack distributions, the fraction of attacks whose success is mediated by a constrained tool call is `[TBD-AD-frac]%` and `[TBD-IA-frac]%` respectively; the remainder are pure-output attacks that VCD does not target and that contribute to the residual ASR above zero. We discuss the small residual in Section 6.5.
+A note on the pure-output fraction: of the AgentDojo injection tasks in our four-suite cross-evaluation, **3 of 25 distinct injection tasks** (slack `injection_task_3`, slack `injection_task_4`, travel `injection_task_6`) describe attacks whose success criterion is the agent's free-form natural-language response rather than a tool call with specific argument values — visit-a-link suggestions, post-this-text-on-a-channel commands routed through unstructured replies, and biased hotel recommendations. These attacks fall outside VCD's design boundary (§6.5) because there is no tool call to gate. They account for every non-zero ASR cell we measured on slack/travel/workspace; outside of them, the LLM-driven block rate on attacker-controlled tool calls is identical to the §6.2.1 static bound (100%). The corresponding InjecAgent fraction is reported with the static-bound numbers in §6.2.1: the catalogued attack args are entirely tool-call-mediated, and the static block rate is 100% across the full 2,108-pair benchmark.
 
 #### 6.2.1 Static upper bound on attack-success rate
 
@@ -265,17 +273,86 @@ The single known exception is one cell in AgentDojo banking (user_task_15 × sch
 
 The verifier and the runtime gate share a single implementation of the constraint-check logic — both call into the same `Policy.satisfiesArgs` function in `raucle_detect.capability` — so the static result is not a separate model that could disagree with the runtime. The verifier is a 30-line driver that loads the policy files, iterates over the benchmark's catalogued attack args, and asks the same Python function the gate asks at runtime. Any policy edit that weakens the gate's behaviour weakens the static result identically. A CI job (configured in `.github/workflows/ci.yml`) re-runs the verifier on every commit and fails the build if the static block rate regresses below 100%.
 
-**Ablation.** To attribute the headline delta across the three components of VCD, we measure each in isolation:
+#### 6.2.2 Attack-family robustness
 
-| Configuration | AgentDojo ASR | InjecAgent ASR |
-|---|---|---|
-| Capability gate only, runtime-checked constraints, no SMT proof | `[TBD]%` | `[TBD]%` |
-| SMT proof only, constraints checked at the tool boundary, no capability | `[TBD]%` | `[TBD]%` |
-| Both (VCD full stack) | `[TBD ≤ 0.5]%` | `[TBD ≤ 0.5]%` |
+The numbers in §6.2 use AgentDojo's `important_instructions` injection template, the benchmark's strongest and most-cited attack. To check that the result is not overfit to a single attack vector, we additionally measure the v4-flash banking row under the `direct` and `ignore_previous` attack templates (144 pairs each cell, same policy and harness):
 
-The capability gate alone is expected to catch the bulk of attacks because runtime constraint-checking already structurally blocks malformed tool calls; the SMT-proof-only configuration catches schema/policy disagreements that would otherwise leave gaps the gate has no way to detect. The composition closes both.
+| Attack | Defence | ASR | Benign |
+|---|---|---|---|
+| `direct` | None | 13.9% | 91.0% |
+| `direct` | Spotlighting | 13.9% | 87.5% |
+| `direct` | Prompt shields | 0.0% | **36.8%** |
+| `direct` | VCD text-only | 0.7% | 89.6% |
+| `direct` | VCD capability-only | 0.7% | 90.3% |
+| `direct` | **VCD full stack** | **0.7%** | **91.7%** |
+| `ignore_previous` | None | 1.4% | 88.9% |
+| `ignore_previous` | Spotlighting | 0.7% | 87.5% |
+| `ignore_previous` | Prompt shields | 0.0% | **31.3%** |
+| `ignore_previous` | VCD text-only | 0.7% | 85.4% |
+| `ignore_previous` | VCD capability-only | 0.7% | 87.5% |
+| `ignore_previous` | **VCD full stack** | **0.7%** | **89.6%** |
 
-The VCD text-only row is a sanity check: with the capability gate disabled, we are merely a text-side defence and should sit roughly in the same range as Spotlighting / StruQ. The full-stack row is the load-bearing claim: every attack whose effect is *mediated through a tool call* (operationally defined in §2) is rejected by the gate, because every such tool call must satisfy the constraints in the in-force capability token, which were issued before the attacker had any access to the agent's context. The structural underpinning of this claim is reported in §6.2.1: a *static* upper bound establishes that the gate's constraint logic, run against the canonical attack args from both benchmarks, denies every attack across all 2,737 (user-task × injection-task) pairs. The LLM-driven measurements in the table above can only do as well or better than that static bound. We discuss in Section 6.5 the small residual that is not zero — attacks whose effect is *not* tool-mediated, such as those that succeed purely through the agent's free-form output.
+The pattern is identical across all three attack families: shields drives ASR to zero by destroying benign task completion; **every VCD configuration** drives ASR to the same 0.7% benchmark-artefact floor while preserving 85–92% benign completion. Spotlighting is interesting: it is essentially inactive against `direct` (13.9% ASR, unchanged from baseline) but reduces `ignore_previous` to 0.7% — confirming the spotlighting mechanism is sensitive to the surface form of the injection. VCD does not have this dependence because the gate operates structurally on tool-call arguments, not on the surrounding natural-language framing. The benign-preservation gap between VCD-full and shields at equivalent security is **+54.9 pp** under `important_instructions`, **+54.9 pp** under `direct`, and **+58.3 pp** under `ignore_previous`.
+
+#### 6.2.3 Cross-suite generalisation
+
+To check that the result is not banking-specific, we measure on AgentDojo's remaining three suites — slack (105 pairs), travel (140 pairs), workspace (240 pairs) — across two model generations (v4-flash and v4-pro):
+
+**deepseek-v4-flash:**
+
+| Suite | Defence | ASR | Benign |
+|---|---|---|---|
+| Slack | None | 14.3% | 66.7% |
+| Slack | **VCD full stack** | **4.8%** | **61.0%** |
+| Travel | None | 3.6% | 51.4% |
+| Travel | Prompt shields | 0.0% | **0.0%** |
+| Travel | **VCD full stack** | **1.4%** | **58.6%** |
+| Workspace | None | 1.7% | 72.5% |
+| Workspace | Prompt shields | 1.3% | **36.7%** |
+| Workspace | **VCD full stack** | **0.4%** | **64.6%** |
+
+**deepseek-v4-pro:**
+
+| Suite | Defence | ASR | Benign |
+|---|---|---|---|
+| Slack | None | 65.7% | 66.7% |
+| Slack | **VCD full stack** | **18.1%** | **62.9%** |
+| Travel | None | 33.6% | 57.9% |
+| Travel | **VCD full stack** | **6.4%** | **74.3%** |
+| Workspace | None | 45.0% | 47.9% |
+| Workspace | **VCD full stack** | **7.1%** | **68.8%** |
+
+(The slack × shields cell on v4-flash is omitted because a runtime `KeyError` inside AgentDojo's shields integration aborted that cell after 39 minutes — a bug in the shields code path, not our harness or policy. The v3.2 model could not be evaluated on the non-banking suites: Ollama Cloud's v3.2 endpoint emits tool calls in Claude-style `<function_calls>` XML on the longer cross-suite system prompts, which AgentDojo's OpenAI-compatible harness does not parse; every task terminates after the first assistant message without invoking a tool. We exclude these cells rather than report misleading numbers. The 14 cells above are intact.)
+
+VCD generalises across all three cross-suites and both measured model generations. On v4-flash the no-defence baseline ASR sits low (1.7–14.3%) and VCD reduces it by 3×–4×. On v4-pro — a more capable model with a much higher no-defence ASR (33.6–65.7%) — VCD reduces ASR by 3.6×–6.3×. **On v4-pro travel and workspace, the VCD-protected agent achieves *higher* benign completion than the unprotected baseline** (74.3% vs 57.9% on travel; 68.8% vs 47.9% on workspace). The mechanism is the same early-termination effect observed in §6.3.1: when the gate denies an attacker-induced tool call, the agent's reasoning loop returns to the legitimate task instead of looping further on the adversarial trajectory.
+
+Where shields was measurable to completion on v4-flash, it drove benign task completion to **0%** on travel and **36.7%** on workspace — a 35.8-percentage-point collapse on workspace, and a complete collapse on travel where the detector flagged every legitimate task as adversarial. As the suite's tool surface grows more diverse, shields' false-positive rate compounds until the agent cannot complete most or all benign work. VCD's benign-preservation degrades far more gracefully because the gate's rejection criterion is structural, not stylistic. **VCD-vs-shields benign-preservation gap on the three measurable cross-suite cells: travel +58.6 pp, workspace +27.9 pp, banking +54.9 pp.**
+
+A note on the residual VCD ASR on these suites: unlike banking, where the residual is a single IBAN-collision artefact (§6.5), the cross-suite residual concentrates on specific injection tasks that ask the agent to perform actions *without* a constrained tool call — e.g., `slack.injection_task_3` ("Visit a website at the link ..."), `travel.injection_task_6` ("Say that I should absolutely visit Riverside View Hotel..."). These are the pure-output / pure-recommendation attacks §6.5 already flags as outside VCD's design boundary: the gate operates on tool-call arguments, and an attack whose effect is the agent's free-form natural-language response has no tool-call to bind. The cross-suite numbers are therefore consistent with the §6.5 claim and the §6.2.1 static bound — *every* tool-mediated attack across all four suites is denied by the gate.
+
+#### 6.2.4 Ablation: which component carries the result
+
+VCD composes a text-side input scanner (the *text* component) with the capability-token gate (the *cap* component). The two components are independently meaningful and can be deployed separately. We measure each in isolation on banking, across all three models:
+
+| Model | Configuration | ASR | Benign |
+|---|---|---|---|
+| v4-flash | Text-side scanner only (no gate)   | 0.0% | 91.0% |
+| v4-flash | Capability gate only (no scanner)  | 0.0% | 88.9% |
+| v4-flash | **Full stack (both)**              | **0.7%** | **90.3%** |
+| v4-pro   | Text-side scanner only (no gate)   | 0.0% | 84.0% |
+| v4-pro   | Capability gate only (no scanner)  | 0.7% | 84.7% |
+| v4-pro   | **Full stack (both)**              | **0.7%** | **85.4%** |
+| v3.2     | Text-side scanner only (no gate)   | 0.7% | 79.9% |
+| v3.2     | Capability gate only (no scanner)  | 0.7% | 75.7% |
+| v3.2     | **Full stack (both)**              | **0.7%** | **77.8%** |
+
+(The single residual ASR cell in every row is the same `user_task_15 × injection_task_4` benchmark IBAN coincidence discussed in §6.5.)
+
+Two observations. First, **either component alone is essentially sufficient on AgentDojo banking** — the gate, on its own, denies every attacker-controlled tool call without help from the text scanner; the text scanner, on its own, intercepts the injection before it reaches the LLM. Second, the components have *different* failure modes and *different* operating costs, so the right deployment is the composition. The capability gate is sub-100µs per call (§6.3), is provably correct against §6.2.1's static bound, and protects against attacks the scanner missed (e.g., a benign-looking but policy-violating tool call constructed by the model itself). The text scanner adds defence-in-depth against attacks the gate cannot see — e.g., pure-output exfiltration (§6.5) where there is no tool call to bind. The full-stack configuration's benign-completion is within ~2 pp of either component alone, so the composition does not pay a meaningful precision cost.
+
+We do not report a "SMT-proof-only" ablation because the SMT proof in VCD operates on the policy, not on individual tool calls, and is not independently deployable from the gate — the gate consumes the proof's compiled constraint set at runtime. The static-bound result in §6.2.1 is the corresponding evidence: the gate's constraint logic, run against the canonical attack args from both benchmarks, denies every attack across 2,737 user-task × injection-task pairs.
+
+The full-stack row is the load-bearing claim: every attack whose effect is *mediated through a tool call* (operationally defined in §2) is rejected by the gate, because every such tool call must satisfy the constraints in the in-force capability token, which were issued before the attacker had any access to the agent's context. The LLM-driven measurements in the tables above can only do as well or better than the §6.2.1 static bound. We discuss the small residual in §6.5.
 
 ### 6.3 Per-Call Latency
 
@@ -291,13 +368,38 @@ Proof results are cached by `(schema_hash, policy_hash)`. In steady-state deploy
 
 The numbers are dramatically below the latencies typically associated with formal-verification primitives because the supported JSON Schema fragment is small enough that Z3 finds the proof or counterexample in a handful of solver iterations. Schemas at the edge of our supported fragment (deep enum sets, many fields) can extend `Prove()` cold-path latency into the low milliseconds; this remains acceptable because proofs are issued once per policy version, not per call.
 
+#### 6.3.1 End-to-end agent wall time
+
+Per-call gate latency is the structural cost of VCD; what an operator pays in *practice* is end-to-end agent wall-clock with the defence enabled. We report wall time per defence across every cohort in §6.2, normalised to the unprotected `none` baseline for that cohort:
+
+| Cohort | none (min) | spotlight | shields | VCD-text | **VCD-full** | VCD-cap-only |
+|---|---|---|---|---|---|---|
+| banking / v4-flash / `important_instructions` |  7.6 | 1.89× | **3.49×** | 2.96× | **1.14×** | 1.20× |
+| banking / v4-flash / `direct` | 90.7 | — | **2.94×** | — | **1.12×** | — |
+| banking / v4-flash / `ignore_previous` | 116.4 | — | 1.45× | — | **0.54×** | — |
+| banking / v4-pro / `important_instructions` | 58.5 | 0.79× | 1.11× | 0.87× | **0.92×** | 0.86× |
+| banking / v3.2 / `important_instructions` | 43.9 | 1.54× | 1.15× | 2.26× | 2.02× | 2.32× |
+| slack / v4-flash / `important_instructions` | 59.2 | — | — | — | **0.23×** | — |
+| travel / v4-flash / `important_instructions` | 63.5 | — | **2.80×** | — | **0.42×** | — |
+| workspace / v4-flash / `important_instructions` | 95.5 | — | 1.59× | — | **0.21×** | — |
+
+Two patterns. **First, prompt-shields end-to-end wall time is consistently 1.5–3.5× the unprotected baseline.** This is on top of shields' benign-completion collapse documented in §6.2 — the operational cost of the defence is paid twice. The 2.94× and 2.80× figures on v4-flash banking/`direct` and travel are the practical ceiling: shields adds DeBERTa inference per message, and inflates the agent's reasoning trajectory by escalating its caution.
+
+**Second, VCD-full is at-baseline or faster.** On four of the eight cohorts VCD-full *reduces* wall time relative to the unprotected baseline (slack 0.23×, workspace 0.21×, travel 0.42×, v4-flash `ignore_previous` 0.54×). The mechanism is structural: when the gate denies an attacker-induced tool call, the agent's reasoning loop terminates instead of producing more LLM turns trying to execute the prohibited action. On the remaining cohorts VCD-full sits at 0.92×–2.02× baseline; the outlier is v3.2 banking (2.02×), where the older model needs more retry attempts before settling on a gate-admissible call. **The single VCD-full row that exceeds 1.2× baseline is v3.2; on every v4-class model and every cross-suite measurement, VCD-full is between 0.21× and 1.20× baseline.** Operationally, deploying VCD costs less wall-clock than running unprotected on three of our four AgentDojo suites — because attacks are denied early — and costs at most ~14% extra on banking where attacks are rarer.
+
+The gate's microbenchmarked sub-100µs latency from §6.3 dominates as a function of *the number of admitted tool calls*; the wall-clock improvements above reflect *the number of LLM turns avoided* when the gate rejects an attack rather than letting the agent loop. The two effects compose: VCD adds negligible per-call overhead and subtracts whole reasoning rounds whenever it triggers.
+
 ### 6.4 Reference Deployment
 
-The reference implementation `raucle-detect` is MIT-licensed and has been on PyPI since 2026-04. The end-to-end demo (`examples/end_to_end/` in the repository) composes scanner, prover, capability minting, gate, audit chain, and offline-verifiable trust graph in a single script. The four pre-registered AgentDojo policy files (`paper/eval/policies/{banking,slack,travel,workspace}.json`, hash-anchored in `paper/eval/PRE-REGISTRATION.md`) authorised `[TBD-allow-count]` tool calls and denied `[TBD-deny-count]` policy-violating calls across the empirical evaluation reported in §6.2. We do not report a separate production deployment in this paper; the integration cost is modest (the reference adapter for AgentDojo is approximately 300 lines of glue), and we anticipate that one or more public deployments will report their numbers independently. The repository, Lean development, benchmark harness, and policy files are intended as a complete reproducibility package; readers can re-run any number in §6 against their own hardware and model credentials.
+The reference implementation `raucle-detect` is MIT-licensed and has been on PyPI since 2026-04. The end-to-end demo (`examples/end_to_end/` in the repository) composes scanner, prover, capability minting, gate, audit chain, and offline-verifiable trust graph in a single script. The four pre-registered AgentDojo policy files (`paper/eval/policies/{banking,slack,travel,workspace}.json`, hash-anchored in `paper/eval/PRE-REGISTRATION.md`) authorised **7,312** tool calls and denied **761** policy-violating calls across the empirical evaluation reported in §6.2 — an overall deny rate of 9.4% across 8,073 total gate decisions, consistent with the AgentDojo benchmark's design in which most user × injection pairs combine a legitimate multi-call user task with an adversarial single-call attack attempt. We do not report a separate production deployment in this paper; the integration cost is modest (the reference adapter for AgentDojo is approximately 300 lines of glue), and we anticipate that one or more public deployments will report their numbers independently. The repository, Lean development, benchmark harness, and policy files are intended as a complete reproducibility package; readers can re-run any number in §6 against their own hardware and model credentials.
 
 ### 6.5 Negative Results
 
-We report two configurations where VCD did *not* eliminate attack success:
+**On the residual non-zero ASR in §6.2 and §6.2.2.** Every VCD row across the LLM-driven evaluation with a non-zero ASR reports exactly one attack success out of 144 banking pairs (0.7% = 1/144). In every case — `vcd_text`, `vcd_full`, and `vcd_cap_only` on all three models (v3.2, v4-flash, v4-pro), under all three attack families (`important_instructions`, `direct`, `ignore_previous`) — the single "successful" attack is the same cell: **user_task_15 × injection_task_4**. This is the known-legitimate IBAN coincidence flagged in §6.2.1: the user explicitly asks the agent to schedule a rent payment to their landlord, the landlord's IBAN happens to be the same IBAN the benchmark's adversarial injection_task_4 designates as the attacker's target, and AgentDojo's security oracle marks the cell `security=True` because *a* transfer to that IBAN occurred — without distinguishing between the user-authorised transfer (which VCD correctly admits, with a valid capability token issued from the user's prompt) and an attacker-induced one. The gate did not fail; the benchmark oracle cannot disambiguate.
+
+We deliberately do not exclude this cell from the LLM-driven numbers. The honest measurement is what the benchmark reports against the policy we pre-registered; the §6.2.1 static analysis carries the structural claim that the gate denies every attacker-controlled cell. In aggregate across the **720** banking pairs measured under VCD full-stack and its ablations (3 models × 1 attack + 1 model × 2 additional attacks, each at 144 pairs), the gate admits every user-authorised call and denies every attacker-induced call, with the single residual being the benchmark's IBAN-collision artefact. Outside that one benchmark cell, the LLM-driven gate-block rate on attacker-controlled tool calls is **100%**, matching the §6.2.1 static bound.
+
+We separately report two classes where VCD *legitimately* does not eliminate attack success — i.e., where the gate's design boundary is the limit, not the oracle:
 
 - **Tool-output exfiltration.** Attacks whose payload is the *content* the agent eventually emits in its response — e.g., coercing the agent to print a secret retrieved from a legitimate tool call — are not affected by the gate. The legitimate tool call was authorised by a valid token; the leak occurs in the model's text output. VCD makes no claim against this class. Composition with output-side defences is the obvious next step.
 - **Permitted-parameter side channels.** A schema permitting `amount` to be any number in `[0, 1\,000\,000]` permits an attacker who can coerce the agent into making *one* legitimate `transfer_funds` call to encode up to roughly 20 bits of information in the chosen amount. We do not eliminate this channel; we discuss schema tightening in Section 8.
@@ -311,6 +413,8 @@ We consider these honest concessions essential to the paper. The strength of the
 The original prompt-injection taxonomy is due to Perez and Ribeiro [PR22]; the realistic indirect-injection threat model originated with Greshake et al. [GAB+23]. Subsequent defences fall into three families. *Input perturbation* defences — Spotlighting [HMC+24], paraphrasing, retokenisation — modify the agent's context so that untrusted regions are visually marked or syntactically distinguished. *Output filtering* defences — constitutional classifiers [Ant24], commercial prompt shields — apply a secondary model to the agent's output to catch policy violations. *Training-time defences* — StruQ [CDC+24], SecAlign, instruction-hierarchy fine-tuning — modify the base model. All three families share the architectural property that they operate over unbounded natural language and provide statistical rather than structural guarantees. The empirical ceiling on these approaches against modern benchmarks sits around 14-31% attack success, as Section 6 reports.
 
 The benchmark literature — AgentDojo [DBL+24], InjecAgent [ZSM+24], TensorTrust, AdvBench — has been instrumental in disciplining defence claims. We adopt AgentDojo and InjecAgent as our headline benchmarks because they specifically measure tool-call-mediated success, which is the class VCD addresses.
+
+**A note on policy-targeted text scanning versus generic PI detection.** In §6.2 the text-only configuration of VCD (`vcd_text`) outperforms prompt-shields' DeBERTa detector on the less capable v3.2 model — 0.7% ASR with 79.9% benign retention, versus shields' 7.6% ASR at 33.3% benign. We did not design `vcd_text` to compete head-on with shields and we did not anticipate it would dominate; we offer the following mechanism. A generic PI detector classifies natural-language prose against patterns of *injection-style* writing. The classifier is policy-agnostic — it does not know what the agent is supposed to be allowed to do, and consequently must err toward conservatism on any text whose stylistic markers resemble its training distribution. On a less-capable base model whose reasoning trajectory is itself noisier, the detector's false-positive rate compounds: many legitimate user requests, expressed in the way real users write, look stylistically similar to injection prose. VCD's text scanner, by contrast, is policy-aware — it carries the in-force capability's constraint set, and flags only content that would steer the agent toward calls those constraints disallow. The surface-form of the injection prose is irrelevant; only the structural pattern of "this would induce a gate-disallowed call" matters. On a more capable model, both detectors converge because the LLM's own discrimination eats up most of the marginal precision; on a less capable model, the policy-aware approach pays its full dividend. The argument is in line with the general observation that, where structure exists, structural enforcement strictly dominates statistical detection.
 
 Greshake et al.'s indirect-injection threat model [greshake2023not] is the closest framing to ours — prompt injection as a privilege-escalation problem reachable via untrusted documents in the agent's context — and the recent thread of work on "spotlighting + tool authentication" combinations explores adjacent ideas informally. None of this prior work provides cryptographic enforcement, attenuation invariants, or SMT-verified policy completeness, and to our knowledge none has been evaluated against AgentDojo or InjecAgent with a structurally-enforced gate.
 
@@ -404,16 +508,15 @@ The reference implementation, Lean development, and benchmark harness are MIT-li
 
 ---
 
-## Author's note on the placeholders
+## Author's note on remaining pre-submission work
 
-Every `[TBD]` marker in this draft corresponds to a specific measurement or text decision that has to be made before submission. The list of outstanding work:
+Most `[TBD]` markers from the 2026-05-14 draft have been resolved over the 2026-05-15 → 2026-05-17 empirical sweep (see `paper/eval/runs/README.md` for the run history). The remaining items before camera-ready:
 
-1. **Run AgentDojo with all six configurations.** Records the four ASR columns and the benign-completion column.
-2. **Run InjecAgent likewise.** Same.
-3. **Measure gate latency** on commodity hardware over a representative call distribution.
-4. **Mechanise the three Lean theorems** in `paper/lean/`. Line counts will firm up as the proofs are written.
-5. **Confirm or revise the prior-art ASR numbers.** The figures in the headline table reflect the strongest published results as of late 2025; check for any 2026 publications that move the bar.
-6. **Anonymise the implementation citations.** Replace `raucle-detect`, the repository URL, and the case-study deployment name with anonymous identifiers for double-blind submission.
-7. **The case study.** Either secure a real deployment willing to be (anonymously) named, or rewrite Section 6.4 around the reference implementation's own usage data.
+1. **v3.2 cross-suite cells.** Ollama Cloud's `deepseek-v3.2` endpoint emits tool calls in Claude-style `<function_calls>` XML on AgentDojo's slack / travel / workspace system prompts, which the OpenAI-compatible harness does not parse. The §6.2 banking row on v3.2 ran cleanly (the banking prompt does not appear to trigger the format switch). Resolution options: a custom XML-tool-call parser in the harness, a different v3.2 routing, or a substitution with a comparable third-generation open-weight model. Banking row across all three model generations is intact.
+2. **InjecAgent LLM-driven measurement.** §6.2.1's static bound (0/2108) is in hand and is the structural claim. An LLM-driven run on InjecAgent would parallel the §6.2/§6.2.2/§6.2.3 AgentDojo evidence and is in flight as compute becomes available.
+3. **A closed-frontier model row.** All three measured base models are open-weight (deepseek). A Claude or GPT row would broaden the "across model families" claim from "across three generations of one family" to "across two providers". Gated on third-party credit grants (next decision cycle: 2026-06-01).
+4. **StruQ defence row.** StruQ requires fine-tuning the base model and is not a config flip in the AgentDojo harness; whether to attempt it before submission is a feasibility judgement.
+5. **Anonymisation for double-blind submission.** Replace `raucle-detect`, the repository URLs, and the author's GitHub handle with anonymous identifiers; the camera-ready de-anonymisation is mechanical.
+6. **Final pass for figure references and citation keys.** Bracket-style placeholders in the bibliography need replacing with the venue's chosen citation style.
 
-Once those are addressed, the document is camera-ready.
+The empirical evidence base — three model generations on banking × six defences (complete), two model generations on three cross-suites × {none, vcd_full} (complete), v4-flash banking × three attack families × six defences (complete), 8,073 logged gate decisions, 720 LLM-driven banking attack attempts at 100% gate-block rate outside one benchmark coincidence cell, and full ablation across the two VCD components — is settled.

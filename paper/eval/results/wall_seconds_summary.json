@@ -1,0 +1,54 @@
+{
+  "description": "End-to-end wall-clock per defence across cohorts, normalised to the 'none' baseline. Synthesised 2026-05-17 from D/E/F/H aggregates.",
+  "schema": "cohort -> defence -> {wall_minutes, ratio_vs_baseline, total_tasks}",
+  "data": {
+    "banking/deepseek-v3.2/important_instructions": {
+      "none":         {"wall_min": 43.9,  "ratio": 1.00, "tasks": 144},
+      "spotlight":    {"wall_min": 67.8,  "ratio": 1.54, "tasks": 144},
+      "shields":      {"wall_min": 50.5,  "ratio": 1.15, "tasks": 144},
+      "vcd_text":     {"wall_min": 99.4,  "ratio": 2.26, "tasks": 144},
+      "vcd_full":     {"wall_min": 88.7,  "ratio": 2.02, "tasks": 144},
+      "vcd_cap_only": {"wall_min": 101.9, "ratio": 2.32, "tasks": 144}
+    },
+    "banking/deepseek-v4-flash/important_instructions": {
+      "none":         {"wall_min":  7.6,  "ratio": 1.00, "tasks": 144},
+      "spotlight":    {"wall_min": 14.4,  "ratio": 1.89, "tasks": 144},
+      "shields":      {"wall_min": 26.5,  "ratio": 3.49, "tasks": 144},
+      "vcd_text":     {"wall_min": 22.5,  "ratio": 2.96, "tasks": 144},
+      "vcd_full":     {"wall_min":  8.7,  "ratio": 1.14, "tasks": 144},
+      "vcd_cap_only": {"wall_min":  9.1,  "ratio": 1.20, "tasks": 144}
+    },
+    "banking/deepseek-v4-flash/direct": {
+      "none":     {"wall_min":  90.7, "ratio": 1.00, "tasks": 144},
+      "shields":  {"wall_min": 267.1, "ratio": 2.94, "tasks": 144},
+      "vcd_full": {"wall_min": 101.7, "ratio": 1.12, "tasks": 144}
+    },
+    "banking/deepseek-v4-flash/ignore_previous": {
+      "none":     {"wall_min": 116.4, "ratio": 1.00, "tasks": 144},
+      "shields":  {"wall_min": 168.4, "ratio": 1.45, "tasks": 144},
+      "vcd_full": {"wall_min":  63.2, "ratio": 0.54, "tasks": 144}
+    },
+    "banking/deepseek-v4-pro/important_instructions": {
+      "none":         {"wall_min": 58.5, "ratio": 1.00, "tasks": 144},
+      "spotlight":    {"wall_min": 46.1, "ratio": 0.79, "tasks": 144},
+      "shields":      {"wall_min": 65.3, "ratio": 1.11, "tasks": 144},
+      "vcd_text":     {"wall_min": 51.1, "ratio": 0.87, "tasks": 144},
+      "vcd_full":     {"wall_min": 53.9, "ratio": 0.92, "tasks": 144},
+      "vcd_cap_only": {"wall_min": 50.1, "ratio": 0.86, "tasks": 144}
+    },
+    "slack/deepseek-v4-flash/important_instructions": {
+      "none":     {"wall_min": 59.2, "ratio": 1.00, "tasks": 105},
+      "vcd_full": {"wall_min": 13.5, "ratio": 0.23, "tasks": 105}
+    },
+    "travel/deepseek-v4-flash/important_instructions": {
+      "none":     {"wall_min":  63.5, "ratio": 1.00, "tasks": 140},
+      "shields":  {"wall_min": 178.0, "ratio": 2.80, "tasks": 140},
+      "vcd_full": {"wall_min":  26.8, "ratio": 0.42, "tasks": 140}
+    },
+    "workspace/deepseek-v4-flash/important_instructions": {
+      "none":     {"wall_min":  95.5, "ratio": 1.00, "tasks": 240},
+      "shields":  {"wall_min": 152.0, "ratio": 1.59, "tasks": 240},
+      "vcd_full": {"wall_min":  20.2, "ratio": 0.21, "tasks": 240}
+    }
+  }
+}
