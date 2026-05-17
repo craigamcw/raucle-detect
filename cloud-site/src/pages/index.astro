@@ -1,0 +1,110 @@
+---
+import Base from '../layouts/Base.astro';
+
+const title = 'raucle Cloud — The graph and the audit export for your AI agents';
+const description = 'AI agent security built to the standard regulated industries already demand for everything else — formal, mechanised, provable. Built on the open-source raucle-detect engine.';
+
+// TODO: replace TALLY_FORM_ID with the form id from tally.so once the form is created.
+const TALLY_FORM_ID = 'REPLACE_ME';
+
+// TODO: set this to the city you want to show in the footer.
+const LOCATION = 'REPLACE_ME';
+---
+<Base title={title} description={description}>
+  <main>
+    <header class="brand">
+      <span class="dot" aria-hidden="true"></span>
+      <span>raucle</span>
+    </header>
+
+    <h1>The graph and the audit export for your AI agents.</h1>
+
+    <p class="lede">
+      Built on the open-source
+      <a href="https://github.com/craigamcw/raucle-detect">raucle-detect</a>
+      engine, with formal proofs you can hand to a regulator.
+    </p>
+
+    <h2>What it does</h2>
+    <p>
+      Drop in your agent. See every tool call it could be tricked into making.
+      Get a PDF audit report — green nodes are mathematically safe, red nodes
+      are open findings — that you hand to your FCA, BaFin, or EU AI Act
+      examiner.
+    </p>
+    <p>
+      Built for CISOs, Heads of AppSec, and GRC leads at fintechs and AI-native
+      startups who need to prove their agents are safe before they touch real
+      customer data.
+    </p>
+
+    <h2>Why this exists</h2>
+    <p>
+      AI agent security today is vendor heuristics and prompt-engineering
+      folklore. None of it would survive the kind of scrutiny a payments
+      system or a government workload gets. raucle is built to the standard
+      regulated industries already demand for everything else — formal,
+      mechanised, provable.
+    </p>
+
+    <div class="callout">
+      <div class="label">Research</div>
+      <p>
+        <strong>Verified Capability Discipline for LLM Agent Tool Calls.</strong>
+        Under submission to IEEE S&amp;P 2027. Branded preprint coming soon —
+        <a href="mailto:hello@raucle.com?subject=Preprint%20request">request a copy</a>.
+      </p>
+    </div>
+
+    <h2>Status</h2>
+    <div class="status-row">
+      <div class="status-item">
+        <span class="pill live">Live</span>
+        <span>
+          <strong>raucle-detect</strong> — the open-source engine. Active
+          development at
+          <a href="https://github.com/craigamcw/raucle-detect">github.com/craigamcw/raucle-detect</a>.
+        </span>
+      </div>
+      <div class="status-item">
+        <span class="pill soon">Soon</span>
+        <span>
+          <strong>raucle Cloud</strong> — the graph and the audit export.
+          Private development. Join the waitlist for early access.
+        </span>
+      </div>
+    </div>
+
+    <h2>Join the waitlist</h2>
+    <div class="waitlist">
+      <iframe
+        data-tally-src={`https://tally.so/embed/${TALLY_FORM_ID}?alignLeft=1&transparentBackground=1&dynamicHeight=1`}
+        loading="lazy"
+        width="100%"
+        height="220"
+        frameborder="0"
+        marginheight="0"
+        marginwidth="0"
+        title="Join the raucle Cloud waitlist"
+      ></iframe>
+      <p class="fine">
+        We'll only email you when there's something real to show. No marketing
+        list, no drip campaign.
+      </p>
+    </div>
+
+    <footer>
+      <span>Built solo from {LOCATION}. © 2026 raucle.</span>
+      <nav>
+        <a href="https://github.com/craigamcw/raucle-detect">GitHub</a>
+        <a href="https://www.linkedin.com/in/craigamcw/">LinkedIn</a>
+      </nav>
+    </footer>
+  </main>
+
+  <script
+    is:inline
+    async
+    src="https://tally.so/widgets/embed.js"
+  ></script>
+</Base>
