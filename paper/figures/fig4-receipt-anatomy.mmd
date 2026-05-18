@@ -1,0 +1,38 @@
+%% Figure 4: Capability receipt anatomy (§7.5)
+%%
+%% A receipt is a content-addressed, Ed25519-signed record citing eight
+%% fields. Every cited artefact is independently verifiable against
+%% published material; no field requires contacting the issuer at
+%% verification time.
+
+flowchart LR
+    subgraph RECEIPT [" Capability Receipt "]
+        direction TB
+        F1["<b>issuer_cert</b><br/>Ed25519 public key + chain"]
+        F2["<b>schema_hash</b><br/>SHA-256 of the canonical JSON Schema"]
+        F3["<b>policy_proof_hash</b><br/>SHA-256 of the Z3 proof artefact"]
+        F4["<b>lean_theorem_id</b><br/>names the mechanised soundness theorem"]
+        F5["<b>attenuation_chain</b><br/>ordered list of parent token ids"]
+        F6["<b>call_args_hash</b><br/>SHA-256 of canonical-serialised args"]
+        F7["<b>decision</b><br/>ALLOW or DENY + reason"]
+        F8["<b>timestamp + signature</b><br/>Ed25519 over the canonical body"]
+    end
+
+    PUB_SCHEMA["Published<br/>schema registry"]
+    PUB_PROOF["Published<br/>policy proof"]
+    PUB_LEAN["Public<br/>Lean development"]
+    PUB_KEY["Published<br/>issuer key"]
+
+    F2 -. "verifies against" .-> PUB_SCHEMA
+    F3 -. "verifies against" .-> PUB_PROOF
+    F4 -. "names a theorem in" .-> PUB_LEAN
+    F1 -. "chains to" .-> PUB_KEY
+    F8 -. "signed by" .-> PUB_KEY
+
+    VERIFIER(["Offline verifier"])
+    VERIFIER -- "checks 5 properties:<br/>1. sig valid under pinned key<br/>2. schema hash matches published<br/>3. policy proof hash matches published<br/>4. attenuation chain well-formed<br/>5. args satisfy cited policy" --> RECEIPT
+
+    classDef field fill:#f4f8ff,stroke:#2563eb,stroke-width:1px;
+    classDef pub fill:#fff8e7,stroke:#d97706,stroke-width:1px;
+    class F1,F2,F3,F4,F5,F6,F7,F8 field;
+    class PUB_SCHEMA,PUB_PROOF,PUB_LEAN,PUB_KEY pub;

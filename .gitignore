@@ -20,3 +20,4 @@ demo-output/
 /results.json
 paper/lean/.lake/
 .claude/
+/package-lock.json

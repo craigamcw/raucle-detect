@@ -1,0 +1,36 @@
+%% Figure 5: Cross-organisation audit via capability receipts (§7.5)
+%%
+%% A regulator audits a bank's AI agent activity over a period, using only
+%% the bank's published cryptographic artefacts. No on-premise inspection;
+%% no shared secret with the bank's AI vendor; no contact required with
+%% any third party at verification time.
+
+sequenceDiagram
+    autonumber
+    participant Bank as Bank AI Agent
+    participant Gate as Bank's<br/>VCD Gate
+    participant Audit as Bank's Audit<br/>(Merkle-chained log)
+    participant Bank_KEY as Bank's published<br/>issuer key + policy registry<br/>+ Lean development
+    participant FCA as FCA Examiner
+
+    Note over Bank,Gate: One quarter of agent activity
+    Bank->>Gate: tool call (transfer, args)
+    Gate->>Gate: verify token, schema, policy
+    Gate->>Audit: emit signed receipt
+    Note over Audit: ... thousands of receipts ...
+
+    Note over Bank_KEY: Bank publishes<br/>(out-of-band, signed)<br/>once
+
+    FCA->>Audit: request quarterly receipt log
+    Audit-->>FCA: signed Merkle root +<br/>receipt batch
+    FCA->>Bank_KEY: fetch published key,<br/>policy registry,<br/>Lean theorems
+    Bank_KEY-->>FCA: artefacts (verifiable offline)
+
+    Note over FCA: For each receipt:
+    Note over FCA: ① verify signature against published key
+    Note over FCA: ② check schema_hash against registry
+    Note over FCA: ③ check policy_proof_hash against registry
+    Note over FCA: ④ rebuild Lean development, confirm cited theorem closes
+    Note over FCA: ⑤ confirm call_args_hash satisfies cited policy
+
+    Note over FCA: Audit conclusion is a deterministic<br/>function of published artefacts —<br/>no information asymmetry remains.
