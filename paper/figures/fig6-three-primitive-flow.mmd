@@ -1,0 +1,52 @@
+%% Figure 6: The three primitives and the artefacts flowing between them (§3)
+%%
+%% End-to-end VCD: SMT prover → capability issuer → gate, with every
+%% inter-primitive transfer being a content-addressed signed artefact.
+
+flowchart LR
+    subgraph PROVE [" 1. PROVE (§3.1) "]
+        direction TB
+        S[("JSON Schema S")]
+        P[("Security Policy P")]
+        Z["Z3 SMT prover"]
+        PR["ProofResult ρ<br/>{PROVEN, REFUTED}<br/>signed by prover key"]
+        S --> Z
+        P --> Z
+        Z --> PR
+    end
+
+    subgraph MINT [" 2. MINT (§3.2) "]
+        direction TB
+        REQ["User intent →<br/>policy instance P'"]
+        ISSUER["CapabilityIssuer<br/>(holds Ed25519 priv key)"]
+        TOK["Capability Token τ<br/>= (agent, tool, P', nbf, exp,<br/>policy_proof_hash, sig)"]
+        ATT["Attenuate(τ, ΔP)<br/>→ child τ' ⊑ τ"]
+        REQ --> ISSUER
+        ISSUER --> TOK
+        TOK --> ATT
+    end
+
+    subgraph GATE [" 3. GATE (§3.3) "]
+        direction TB
+        CALL["Agent emits<br/>(tool, args)"]
+        CHECK["Gate.check(τ, tool, args)<br/>8 verifications, fail-closed"]
+        DEC{"ALLOW or DENY"}
+        RECEIPT["Capability receipt<br/>(content-addressed,<br/>signed, §7.5)"]
+        CALL --> CHECK
+        TOK -. "presented" .-> CHECK
+        CHECK --> DEC
+        DEC --> RECEIPT
+    end
+
+    PR -. "policy_proof_hash<br/>(cited in token)" .-> TOK
+    ATT -. "child presented<br/>instead of root" .-> CHECK
+
+    LEAN["Lean 4 mechanisation<br/>(§4): 3 theorems, 0 sorrys"]
+    LEAN -. "soundness:<br/>ALLOW ⇒ constraints satisfied<br/>attenuation cannot broaden<br/>proof composes with gate" .-> CHECK
+
+    AUDIT["Hash-chained audit log<br/>(Merkle root, §3.4)"]
+    RECEIPT --> AUDIT
+
+    classDef stage fill:#f4f8ff,stroke:#2563eb,stroke-width:1.5px;
+    classDef art fill:#fff8e7,stroke:#d97706,stroke-width:1px;
+    class S,P,REQ,PR,TOK,ATT,RECEIPT art;

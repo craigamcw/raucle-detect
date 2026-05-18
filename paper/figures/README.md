@@ -21,3 +21,4 @@ specification; the TikZ version is the typeset output.
 | `fig3-gate-flow.mmd` | §3.3 | The gate's eight-check decision sequence. Each `else` arrow is a deny; only the all-pass path returns ALLOW. |
 | `fig4-receipt-anatomy.mmd` | §7.5 | Capability receipt format: eight fields, what each cites or hashes, and the five offline-verifiable properties an external verifier checks. |
 | `fig5-cross-org-audit.mmd` | §7.5 | Cross-organisation regulatory audit flow: an FCA examiner verifies a quarter of a bank's agent activity using only the bank's published cryptographic artefacts. No on-premise inspection, no shared secrets. |
+| `fig6-three-primitive-flow.mmd` | §3 | End-to-end VCD: Prove → Mint → Gate, with the content-addressed signed artefacts flowing between primitives. Captures the composition rather than each primitive separately. |
