@@ -12,7 +12,7 @@ We present **Verified Capability Discipline**, a composition of three primitives
 
 We mechanise three soundness theorems in Lean 4: attenuation cannot broaden permissions along any constraint dimension; if the gate returns ALLOW then the call arguments satisfy every constraint in a valid descendant of a pinned-issuer token; and a token citing a proof hash guarantees its accepted calls conform to the original schema and policy. Evaluating against AgentDojo and InjecAgent across four state-of-the-art baselines, Verified Capability Discipline reduces attack success rate for tool-call-mediated attacks **from 14-31% to 0.0%** while preserving 86% benign task completion at a per-call overhead well under 100 microseconds; cached SMT proofs add no runtime cost. The defence is honest about scope: free-form text-output attacks and parameter-space side channels remain, but the dominant prompt-injection class — where the attacker's goal is to coerce a tool call — is closed.
 
-The reference implementation, Lean proofs, and benchmark harness are released under AGPL-3.0-or-later (with a commercial licence available for AGPL-incompatible uses) and have been in production use since May 2026. The thesis is that AI security must move its boundary out of the model.
+The reference implementation, Lean proofs, and benchmark harness are released as open source under a strong-copyleft licence (with a commercial licence available for licence-incompatible uses) and have been in production use since the months immediately preceding submission. The thesis is that AI security must move its boundary out of the model.
 
 ---
 
