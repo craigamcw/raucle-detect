@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Relicensed: MIT → AGPL-3.0-or-later + commercial
+
+raucle-detect is now dual-licensed. The default open-source licence becomes the GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later); a commercial licence is available from Raucle Ltd. for organisations whose use is incompatible with AGPL terms.
+
+The change protects the project from being absorbed into closed-source commercial forks while preserving full openness for self-hosting enterprises, academic research, security audits, and contributors. Self-hosting inside a single organisation for internal use — the dominant use case in our regulated-fintech ICP — is unaffected.
+
+Versions tagged on or before commit `ac9aed0` remain available under the MIT licence under which they were released. See [LICENSING.md](LICENSING.md) for the rationale and [COMMERCIAL.md](COMMERCIAL.md) for commercial-licence details.
+
 ## 0.10.0 (2026-05-14)
 
 ### Capability-based agent permissions — unforgeable tool handles

@@ -462,6 +462,11 @@ To report a vulnerability, email **security@raucle.com**. Do not open a public i
 
 ## License
 
-MIT -- see [LICENSE](LICENSE).
+raucle-detect is **dual-licensed**:
+
+- **AGPL-3.0-or-later** by default — see [LICENSE](LICENSE) for the full text and [LICENSING.md](LICENSING.md) for an explanation.
+- **Commercial licence** available for closed-source embedding, SaaS hosting, and other uses incompatible with AGPL terms — see [COMMERCIAL.md](COMMERCIAL.md) or email `commercial@raucle.com`.
+
+Self-hosting raucle-detect inside your own organisation is free under AGPL. Embedding it in a product you distribute, or offering it as a hosted service to third parties, generally requires a commercial licence.
 
 Copyright (c) 2026 Raucle Ltd.

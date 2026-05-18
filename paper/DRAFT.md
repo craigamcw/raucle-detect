@@ -12,7 +12,7 @@ The diagnosis we offer is that the defences are operating in the wrong shape of 
 
 This paper presents Verified Capability Discipline (VCD), a composition of three primitives that together structurally preclude prompt-injection-driven tool misuse over the verified action surface of an agent. We use SMT to prove that a tool's security policy is satisfied over every string its JSON Schema permits, or to extract a concrete counterexample call. We bind the proven policy into an Ed25519-signed capability token whose attenuation primitives mechanically forbid permission broadening. We place a gate on the only path from agent intent to tool execution and require every call to carry a token whose constraints are satisfied by the actual call arguments.
 
-The contribution is neither the SMT verification nor the capability discipline taken alone — both have decades of prior art that we discuss in Section 7 — but the specific composition and the empirical demonstration that it holds against state-of-the-art prompt-injection benchmarks at production-acceptable latency. We mechanise three soundness theorems in Lean 4, evaluate against the two most cited contemporary benchmarks across four state-of-the-art baselines, and release the reference implementation, Lean development, and benchmark harness under the MIT licence.
+The contribution is neither the SMT verification nor the capability discipline taken alone — both have decades of prior art that we discuss in Section 7 — but the specific composition and the empirical demonstration that it holds against state-of-the-art prompt-injection benchmarks at production-acceptable latency. We mechanise three soundness theorems in Lean 4, evaluate against the two most cited contemporary benchmarks across four state-of-the-art baselines, and release the reference implementation, Lean development, and benchmark harness as open source under the AGPL-3.0-or-later licence.
 
 Our principal claims are:
 
@@ -178,7 +178,7 @@ Several engineering decisions warrant comment.
 
 **Content-addressed everything.** Tokens, proof artifacts, audit-chain leaves, and feed entries (where used in a larger deployment) are all content-addressed, allowing cross-reference by hash without needing a central registry.
 
-The codebase has been MIT-licensed since release; the Lean development will be released alongside camera-ready acceptance.
+The codebase was released under MIT in 2026-04 and relicensed to AGPL-3.0-or-later prior to submission, with a commercial licence available for uses incompatible with AGPL; the Lean development will be released alongside camera-ready acceptance.
 
 ## 6. Evaluation
 
@@ -401,7 +401,7 @@ The gate's microbenchmarked sub-100µs latency from §6.3 dominates as a functio
 
 ### 6.4 Reference Deployment
 
-The reference implementation `raucle-detect` is MIT-licensed and has been on PyPI since 2026-04. The end-to-end demo (`examples/end_to_end/` in the repository) composes scanner, prover, capability minting, gate, audit chain, and offline-verifiable trust graph in a single script. The four pre-registered AgentDojo policy files (`paper/eval/policies/{banking,slack,travel,workspace}.json`, hash-anchored in `paper/eval/PRE-REGISTRATION.md`) authorised **7,312** tool calls and denied **761** policy-violating calls across the empirical evaluation reported in §6.2 — an overall deny rate of 9.4% across 8,073 total gate decisions, consistent with the AgentDojo benchmark's design in which most user × injection pairs combine a legitimate multi-call user task with an adversarial single-call attack attempt. We do not report a separate production deployment in this paper; the integration cost is modest (the reference adapter for AgentDojo is approximately 300 lines of glue), and we anticipate that one or more public deployments will report their numbers independently. The repository, Lean development, benchmark harness, and policy files are intended as a complete reproducibility package; readers can re-run any number in §6 against their own hardware and model credentials.
+The reference implementation `raucle-detect` is released under AGPL-3.0-or-later (with a commercial licence available for AGPL-incompatible uses) and has been on PyPI since 2026-04. The end-to-end demo (`examples/end_to_end/` in the repository) composes scanner, prover, capability minting, gate, audit chain, and offline-verifiable trust graph in a single script. The four pre-registered AgentDojo policy files (`paper/eval/policies/{banking,slack,travel,workspace}.json`, hash-anchored in `paper/eval/PRE-REGISTRATION.md`) authorised **7,312** tool calls and denied **761** policy-violating calls across the empirical evaluation reported in §6.2 — an overall deny rate of 9.4% across 8,073 total gate decisions, consistent with the AgentDojo benchmark's design in which most user × injection pairs combine a legitimate multi-call user task with an adversarial single-call attack attempt. We do not report a separate production deployment in this paper; the integration cost is modest (the reference adapter for AgentDojo is approximately 300 lines of glue), and we anticipate that one or more public deployments will report their numbers independently. The repository, Lean development, benchmark harness, and policy files are intended as a complete reproducibility package; readers can re-run any number in §6 against their own hardware and model credentials.
 
 ### 6.5 Negative Results
 
@@ -485,7 +485,7 @@ We have argued that the consequential half of an agent's behaviour passes throug
 
 The deeper claim is that the trajectory of AI security must be to move enforcement boundaries out of the model and into structural gates wherever the grammar permits. Tool calls are the easiest such boundary; database queries, generated code, and structured outputs admit similar treatment. The thesis of this paper, generalised, is that the prompt-injection problem becomes tractable exactly when one stops trying to solve it inside the model.
 
-The reference implementation, Lean development, and benchmark harness are MIT-licensed and available at `[anonymised]`.
+The reference implementation, Lean development, and benchmark harness are released under AGPL-3.0-or-later (with a commercial licence available for AGPL-incompatible uses) and available at `[anonymised]`.
 
 ---
 

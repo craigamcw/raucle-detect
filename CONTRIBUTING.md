@@ -101,4 +101,13 @@ All PRs require approval from a maintainer before merging.
 ## License
 
 By contributing to Raucle Detect, you agree that your contributions will be
-licensed under the MIT License.
+licensed under the AGPL-3.0-or-later licence under which the project is
+released (see [LICENSE](LICENSE) and [LICENSING.md](LICENSING.md)).
+
+Raucle operates under a dual-licence model: AGPL-3.0-or-later for the open
+community, and a commercial licence for users whose use cases are
+incompatible with AGPL terms. To keep this model workable, significant
+contributors may be asked to sign a lightweight Contributor Licence
+Agreement (CLA) granting Raucle Ltd. the right to also relicense your
+contribution under the commercial licence. The CLA does not remove your
+own rights to your contribution; it adds rights for Raucle.

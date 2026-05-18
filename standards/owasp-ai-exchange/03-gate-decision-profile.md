@@ -135,7 +135,7 @@ The default profile does not include call `args` in the event, only the `args_ha
 
 ## Reference implementation
 
-MIT-licensed Python implementation in `raucle_detect/audit.py`. Hash-chained sink, Merkle-root checkpointing, signed checkpoints, full verification path. Used by the gate in `raucle_detect/capability.py` and the end-to-end demo in `examples/end_to_end/`.
+AGPL-3.0 Python implementation (commercial licence available) in `raucle_detect/audit.py`. Hash-chained sink, Merkle-root checkpointing, signed checkpoints, full verification path. Used by the gate in `raucle_detect/capability.py` and the end-to-end demo in `examples/end_to_end/`.
 
 ## Composition with `cap:v1` and `proof:v1`
 
