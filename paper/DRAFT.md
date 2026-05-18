@@ -278,7 +278,9 @@ The verifier and the runtime gate share a single implementation of the constrain
 
 #### 6.2.2 Attack-family robustness
 
-The numbers in §6.2 use AgentDojo's `important_instructions` injection template, the benchmark's strongest and most-cited attack. To check that the result is not overfit to a single attack vector, we additionally measure the v4-flash banking row under the `direct` and `ignore_previous` attack templates (144 pairs each cell, same policy and harness):
+The numbers in §6.2 use AgentDojo's `important_instructions` injection template, the benchmark's strongest and most-cited attack. To check that the result is not overfit to a single attack vector, we measure the banking row under the `direct` and `ignore_previous` attack templates across all three model generations (144 pairs each cell, same policy and harness). The full coverage matrix below is 3 models × 3 attack families = 9 attack-cohort cells; the v4-flash row reports all five defences (none, spotlight, prompt-shields, VCD-text, VCD-cap-only, VCD-full) and the v4-pro / v3.2 rows report the load-bearing comparison {none, shields, vcd_full}.
+
+**deepseek-v4-flash (full defence sweep):**
 
 | Attack | Defence | ASR | Benign |
 |---|---|---|---|
@@ -295,7 +297,36 @@ The numbers in §6.2 use AgentDojo's `important_instructions` injection template
 | `ignore_previous` | VCD capability-only | 0.7% | 87.5% |
 | `ignore_previous` | **VCD full stack** | **0.7%** | **89.6%** |
 
-The pattern is identical across all three attack families: shields drives ASR to zero by destroying benign task completion; **every VCD configuration** drives ASR to the same 0.7% benchmark-artefact floor while preserving 85–92% benign completion. Spotlighting is interesting: it is essentially inactive against `direct` (13.9% ASR, unchanged from baseline) but reduces `ignore_previous` to 0.7% — confirming the spotlighting mechanism is sensitive to the surface form of the injection. VCD does not have this dependence because the gate operates structurally on tool-call arguments, not on the surrounding natural-language framing. The benign-preservation gap between VCD-full and shields at equivalent security is **+54.9 pp** under `important_instructions`, **+54.9 pp** under `direct`, and **+58.3 pp** under `ignore_previous`.
+The pattern is identical across all three attack families on v4-flash: shields drives ASR to zero by destroying benign task completion; **every VCD configuration** drives ASR to the same 0.7% benchmark-artefact floor while preserving 85–92% benign completion. Spotlighting is interesting: it is essentially inactive against `direct` (13.9% ASR, unchanged from baseline) but reduces `ignore_previous` to 0.7% — confirming the spotlighting mechanism is sensitive to the surface form of the injection. VCD does not have this dependence because the gate operates structurally on tool-call arguments, not on the surrounding natural-language framing. The benign-preservation gap between VCD-full and shields at equivalent security on v4-flash is **+54.9 pp** under `important_instructions`, **+54.9 pp** under `direct`, and **+58.3 pp** under `ignore_previous`.
+
+**deepseek-v4-pro:**
+
+| Attack | Defence | ASR | Benign |
+|---|---|---|---|
+| `direct` | None | 12.5% | 85.4% |
+| `direct` | Prompt shields | 0.7% | **36.8%** |
+| `direct` | **VCD full stack** | **0.7%** | **82.6%** |
+| `ignore_previous` | None | 0.7% | 81.2% |
+| `ignore_previous` | Prompt shields | 0.7% | **31.2%** |
+| `ignore_previous` | **VCD full stack** | **0.0%** | **77.8%** |
+
+**deepseek-v3.2:**
+
+| Attack | Defence | ASR | Benign |
+|---|---|---|---|
+| `direct` | None | 13.9% | 88.2% |
+| `direct` | Prompt shields | **4.2%** | **35.4%** |
+| `direct` | **VCD full stack** | **0.7%** | **86.8%** |
+| `ignore_previous` | None | 9.0% | 84.7% |
+| `ignore_previous` | Prompt shields | 0.0% | **30.6%** |
+| `ignore_previous` | **VCD full stack** | **0.7%** | **79.2%** |
+
+The cross-generation pattern reproduces. On v4-pro the shields-vs-VCD-full benign-preservation gap is **+45.8 pp** under `direct` and **+46.6 pp** under `ignore_previous`. On v3.2 it is **+51.4 pp** under `direct` and **+48.6 pp** under `ignore_previous`. Two cells deserve special mention:
+
+- **v3.2 × `direct` × shields** is the only cell in the entire study where the strongest text-side defence fails to drive ASR to zero (4.2%, six attacks landed out of 144). Shields *both* leaves a non-trivial residual attack-success rate *and* collapses benign task completion to 35.4%. On the same configuration, VCD-full holds ASR at 0.7% and preserves 86.8% benign completion — strictly dominating shields on every measured dimension simultaneously.
+- **v3.2 × `ignore_previous` × shields** drives ASR to zero but at the cost of dropping benign task completion to **30.6%**, the lowest benign completion shields produces anywhere in the paper. The corresponding VCD-full cell achieves 0.7% ASR at 79.2% benign — a **+48.6 percentage-point** gap at near-identical security.
+
+The aggregate claim is that the headline pattern — shields trades catastrophic benign-completion collapse for marginal security gain, VCD-full holds security at the benchmark-artefact floor while preserving the agent's productive capacity — is invariant across every measurable cell of (model, attack family) we tested.
 
 #### 6.2.3 Cross-suite generalisation
 
@@ -553,4 +584,4 @@ Most `[TBD]` markers from the 2026-05-14 draft have been resolved over the 2026-
 4. **Anonymisation for double-blind submission.** Replace `raucle-detect`, the repository URLs, and the author's GitHub handle with anonymous identifiers; the camera-ready de-anonymisation is mechanical.
 5. **Final pass for figure references and citation keys.** Bracket-style placeholders in the bibliography need replacing with the venue's chosen citation style.
 
-The empirical evidence base — three model generations on banking × six defences (complete), **three** model generations on three cross-suites × {none, vcd_full} (19 of 21 cells; the two omitted cells crashed in an AgentDojo slack-suite utility-scorer bug), v4-flash banking × three attack families × six defences (complete), 8,073 logged gate decisions, 720 LLM-driven banking attack attempts at 100% gate-block rate outside one benchmark coincidence cell, and full ablation across the two VCD components — is settled.
+The empirical evidence base — three model generations on banking × six defences (complete), **three** model generations on three cross-suites × {none, vcd_full} (19 of 21 cells; the two omitted cells crashed in an AgentDojo slack-suite utility-scorer bug), **three** model generations on three attack families × {none, shields, vcd_full} (with full defence sweep on v4-flash), 8,073 logged gate decisions, 720 LLM-driven banking attack attempts at 100% gate-block rate outside one benchmark coincidence cell, and full ablation across the two VCD components — is settled.
