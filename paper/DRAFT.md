@@ -257,6 +257,21 @@ The load-bearing claim is the **shields vs VCD full-stack** comparison, and it r
 
 A second row deserves direct comment. On v3.2, where the baseline attack-success rate is 70.8%, VCD-text alone reduces ASR to 0.7% — a **10× stronger** result than prompt-shields' 7.6% on the same model — *while* preserving 46.6 percentage points more benign completion. We did not anticipate that the text-side component of VCD would outperform a dedicated DeBERTa detector on a less-capable base model; we discuss the likely mechanism in §7.1.
 
+**Cross-provider banking row.** To verify the pattern is not specific to the DeepSeek family, we additionally measure two frontier-class models from two other providers — Qwen3.5:397b (Alibaba) and Kimi-k2.6 (Moonshot) — on the same banking suite under the same load-bearing comparison:
+
+| Provider | Model | Defence | ASR | Benign |
+|---|---|---|---|---|
+| Alibaba (MoE) | qwen3.5:397b | None | 6.9% | 75.0% |
+| Alibaba (MoE) | qwen3.5:397b | Prompt shields | 0.0% | **35.4%** |
+| Alibaba (MoE) | qwen3.5:397b | **VCD full stack** | **0.7%** | **72.2%** |
+| Moonshot (MoE) | kimi-k2.6 | None | **0.0%** | 68.8% |
+| Moonshot (MoE) | kimi-k2.6 | Prompt shields | 0.0% | **34.7%** |
+| Moonshot (MoE) | kimi-k2.6 | **VCD full stack** | **0.0%** | **66.0%** |
+
+The pattern reproduces. On Qwen3.5 the benign-preservation gap between shields and VCD-full is **+36.8 pp** at 0.0–0.7% ASR. The Kimi row is more interesting: Moonshot's instruction-adherence training is strong enough that the unprotected baseline ASR is already **0.0%** — no defence is *needed* for security on this configuration. Prompt-shields nonetheless collapses benign task completion from 68.8% to 34.7% (a 34.1-percentage-point loss) for security that wasn't required; VCD-full holds benign at 66.0% (a 2.8-percentage-point loss). **Shields' collateral damage is independent of its security necessity** — the defence imposes the same cost whether or not it is doing anything useful. This is the cleanest demonstration in the paper that the trade-off curve is shaped differently for the two defences: VCD's cost scales with its work; shields' cost is paid up-front regardless.
+
+The static upper bound of §6.2.1 applies identically to these models — the gate's constraint logic is model-independent, so the catalogued-attack block rate is 100% on Qwen and Kimi by construction.
+
 A note on the pure-output fraction: of the AgentDojo injection tasks in our four-suite cross-evaluation, **3 of 25 distinct injection tasks** (slack `injection_task_3`, slack `injection_task_4`, travel `injection_task_6`) describe attacks whose success criterion is the agent's free-form natural-language response rather than a tool call with specific argument values — visit-a-link suggestions, post-this-text-on-a-channel commands routed through unstructured replies, and biased hotel recommendations. These attacks fall outside VCD's design boundary (§6.5) because there is no tool call to gate. They account for every non-zero ASR cell we measured on slack/travel/workspace; outside of them, the LLM-driven block rate on attacker-controlled tool calls is identical to the §6.2.1 static bound (100%). The corresponding InjecAgent fraction is reported with the static-bound numbers in §6.2.1: the catalogued attack args are entirely tool-call-mediated, and the static block rate is 100% across the full 2,108-pair benchmark.
 
 #### 6.2.1 Static upper bound on attack-success rate

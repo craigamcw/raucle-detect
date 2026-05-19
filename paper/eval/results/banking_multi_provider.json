@@ -1,0 +1,62 @@
+[
+  {
+    "suite": "banking",
+    "model": "qwen3.5:397b",
+    "defence": "none",
+    "asr": 0.06944444444444445,
+    "benign_completion": 0.75,
+    "total_tasks": 144,
+    "attack_successes": 10,
+    "wall_seconds": 2221.6950132846832
+  },
+  {
+    "suite": "banking",
+    "model": "qwen3.5:397b",
+    "defence": "shields",
+    "asr": 0.0,
+    "benign_completion": 0.3541666666666667,
+    "total_tasks": 144,
+    "attack_successes": 0,
+    "wall_seconds": 5296.851269960403
+  },
+  {
+    "suite": "banking",
+    "model": "qwen3.5:397b",
+    "defence": "vcd_full",
+    "asr": 0.006944444444444444,
+    "benign_completion": 0.7222222222222222,
+    "total_tasks": 144,
+    "attack_successes": 1,
+    "wall_seconds": 1275.151433467865
+  },
+  {
+    "suite": "banking",
+    "model": "kimi-k2.6",
+    "defence": "none",
+    "asr": 0.0,
+    "benign_completion": 0.6875,
+    "total_tasks": 144,
+    "attack_successes": 0,
+    "wall_seconds": 2941.3747351169586
+  },
+  {
+    "suite": "banking",
+    "model": "kimi-k2.6",
+    "defence": "shields",
+    "asr": 0.0,
+    "benign_completion": 0.3472222222222222,
+    "total_tasks": 144,
+    "attack_successes": 0,
+    "wall_seconds": 4904.945113897324
+  },
+  {
+    "suite": "banking",
+    "model": "kimi-k2.6",
+    "defence": "vcd_full",
+    "asr": 0.0,
+    "benign_completion": 0.6597222222222222,
+    "total_tasks": 144,
+    "attack_successes": 0,
+    "wall_seconds": 3917.146586894989
+  }
+]

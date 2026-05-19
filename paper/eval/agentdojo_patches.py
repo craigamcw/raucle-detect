@@ -36,6 +36,8 @@ _EXTRA_MODELS = [
     ("glm-4.7", "ollama"),
     ("mistral-large-3:675b", "ollama"),
     ("gpt-oss:120b", "ollama"),
+    ("gemma3:27b", "ollama"),
+    ("gemma3", "ollama"),
 ]
 
 
