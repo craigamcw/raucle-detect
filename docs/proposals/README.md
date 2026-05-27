@@ -8,6 +8,7 @@ Forward-looking design documents for the raucle project. Not yet implemented; in
 | [TEE-anchored VCD gate](tee-gate.md) | Draft 2026-05-18 | Q3 2026 commercial-product feature; paper §8 update for camera-ready |
 | [VCD for the Microsoft Agent Framework](agent-framework-middleware.md) | Draft + skeleton 2026-05-27 · 6/6 tests passing | raucle-detect v0.11.0 |
 | [PDP plug-in contract for Microsoft Agent Governance Toolkit](agt-pdp-contract.md) | Draft 2026-05-27 | upstream PR to microsoft/agent-governance-toolkit; raucle-detect v0.12.0 |
+| ↳ [Upstream PR body](agt-pdp-contract.upstream-pr.md) + [shadow files](upstream-pr-files/) | Ready-to-submit 2026-05-27 · 10/10 contract tests passing | PR against microsoft/agent-governance-toolkit |
 | [Foundry MCP AI Gateway sidecar pattern](foundry-mcp-gateway.md) | Draft 2026-05-27 | raucle-detect v0.12.0 deployment recipe |
 
 Each proposal:
