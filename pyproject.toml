@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "raucle-detect"
 version = "0.10.0"
-description = "Open-source prompt injection detection for LLM applications"
+description = "Open-source verifiable agent accountability — cryptographic capability receipts and formal proofs for LLM agent activity"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 requires-python = ">=3.10"
@@ -13,12 +13,17 @@ authors = [
     { name = "Raucle", email = "oss@raucle.io" },
 ]
 keywords = [
+    "ai-agents",
+    "ai-audit",
+    "agent-accountability",
+    "capability-receipts",
+    "provenance",
+    "ai-governance",
+    "eu-ai-act",
+    "formal-verification",
+    "ai-safety",
     "llm",
     "prompt-injection",
-    "security",
-    "ai-safety",
-    "guardrails",
-    "jailbreak-detection",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",

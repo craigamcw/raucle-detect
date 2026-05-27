@@ -12,9 +12,49 @@
 
 ---
 
-Open-source prompt injection detection for LLM applications. Scan every prompt before it reaches your AI model.
+**Verifiable agent accountability for regulated AI deployments.** raucle-detect produces a cryptographic record — the *capability receipt* — of every action an AI agent takes: what it did, by whose authority, against which independently-verified policy. The receipt is content-addressed, signed, and verifiable by any third party (a regulator, a downstream tool, a partner organisation) without contacting the vendor. Built for the *audit* problem regulated industries actually have, not just the *attack* problem the literature has been chasing.
 
-Raucle Detect is the open-source detection engine behind [Raucle](https://raucle.com), the AI security platform. It runs as a Python library, CLI tool, or REST API with **zero mandatory dependencies** and sub-millisecond pattern matching.
+## The audit problem
+
+A regulator has questions about a decision your agent made last quarter. A customer is in litigation because an AI-generated action cost them money. An internal auditor needs to certify that your agent did not act outside its authorised scope between two dates. In each case the same question: *what cryptographic record proves that?*
+
+Heuristic guards (Microsoft Prompt Shields, Lakera Guard, AWS Bedrock policy controls) produce vendor logs that say *"we think it's fine."* A vendor log is a claim, not evidence. It does not survive cross-examination, does not export across organisational boundaries, and does not satisfy the audit-logging obligations of EU AI Act Article 12, the FCA's model-risk-management guidance, ISO/IEC 42001, or any other regime that requires defensible, independently-verifiable trails.
+
+raucle-detect closes that gap. Every gate decision the system makes — ALLOW or DENY — produces a *capability receipt*: a structured record citing the issuer's public key, the verified JSON Schema of the tool, the proof artefact of the policy, the Lean theorem identifier behind the soundness claim, the attenuation chain of capability tokens, and a hash of the actual call arguments. The receipt is signed under an Ed25519 key the deploying organisation publishes; the proof artefact and Lean development are likewise published. A third-party verifier holding only the deploying organisation's published material can independently confirm five properties offline: signature validity, schema hash, policy-proof hash, theorem closure (rebuild the Lean development), and constraint satisfaction. **No information asymmetry remains between the operator and the auditor.**
+
+## Why the receipt can be trusted
+
+The receipt is not a log — it is a *provable record*. Three formal-verification primitives produce it:
+
+- **SMT-backed policy verification.** For each tool's JSON Schema and security policy, raucle's prover (Z3) either proves that every schema-valid string satisfies the policy, or extracts a concrete counterexample call. The resulting `ProofResult` is content-addressed and cited by every capability token derived from it.
+- **Cryptographic capability tokens.** Tokens carry the cited proof hash, an agent identity, a constraint set, an attenuation chain, and an expiry — signed under Ed25519. Three soundness theorems are mechanised in Lean 4 with zero `sorry`s: attenuation cannot broaden permissions, the gate's ALLOW implies constraint satisfaction, and a token citing a proof guarantees its accepted calls conform to the schema and policy.
+- **A gate on the only path to tool execution.** Every tool call passes the gate's eight verifications. Fail-closed by default. The gate's decision is the receipt's payload.
+
+The technique is under submission to **IEEE Security & Privacy 2027**. The paper, the Lean proofs, the benchmark harness, and the engine are all released as open source under a strong-copyleft licence (with a commercial licence available for licence-incompatible uses).
+
+## Evidence the mechanism is sound
+
+The same primitives that produce trustworthy receipts also block prompt-injection-mediated tool misuse — this is the corollary, not the headline. Reported across three frontier-class open-weight model generations, four AgentDojo task suites, and three attack families:
+
+- **100% block rate** on attacker-controlled tool calls across 720 LLM-driven banking attempts (every non-zero residual is the same benchmark IBAN coincidence, documented in §6.5 of the paper).
+- **+27 to +58 percentage-point** advantage in benign task completion versus the strongest contemporary text-side defence at equivalent security. On one cohort (Moonshot Kimi-k2.6), the baseline ASR is already 0%; the contemporary defence nonetheless collapses benign task completion by 34 percentage points, while raucle imposes 2.8 — demonstrating that shields-style collateral damage is independent of security necessity, whereas raucle's overhead scales with actual work done.
+- **Sub-100 µs** per-call gate latency at p50 on commodity hardware. End-to-end agent wall time with raucle enabled is *at or below* the unprotected baseline on four of eight measured cohorts (the gate terminates attacker-induced reasoning loops early).
+- A **static upper bound** verified by the gate's own constraint logic establishes 0 of 2,737 catalogued attack scenarios across AgentDojo and InjecAgent admit any attacker-controlled call.
+
+Full results, the reproducibility package, and the IEEE S&P 2027 draft live under `paper/`.
+
+## Built for regulated industries
+
+raucle-detect is built for the agent deployments that have to survive an audit:
+
+- **Banks and fintechs** subject to FCA / BaFin / MAS model-risk-management expectations who need to evidence that customer-service or operations agents did not act outside their authorised scope.
+- **Healthcare and clinical platforms** subject to EU AI Act high-risk obligations and equivalent national-competent-authority oversight.
+- **Government and public-sector** AI deployments where the deploying organisation may be required to demonstrate compliance to an oversight body it does not control.
+- **Cross-organisation agent workflows** where one party's agent delegates to another's — the receipt is the audit trail across the trust boundary.
+
+For these audiences the receipt is the product. The detection mechanism that produces it is the engineering.
+
+---
 
 ## What It Detects
 
@@ -115,9 +155,9 @@ Endpoints:
 | `GET` | `/rules` | List loaded detection rules |
 | `GET` | `/health` | Health check |
 
-## How It Works
+## How It Works — the mechanism behind the receipt
 
-Raucle Detect uses a two-layer detection pipeline:
+raucle-detect composes five primitives end-to-end: each tool call produces an attestable receipt that chains scanner verdict → policy proof → capability token → gate decision → Merkle-rooted audit log. Inside each step, the two-layer detection pipeline serves as one of the gate's verifications:
 
 **Layer 1 -- Pattern matching** (weight: 35%)
 Fast regex scan against 180+ compiled signatures covering known attack techniques. Sub-millisecond latency.
@@ -378,7 +418,7 @@ git commit -s -m "Add new detection rule"
 
 ## OpenClaw Plugin
 
-The `plugins/openclaw/` directory contains the **Raucle plugin for OpenClaw** — automatically protects all your agents from prompt injection, data exfiltration, and tool abuse.
+The `plugins/openclaw/` directory contains the **Raucle plugin for OpenClaw** — emits a capability receipt for every agent action and blocks tool calls outside the in-force capability. The same plugin gives you audit-grade evidence and runtime protection in one configuration.
 
 ### Quick install
 
