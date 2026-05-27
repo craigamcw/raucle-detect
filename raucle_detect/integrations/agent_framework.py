@@ -77,7 +77,10 @@ logger = logging.getLogger(__name__)
 # RuntimeError only when they try to instantiate the middleware.
 
 try:  # pragma: no cover - import-time check, not exercised in unit tests
-    from agent_framework import FunctionMiddleware  # type: ignore[import-not-found]
+    from agent_framework import (  # type: ignore[import-not-found]
+        FunctionMiddleware,
+        MiddlewareTermination,
+    )
 
     _HAS_AGENT_FRAMEWORK = True
 except ImportError:  # pragma: no cover
@@ -90,6 +93,13 @@ except ImportError:  # pragma: no cover
         no-op; instantiating ``RaucleFunctionMiddleware`` will raise a clear
         RuntimeError directing the user to install the extra.
         """
+
+    class MiddlewareTermination(Exception):  # type: ignore[no-redef]
+        """Stub for control-flow exception when ``agent-framework`` is missing."""
+
+        def __init__(self, message: str = "", *, result: Any = None) -> None:
+            super().__init__(message)
+            self.result = result
 
 
 # --- In-force token resolution ---------------------------------------------
@@ -254,7 +264,11 @@ class RaucleFunctionMiddleware(FunctionMiddleware):
         token = self._token_resolver(context)
         tool_name = self._extract_tool_name(context)
         call_args = self._extract_args(context)
-        agent_id = self._extract_agent_id(context)
+        # Authoritative agent_id is the one bound to the in-force token.
+        # The framework's context does not currently surface an agent id;
+        # we fall back to looking at context.metadata or session state if
+        # the deployer populates them, then to a stable sentinel.
+        agent_id = (token.agent_id if token is not None else None) or self._extract_agent_id(context)
 
         # No token bound? Fail-closed.
         if token is None:
@@ -268,8 +282,7 @@ class RaucleFunctionMiddleware(FunctionMiddleware):
                 ),
             )
             self._emit(receipt)
-            self._set_refusal(context, "no capability token in force")
-            return
+            self._raise_refusal(context, "no capability token in force")
 
         # Gate check.
         decision = self._gate.check(token, tool=tool_name, agent_id=agent_id, args=call_args)
@@ -286,8 +299,8 @@ class RaucleFunctionMiddleware(FunctionMiddleware):
                 # should reflect that.
                 self._emit(receipt)
         else:
-            self._set_refusal(context, decision.reason)
             self._emit(receipt)
+            self._raise_refusal(context, decision.reason)
 
     # --- Helpers --------------------------------------------------------
 
@@ -362,20 +375,38 @@ class RaucleFunctionMiddleware(FunctionMiddleware):
 
     @staticmethod
     def _extract_agent_id(context: Any) -> str | None:
-        # AF docs: `context.agent.id` populated from agent construction.
+        """Fallback agent-id resolution when the token isn't bound.
+
+        FunctionInvocationContext does not expose an agent id directly.
+        We look at ``context.metadata["agent_id"]`` (deployer-populated)
+        and ``context.session.state["agent_id"]`` (session-state-populated)
+        before giving up. The token's agent_id is the authoritative source
+        when a token is in force; this method only matters for the
+        no-token DENY path.
+        """
         try:
-            return str(context.agent.id)
-        except AttributeError:  # pragma: no cover
-            return None
+            md = getattr(context, "metadata", None) or {}
+            if isinstance(md, dict) and md.get("agent_id"):
+                return str(md["agent_id"])
+        except Exception:  # pragma: no cover
+            pass
+        try:
+            sess = getattr(context, "session", None)
+            state = getattr(sess, "state", None) if sess is not None else None
+            if isinstance(state, dict) and state.get("agent_id"):
+                return str(state["agent_id"])
+        except Exception:  # pragma: no cover
+            pass
+        return None
 
     @staticmethod
-    def _set_refusal(context: Any, reason: str) -> None:
-        """Replace ``context.result`` with a structured refusal payload.
+    def _raise_refusal(context: Any, reason: str) -> None:
+        """Short-circuit the middleware chain with a structured refusal.
 
-        The downstream tool runner sees a normal `FunctionResult` carrying
-        the refusal text; the agent observes a tool that "ran" and returned
-        the refusal. Per AF middleware semantics, not calling ``call_next``
-        means the actual tool implementation is never invoked.
+        ``MiddlewareTermination(message, result=...)`` is the Agent Framework
+        contract for "stop the chain and return the supplied result to the
+        agent". The agent observes a tool call that returned the refusal
+        payload, without the actual tool implementation having run.
         """
         refusal = {
             "raucle": {
@@ -384,17 +415,14 @@ class RaucleFunctionMiddleware(FunctionMiddleware):
                 "advice": "request a token with broader scope, or revise the call args",
             }
         }
-        # Try the Agent Framework's expected `FunctionResult` shape first,
-        # falling back to a plain assignment if the host version differs.
+        refusal_json = json.dumps(refusal)
+        # Setting context.result is belt-and-braces; MiddlewareTermination's
+        # `result` argument is what the framework uses.
         try:
-            from agent_framework import FunctionResult  # type: ignore[import-not-found]
-
-            context.result = FunctionResult(value=json.dumps(refusal))
+            context.result = refusal_json
         except Exception:  # pragma: no cover
-            try:
-                context.result = json.dumps(refusal)
-            except Exception:
-                logger.exception("raucle: could not set refusal on context")
+            logger.exception("raucle: could not set refusal on context.result")
+        raise MiddlewareTermination(reason, result=refusal_json)
 
 
 __all__ = [

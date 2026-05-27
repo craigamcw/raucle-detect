@@ -34,6 +34,7 @@ from raucle_detect.audit import HashChainSink, NullSink, Ed25519Signer  # noqa: 
 from raucle_detect.capability import CapabilityGate, CapabilityIssuer  # noqa: E402
 from raucle_detect.integrations.agent_framework import (  # noqa: E402
     CapabilityReceipt,
+    MiddlewareTermination,
     RaucleFunctionMiddleware,
     _default_resolver,
     get_in_force_token,
@@ -108,7 +109,7 @@ af._HAS_AGENT_FRAMEWORK = True
 
 @pytest.mark.asyncio
 async def test_no_token_in_force_denies(gate, captured_events):
-    """Path 1: no token bound → DENY receipt, tool not invoked."""
+    """Path 1: no token bound → DENY receipt, tool not invoked, MiddlewareTermination raised."""
     events, sink = captured_events
     # Make sure no token is bound for this test
     set_in_force_token(None)
@@ -117,7 +118,8 @@ async def test_no_token_in_force_denies(gate, captured_events):
     invoked: list[bool] = []
     context = _make_context(function_name="lookup_customer", arguments={"customer_id": "C-1042"})
 
-    await mw.process(context, await _consume_call_next(invoked))
+    with pytest.raises(MiddlewareTermination):
+        await mw.process(context, await _consume_call_next(invoked))
 
     assert invoked == [], "tool must not be invoked when no token is in force"
     assert len(events) == 1
@@ -179,7 +181,8 @@ async def test_wrong_tool_denies(issuer, gate, captured_events):
         arguments={"to": "GB29NWBK60161331926819", "amount": 4.00},
     )
 
-    await mw.process(context, await _consume_call_next(invoked))
+    with pytest.raises(MiddlewareTermination):
+        await mw.process(context, await _consume_call_next(invoked))
 
     assert invoked == [], "tool must NOT be invoked when wrong tool"
     assert len(events) == 1

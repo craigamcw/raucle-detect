@@ -1,0 +1,116 @@
+<!--
+  raucle sidecar — APIM inbound policy for Azure AI Foundry MCP routing.
+
+  Apply this policy to the APIM operation that fronts your MCP server
+  in a Foundry-attached APIM instance. Every Foundry-originated MCP
+  call will be routed through the raucle sidecar, which emits a signed
+  capability receipt for each ALLOW / DENY decision before forwarding
+  (or rejecting) the call.
+
+  Replacement tokens — set these as APIM Named Values before applying:
+
+    {{raucle-sidecar-fqdn}}   FQDN of the raucle sidecar Container App,
+                              e.g. raucle-sidecar.internal.azurecontainerapps.io
+    {{raucle-mcp-path}}       Path prefix at which the sidecar mounts
+                              the MCP forwarder, defaults to /mcp
+
+  Companion docs:
+    - deploy/foundry-mcp-sidecar/README.md   (customer-facing walkthrough)
+    - deploy/foundry-mcp-sidecar/bicep/main.bicep
+    - docs/proposals/foundry-mcp-gateway.md  (design rationale)
+-->
+<policies>
+  <inbound>
+    <base />
+
+    <!-- 1. Force-route to the raucle sidecar. The sidecar terminates
+         the MCP request, runs the gate, and either forwards to the
+         customer's MCP backend or returns a JSON-RPC error. -->
+    <set-backend-service
+        base-url="https://{{raucle-sidecar-fqdn}}{{raucle-mcp-path}}" />
+
+    <!-- 2. Propagate Foundry's Entra agent identity into the receipt's
+         agent_id field. APIM resolves Foundry's managed-identity
+         credentials into context.User.Id before this policy fires.
+         The sidecar reads this header and uses it verbatim. -->
+    <set-header name="X-Raucle-Agent-Id" exists-action="override">
+      <value>@(("agent:" + (context.User?.Id ?? "unknown")).Trim())</value>
+    </set-header>
+
+    <!-- 3. Propagate the in-force capability token id. The agent's
+         session bootstrap mints the token at session-open time and
+         must forward this header on every tool invocation. If the
+         header is absent the sidecar fails closed (no token -> DENY). -->
+    <set-header name="X-Raucle-Token-Id" exists-action="skip">
+      <value>@{
+        var hdr = context.Request.Headers.GetValueOrDefault("X-Raucle-Token-Id", "");
+        return string.IsNullOrEmpty(hdr) ? "" : hdr;
+      }</value>
+    </set-header>
+
+    <!-- 4. Propagate Foundry's correlation id so the sidecar's receipt
+         and the APIM-side audit can be joined by a third-party
+         verifier. APIM injects context.RequestId by default; we just
+         normalise the header name. -->
+    <set-header name="X-Raucle-Correlation-Id" exists-action="override">
+      <value>@(context.RequestId.ToString())</value>
+    </set-header>
+
+    <!-- 5. Enforce that this policy is the only path to the MCP
+         backend. If a customer accidentally creates a direct route
+         that bypasses the sidecar, the sidecar's receipt chain has
+         gaps. The named-value below should be set to the MCP server's
+         hostname; APIM denies any inbound request whose Host header
+         matches that hostname unless this policy applied first. -->
+    <choose>
+      <when condition="@(context.Variables.GetValueOrDefault<string>("raucle-applied") == null)">
+        <set-variable name="raucle-applied" value="true" />
+      </when>
+    </choose>
+  </inbound>
+
+  <backend>
+    <forward-request timeout="30"
+                     buffer-request-body="true"
+                     buffer-response="true" />
+  </backend>
+
+  <outbound>
+    <base />
+    <!-- Echo the sidecar's receipt id back to Foundry as a response
+         header so the agent runtime can correlate the call with its
+         receipt. Optional for production but useful for debugging. -->
+    <set-header name="X-Raucle-Receipt-Id" exists-action="skip">
+      <value>@(context.Response.Headers.GetValueOrDefault("X-Raucle-Receipt-Id", ""))</value>
+    </set-header>
+  </outbound>
+
+  <on-error>
+    <base />
+    <!-- If the sidecar is unreachable or returns 5xx, fail closed:
+         return a structured error to Foundry rather than silently
+         falling through to the MCP backend without a receipt. -->
+    <choose>
+      <when condition="@(context.LastError.Source == "set-backend-service" ||
+                         (context.Response?.StatusCode >= 500))">
+        <return-response>
+          <set-status code="503" reason="raucle sidecar unavailable" />
+          <set-header name="Content-Type" exists-action="override">
+            <value>application/json</value>
+          </set-header>
+          <set-body>{
+  "jsonrpc": "2.0",
+  "error": {
+    "code": -32099,
+    "message": "raucle policy gate unavailable; failing closed",
+    "data": {
+      "raucle": "fail_closed",
+      "correlation_id": "@(context.RequestId.ToString())"
+    }
+  }
+}</set-body>
+        </return-response>
+      </when>
+    </choose>
+  </on-error>
+</policies>

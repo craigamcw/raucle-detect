@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "value": "uksouth"
+    },
+    "containerAppEnvironmentId": {
+      "value": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acme-foundry/providers/Microsoft.App/managedEnvironments/cae-acme-foundry"
+    },
+    "apimServiceName": {
+      "value": "apim-acme-foundry"
+    },
+    "mcpBackendUrl": {
+      "value": "https://mcp.acme.bank.internal/mcp"
+    },
+    "keyVaultId": {
+      "value": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acme-foundry/providers/Microsoft.KeyVault/vaults/kv-acme-foundry"
+    },
+    "issuerKeySecretName": {
+      "value": "raucle-issuer-private-key"
+    },
+    "auditStorageAccountId": {
+      "value": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acme-foundry/providers/Microsoft.Storage/storageAccounts/stacmefoundryaudit"
+    },
+    "auditContainerName": {
+      "value": "raucle-audit"
+    },
+    "raucleImage": {
+      "value": "ghcr.io/craigamcw/raucle-detect:v0.12.0"
+    },
+    "issuerId": {
+      "value": "acme.bank.kyc-platform"
+    },
+    "verificationBaseUrl": {
+      "value": "https://acme.bank"
+    }
+  }
+}
