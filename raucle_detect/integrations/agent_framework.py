@@ -77,13 +77,13 @@ logger = logging.getLogger(__name__)
 # RuntimeError only when they try to instantiate the middleware.
 
 try:  # pragma: no cover - import-time check, not exercised in unit tests
-    from agent_framework import AgentMiddleware  # type: ignore[import-not-found]
+    from agent_framework import FunctionMiddleware  # type: ignore[import-not-found]
 
     _HAS_AGENT_FRAMEWORK = True
 except ImportError:  # pragma: no cover
     _HAS_AGENT_FRAMEWORK = False
 
-    class AgentMiddleware:  # type: ignore[no-redef]
+    class FunctionMiddleware:  # type: ignore[no-redef]
         """Stub used when ``agent-framework`` is not installed.
 
         Subclassing this class outside of an Agent Framework deployment is a
@@ -189,7 +189,7 @@ def _iso_now() -> str:
 # --- The middleware ---------------------------------------------------------
 
 
-class RaucleFunctionMiddleware(AgentMiddleware):
+class RaucleFunctionMiddleware(FunctionMiddleware):
     """``FunctionMiddleware`` that gates tool calls and emits capability receipts.
 
     Wire into an Agent Framework agent with::
@@ -319,10 +319,10 @@ class RaucleFunctionMiddleware(AgentMiddleware):
     def _emit(self, receipt: CapabilityReceipt) -> None:
         """Hand the receipt to the audit sink for signing + persistence."""
         try:
-            # HashChainSink signs its entries; NullSink discards.
-            self._sink.write(
-                kind="capability_receipt",
-                payload=receipt.to_dict(),
+            # HashChainSink wraps each event in a hash-chain entry and
+            # signs periodically; NullSink discards.
+            self._sink.append(
+                {"kind": "capability_receipt", "receipt": receipt.to_dict()}
             )
         except Exception:  # pragma: no cover
             # Never let receipt emission break the agent's main path —
