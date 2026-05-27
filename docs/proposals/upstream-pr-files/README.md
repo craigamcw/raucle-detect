@@ -1,58 +1,60 @@
 # Upstream PR shadow files for `microsoft/agent-governance-toolkit`
 
-This directory is a **tree-shadow** of the files we propose to land in
-the upstream Microsoft Agent Governance Toolkit repository as part of
-the [AGT PDP plug-in contract proposal](../agt-pdp-contract.md). Each
-file's path here mirrors where it would live in the AGT repo if the
-maintainers accept the PR.
+This directory holds the artefacts proposed to land in the upstream
+Microsoft Agent Governance Toolkit repository as part of the
+[AGT PDP plug-in contract proposal](../agt-pdp-contract.md).
 
 ```
-microsoft/agent-governance-toolkit/
-├── agent_os/
-│   └── policy_provider.py         ← proposed new module
+upstream-pr-files/
+├── patch/
+│   └── backends-assurance-fields.patch    ← unified diff against
+│                                            agent-governance-python/agent-os/
 └── tests/
-    └── test_policy_provider.py    ← proposed new test file
+    └── test_backend_decision_assurance_fields.py
+                                            ← new test file, dropped into
+                                              agent-governance-python/agent-os/tests/
 ```
 
-## Status
+## Scope
 
-- **Self-contained.** The proposed module has no imports from any
-  external project — including raucle. It is a pure abstract
-  contract.
-- **Tested.** ``test_policy_provider.py`` exercises every clause of
-  the contract (abstract enforcement, frozen-decision invariants,
-  async/sync delegation). 10/10 passing in isolation.
-- **Mergeable as-is.** The files are written in AGT's style (no
-  raucle naming, no raucle-specific assumptions) so the maintainers
-  can merge them verbatim and only need to wire the ``register_provider``
-  hook into Agent OS's existing PolicyEngine. The wiring is outside
-  the scope of this PR and is left to the maintainers.
+After reading the upstream repo, the original proposal (a new
+`IPolicyProvider` ABC) collapsed into a much smaller change: AGT
+already exposes `agent_os.policies.backends.ExternalPolicyBackend` as
+the seam for external policy substrates (OPA and Cedar implement it).
+The valuable additive piece is **two optional fields on
+`BackendDecision`** for offline-verifiable evidence, propagated into
+`PolicyDecision.audit_entry` by `PolicyEvaluator`.
+
+- `proof_artefact: Optional[str]` — content-address of an underlying
+  proof artefact (e.g. `sha256:...`).
+- `verification_pointers: dict[str, str]` — named URLs at which a
+  third-party verifier can fetch the deployer's published material.
+
+Existing OPA / Cedar backends are unaffected (fields default to empty;
+audit entry omits both keys when absent).
 
 ## How to verify locally
 
 ```bash
-# From this directory:
-mkdir -p /tmp/agt-pr-shadow/agent_os /tmp/agt-pr-shadow/tests
-cp agent_os/policy_provider.py /tmp/agt-pr-shadow/agent_os/
-cp tests/test_policy_provider.py /tmp/agt-pr-shadow/tests/
-touch /tmp/agt-pr-shadow/agent_os/__init__.py /tmp/agt-pr-shadow/tests/__init__.py
-cd /tmp/agt-pr-shadow
-PYTHONPATH=. python -m pytest tests/test_policy_provider.py -v
+git clone https://github.com/microsoft/agent-governance-toolkit.git /tmp/agt
+cd /tmp/agt
+git apply /path/to/raucle-detect/docs/proposals/upstream-pr-files/patch/backends-assurance-fields.patch
+cp /path/to/raucle-detect/docs/proposals/upstream-pr-files/tests/test_backend_decision_assurance_fields.py \
+   agent-governance-python/agent-os/tests/
+
+cd agent-governance-python/agent-os
+pip install -e .[dev]
+pytest tests/test_backend_decision_assurance_fields.py -v
 ```
 
-Expected: ``10 passed``.
+Expected: `4 passed`.
 
 ## PR description
 
-The full PR body — including motivation, detailed design, FAQ for the
-four open questions, backwards-compatibility analysis, drawbacks and
-alternatives — is in [`../agt-pdp-contract.upstream-pr.md`](../agt-pdp-contract.upstream-pr.md).
+The full PR body is in [`../agt-pdp-contract.upstream-pr.md`](../agt-pdp-contract.upstream-pr.md).
 
 ## Reference implementation
 
-Raucle's reference implementation of this contract is at
-[`raucle_detect/integrations/agt.py`](../../../raucle_detect/integrations/agt.py)
-in this repository. It is **not** included in this proposed PR;
-raucle stays in its own repo. The reference impl is only linked from
-the PR body as proof that the contract is implementable and that at
-least one production-track project intends to consume it.
+raucle's integration at [`raucle_detect/integrations/agt.py`](../../../raucle_detect/integrations/agt.py)
+will be reworked to implement `ExternalPolicyBackend` directly once
+this PR lands. It is **not** included in this proposed PR.
