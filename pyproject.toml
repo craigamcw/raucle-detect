@@ -47,6 +47,7 @@ rules = ["pyyaml>=6.0"]
 ml = ["transformers>=4.30", "torch>=2.0"]
 server = ["fastapi>=0.100", "uvicorn[standard]>=0.20", "pydantic>=2.0"]
 compliance = ["cryptography>=42.0"]
+agent-framework = ["agent-framework>=1.0"]
 multimodal = [
     "Pillow>=10.0",       # image loading + EXIF
     "pytesseract>=0.3.10", # OCR (requires tesseract on PATH)
