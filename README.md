@@ -59,7 +59,7 @@ For these audiences the receipt is the product. The detection mechanism that pro
 raucle composes with the agent frameworks regulated organisations already deploy:
 
 - **Microsoft Agent Framework** — drop-in `FunctionMiddleware` ([`raucle_detect.integrations.agent_framework`](raucle_detect/integrations/agent_framework.py)). 9/9 tests passing against `agent-framework` 1.6.
-- **Microsoft Agent Governance Toolkit** — reference policy provider ([`raucle_detect.integrations.agt`](raucle_detect/integrations/agt.py)), and an upstream PR live at [microsoft/agent-governance-toolkit#2610](https://github.com/microsoft/agent-governance-toolkit/pull/2610) proposing `proof_artefact` / `verification_pointers` carry-through on `BackendDecision` so high-assurance external policy backends can attach offline-verifiable evidence to the AGT audit chain.
+- **Microsoft Agent Governance Toolkit** — drop-in `RauclePolicyBackend` ([`raucle_detect.integrations.agt_backend`](raucle_detect/integrations/agt_backend.py)) implementing AGT's `ExternalPolicyBackend` Protocol. raucle's contribution at [microsoft/agent-governance-toolkit#2610](https://github.com/microsoft/agent-governance-toolkit/pull/2610) **merged upstream** on 2026-05-27 — `proof_artefact` and `verification_pointers` now carry through AGT's `BackendDecision` into the audit chain.
 - **Azure AI Foundry MCP Gateway** — deployable sidecar pattern under [`deploy/foundry-mcp-sidecar/`](deploy/foundry-mcp-sidecar/) (Bicep + APIM policy).
 
 ---
