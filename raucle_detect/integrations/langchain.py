@@ -1,0 +1,302 @@
+"""raucle integration for LangChain (``langchain-core`` ≥ 0.3).
+
+Provides a ``BaseCallbackHandler`` that intercepts every tool invocation
+in a LangChain ``AgentExecutor`` / ``Runnable`` graph, gates it against
+the in-force capability token, and emits a signed capability receipt
+for both ALLOW and DENY decisions.
+
+Quick start
+-----------
+
+.. code-block:: python
+
+    from langchain.agents import AgentExecutor, create_tool_calling_agent
+    from langchain_openai import ChatOpenAI
+    from langchain_core.tools import tool
+
+    from raucle_detect.capability import CapabilityGate, CapabilityIssuer
+    from raucle_detect.audit import HashChainSink, Ed25519Signer
+    from raucle_detect.integrations.langchain import (
+        RaucleCallbackHandler,
+        set_in_force_token,
+    )
+
+    issuer = CapabilityIssuer(...)
+    gate   = CapabilityGate(trusted_issuers={issuer.key_id: issuer.public_key_pem})
+    sink   = HashChainSink("./receipts.log", signer=Ed25519Signer.generate())
+    handler = RaucleCallbackHandler(gate=gate, sink=sink)
+
+    @tool
+    def lookup_customer(customer_id: str) -> dict: ...
+
+    agent = create_tool_calling_agent(ChatOpenAI(), [lookup_customer], prompt=...)
+    executor = AgentExecutor(agent=agent, tools=[lookup_customer], callbacks=[handler])
+
+    # Per-session: bind the token before invoking the agent.
+    token = issuer.mint(
+        agent_id="agent-1",
+        tool="lookup_customer",
+        constraints={"customer_id": "12345"},
+        ttl_seconds=60,
+    )
+    set_in_force_token(token)
+    result = executor.invoke({"input": "What's the email for customer 12345?"})
+
+Denial behaviour
+----------------
+
+When the in-force token's gate rejects a tool call, the handler raises a
+``CapabilityDenied`` exception from ``on_tool_start``. LangChain
+surfaces that exception back to the agent's reasoning loop, which can
+choose to ask the user, mint a new token, or fail. Either way the
+denial is recorded in the signed receipt chain — there is no path
+through this handler that drops a decision.
+
+Limitations
+-----------
+
+* Streaming tool outputs aren't introspected; the receipt records the
+  call decision, not the output stream.
+* If a tool is invoked outside the executor (raw ``tool.invoke(...)``),
+  this handler isn't on the path. Use the
+  ``raucle_capability_required`` decorator from ``raucle_detect.capability``
+  for that case.
+
+Install with ``pip install 'raucle-detect[langchain]'``.
+"""
+
+from __future__ import annotations
+
+import contextvars
+import logging
+from collections.abc import Callable
+from typing import Any
+from uuid import UUID
+
+from raucle_detect.audit import (
+    HashChainSink,
+    NullSink,
+    _canonical_json,
+    _sha256_hex,
+)
+from raucle_detect.capability import (
+    Capability,
+    CapabilityGate,
+    GateDecision,
+)
+
+logger = logging.getLogger(__name__)
+
+
+# --- Lazy host-framework import --------------------------------------------
+
+try:  # pragma: no cover - import-time check
+    from langchain_core.callbacks import (  # type: ignore[import-not-found]
+        BaseCallbackHandler,
+    )
+
+    _HAS_LANGCHAIN = True
+except ImportError:  # pragma: no cover
+
+    class BaseCallbackHandler:  # type: ignore[no-redef]
+        """Stub when langchain-core is missing — instantiation will raise."""
+
+    _HAS_LANGCHAIN = False
+
+
+class CapabilityDenied(Exception):
+    """Raised inside ``on_tool_start`` when the gate denies a call.
+
+    The agent executor surfaces this back to the LLM reasoning loop;
+    receipts of the denial are emitted before the raise.
+    """
+
+    def __init__(self, tool: str, reason: str) -> None:
+        super().__init__(f"raucle denied {tool!r}: {reason}")
+        self.tool = tool
+        self.reason = reason
+
+
+# --- In-force token resolution ---------------------------------------------
+
+TokenResolver = Callable[[dict[str, Any]], Capability | None]
+
+_in_force_token: contextvars.ContextVar[Capability | None] = contextvars.ContextVar(
+    "raucle_langchain_in_force_token", default=None
+)
+
+
+def set_in_force_token(token: Capability | None) -> None:
+    """Bind a capability token to the current (a)sync context."""
+    _in_force_token.set(token)
+
+
+def get_in_force_token() -> Capability | None:
+    """Read the bound token (or None)."""
+    return _in_force_token.get()
+
+
+def _default_resolver(_serialized: dict[str, Any]) -> Capability | None:
+    return get_in_force_token()
+
+
+# --- Internal helpers (mirror agent_framework.py) --------------------------
+
+
+def _hash_args(args: Any) -> str:
+    if isinstance(args, str):
+        # LangChain often hands tool input as a string; canonicalise to
+        # {"input": "..."} for consistent hashing.
+        return "sha256:" + _sha256_hex(_canonical_json({"input": args}))
+    if not isinstance(args, dict):
+        try:
+            args = dict(args)
+        except (TypeError, ValueError):
+            args = {"_raw": repr(args)}
+    return "sha256:" + _sha256_hex(_canonical_json(args))
+
+
+def _iso_now() -> str:
+    import time
+
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + (
+        f".{int((time.time() % 1) * 1000):03d}Z"
+    )
+
+
+# --- The callback handler --------------------------------------------------
+
+
+class RaucleCallbackHandler(BaseCallbackHandler):
+    """LangChain ``BaseCallbackHandler`` enforcing capability tokens.
+
+    Parameters
+    ----------
+    gate
+        The capability gate that holds the trusted-issuer keys and
+        applies attenuation / scope checks.
+    sink
+        A ``HashChainSink`` (or ``NullSink`` for tests) the handler
+        appends signed receipts to. One receipt per tool invocation.
+    token_resolver
+        Override the default ``ContextVar``-based lookup. Useful for
+        per-tenant lookups in shared agents.
+    raise_on_deny
+        When True (default), raise ``CapabilityDenied`` if the gate
+        denies a call — LangChain surfaces this to the agent. When
+        False, silently log + emit a deny receipt and let the tool run
+        (only useful for shadow-mode rollouts).
+    """
+
+    def __init__(
+        self,
+        *,
+        gate: CapabilityGate,
+        sink: HashChainSink | NullSink,
+        token_resolver: TokenResolver | None = None,
+        raise_on_deny: bool = True,
+        lean_theorem_id: str = "vcd.gate_soundness",
+    ) -> None:
+        if not _HAS_LANGCHAIN:
+            raise RuntimeError(
+                "RaucleCallbackHandler requires langchain-core. "
+                "Install with: pip install 'raucle-detect[langchain]'"
+            )
+        super().__init__()
+        self.gate = gate
+        self.sink = sink
+        self._resolver = token_resolver or _default_resolver
+        self._raise_on_deny = raise_on_deny
+        self._lean_theorem_id = lean_theorem_id
+
+    # LangChain calls this BEFORE the tool executes. Raising blocks the call.
+    def on_tool_start(
+        self,
+        serialized: dict[str, Any],
+        input_str: str,
+        *,
+        run_id: UUID,
+        parent_run_id: UUID | None = None,
+        tags: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        inputs: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        tool_name = (serialized or {}).get("name") or "<unknown>"
+        # LC ≥0.3 passes structured args via `inputs`; fall back to input_str.
+        call_args: Any = inputs if inputs is not None else input_str
+
+        token = self._resolver(serialized or {})
+        agent_id = (metadata or {}).get("agent_id") or "<unbound>"
+
+        if token is None:
+            decision = GateDecision(
+                allowed=False, reason="no in-force capability token"
+            )
+        else:
+            check_args = (
+                call_args if isinstance(call_args, dict) else {"input": call_args}
+            )
+            decision = self.gate.check(
+                token=token, tool=tool_name, args=check_args
+            )
+
+        self._emit_receipt(
+            token=token,
+            agent_id=agent_id,
+            tool=tool_name,
+            args=call_args,
+            decision=decision,
+        )
+
+        if not decision.allowed and self._raise_on_deny:
+            raise CapabilityDenied(tool_name, decision.reason or "denied")
+
+    # We don't need on_tool_end / on_tool_error for receipts — the
+    # decision was logged at start. LangChain calls them anyway; the
+    # base class no-ops are fine.
+
+    # --- Receipt emission -----------------------------------------------
+
+    def _emit_receipt(
+        self,
+        *,
+        token: Capability | None,
+        agent_id: str,
+        tool: str,
+        args: Any,
+        decision: GateDecision,
+    ) -> None:
+        receipt = {
+            "issuer": token.issuer if token else "",
+            # We carry the issuer's pinned key id rather than the raw PEM
+            # in the receipt; verifiers look up the PEM from the issuer
+            # registry at audit time.
+            "issuer_pubkey": token.key_id if token else "<unknown>",
+            "schema_hash": None,
+            "policy_proof_hash": token.policy_proof_hash if token else None,
+            "lean_theorem_id": self._lean_theorem_id,
+            "attenuation_chain": list(decision.chain or [])
+            or ([] if token is None else [token.token_id]),
+            "agent_id": agent_id,
+            "tool": tool,
+            "call_args_hash": _hash_args(args),
+            "decision": "ALLOW" if decision.allowed else "DENY",
+            "decision_reason": decision.reason or "",
+            "timestamp": _iso_now(),
+        }
+        try:
+            self.sink.append(receipt)
+        except Exception:
+            # A sink failure must not silently mask a denial; re-raise.
+            logger.exception("raucle: receipt sink failure for tool=%s", tool)
+            raise
+
+
+__all__ = [
+    "RaucleCallbackHandler",
+    "CapabilityDenied",
+    "TokenResolver",
+    "set_in_force_token",
+    "get_in_force_token",
+]

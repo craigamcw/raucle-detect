@@ -48,6 +48,8 @@ ml = ["transformers>=4.30", "torch>=2.0"]
 server = ["fastapi>=0.100", "uvicorn[standard]>=0.20", "pydantic>=2.0"]
 compliance = ["cryptography>=42.0"]
 agent-framework = ["agent-framework>=1.0"]
+langchain = ["langchain-core>=0.3"]
+autogen = ["autogen-agentchat>=0.4"]
 multimodal = [
     "Pillow>=10.0",       # image loading + EXIF
     "pytesseract>=0.3.10", # OCR (requires tesseract on PATH)
