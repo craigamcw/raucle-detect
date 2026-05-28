@@ -60,6 +60,7 @@ dev = [
     "raucle-detect[rules,server,compliance]",
     "pytest>=7.0",
     "pytest-cov>=4.0",
+    "pytest-asyncio>=0.23",
     "ruff>=0.4",
 ]
 all = ["raucle-detect[rules,ml,server,compliance,multimodal,proof]"]
@@ -89,3 +90,6 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Decorate-only: tests that need the async loop must use @pytest.mark.asyncio
+# explicitly. (Switch to ``auto`` later if every async test is the same shape.)
+asyncio_mode = "strict"
