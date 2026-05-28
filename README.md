@@ -3,12 +3,46 @@
 </p>
 
 <p align="center">
+  <a href="docs/getting-started/README.md"><strong>Get started</strong></a> &middot;
   <a href="https://raucle.com">Website</a> &middot;
-  <a href="#quick-start">Quick Start</a> &middot;
-  <a href="#openclaw-plugin">OpenClaw Plugin</a> &middot;
+  <a href="docs/getting-started/02-agent-framework.md">Agent Framework</a> &middot;
+  <a href="docs/getting-started/06-prove-a-policy.md">Prove a policy</a> &middot;
   <a href="#what-it-detects">Detection Rules</a> &middot;
   <a href="#contributing">Contributing</a>
 </p>
+
+---
+
+## Add raucle to your agent in 10 minutes
+
+```bash
+pip install 'raucle-detect[agent-framework]'
+```
+
+```python
+from raucle_detect.capability import CapabilityIssuer, CapabilityGate
+from raucle_detect.audit import HashChainSink, Ed25519Signer
+from raucle_detect.integrations.agent_framework import (
+    RaucleFunctionMiddleware, set_in_force_token,
+)
+
+issuer = CapabilityIssuer.generate(issuer="acme.bank.kyc")
+gate   = CapabilityGate(trusted_issuers={issuer.key_id: issuer.public_key_pem})
+sink   = HashChainSink("./receipts.log", signer=Ed25519Signer.generate())
+
+agent = ChatAgent(chat_client=..., tools=[...])
+agent.middleware.add(RaucleFunctionMiddleware(gate=gate, sink=sink))
+
+# Per-session: mint a capability and prime it.
+set_in_force_token(issuer.mint(
+    agent_id="agent:kyc-prod", tool="lookup_customer",
+    constraints={"starts_with": {"customer_id": "C-"}}, ttl_seconds=300,
+))
+```
+
+Every tool call your agent makes now produces a signed, hash-chained receipt that an auditor can verify offline. Calls that violate the capability's constraints are short-circuited via Microsoft's documented `MiddlewareTermination` path — no special-case error handling required.
+
+**Full walkthrough:** [`docs/getting-started/`](docs/getting-started/README.md) — five-minute "hello receipt", Agent Framework / LangChain / AutoGen integrations, SMT-prove-a-policy, and the Microsoft AGT backend (contract merged upstream 2026-05-27).
 
 ---
 
