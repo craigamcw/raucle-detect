@@ -62,6 +62,7 @@ Compatibility
   fields the installed version supports — verdicts remain correct,
   evidence is dropped.
 """
+
 from __future__ import annotations
 
 import time

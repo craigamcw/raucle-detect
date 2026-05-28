@@ -18,6 +18,7 @@ The point of these tests is to verify the four contract paths:
 In each case the receipt structure (decision, decision_reason,
 agent_id, tool, call_args_hash, etc.) is asserted.
 """
+
 from __future__ import annotations
 
 import contextvars
@@ -30,17 +31,14 @@ import pytest
 # constructs receipts via Ed25519 primitives that require it.
 pytest.importorskip("cryptography")
 
-from raucle_detect.audit import HashChainSink, NullSink, Ed25519Signer  # noqa: E402
 from raucle_detect.capability import CapabilityGate, CapabilityIssuer  # noqa: E402
 from raucle_detect.integrations.agent_framework import (  # noqa: E402
     CapabilityReceipt,
     MiddlewareTermination,
     RaucleFunctionMiddleware,
-    _default_resolver,
     get_in_force_token,
     set_in_force_token,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -145,9 +143,7 @@ async def test_allowed_call_emits_allow_receipt(issuer, gate, captured_events):
 
     mw = RaucleFunctionMiddleware(gate=gate, sink=sink)
     invoked: list[bool] = []
-    context = _make_context(
-        function_name="lookup_customer", arguments={"customer_id": "C-1042"}
-    )
+    context = _make_context(function_name="lookup_customer", arguments={"customer_id": "C-1042"})
 
     await mw.process(context, await _consume_call_next(invoked))
 

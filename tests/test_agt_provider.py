@@ -7,6 +7,7 @@ CapabilityGate / CapabilityIssuer primitives.
 No external dependencies. The IPolicyProvider stub lives in raucle's
 own integration module until Microsoft lands the upstream contract.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -16,11 +17,10 @@ pytest.importorskip("cryptography")
 from raucle_detect.capability import CapabilityGate, CapabilityIssuer  # noqa: E402
 from raucle_detect.integrations.agent_framework import set_in_force_token  # noqa: E402
 from raucle_detect.integrations.agt import (  # noqa: E402
+    RAUCLE_PROVIDER_VERSION,
     PolicyDecision,
     RauclePolicyProvider,
-    RAUCLE_PROVIDER_VERSION,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

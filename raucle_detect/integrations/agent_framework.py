@@ -45,6 +45,7 @@ mutation. Pull requests welcome.
 The integration depends on ``agent-framework>=1.0``; install with
 ``pip install 'raucle-detect[agent-framework]'``.
 """
+
 from __future__ import annotations
 
 import contextvars
@@ -56,7 +57,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from raucle_detect.audit import (
-    Ed25519Signer,
     HashChainSink,
     NullSink,
     _canonical_json,
@@ -268,7 +268,9 @@ class RaucleFunctionMiddleware(FunctionMiddleware):
         # The framework's context does not currently surface an agent id;
         # we fall back to looking at context.metadata or session state if
         # the deployer populates them, then to a stable sentinel.
-        agent_id = (token.agent_id if token is not None else None) or self._extract_agent_id(context)
+        agent_id = (token.agent_id if token is not None else None) or self._extract_agent_id(
+            context
+        )
 
         # No token bound? Fail-closed.
         if token is None:
@@ -277,9 +279,7 @@ class RaucleFunctionMiddleware(FunctionMiddleware):
                 agent_id=agent_id,
                 tool=tool_name,
                 args=call_args,
-                decision=GateDecision(
-                    allowed=False, reason="no capability token in force"
-                ),
+                decision=GateDecision(allowed=False, reason="no capability token in force"),
             )
             self._emit(receipt)
             self._raise_refusal(context, "no capability token in force")
@@ -334,9 +334,7 @@ class RaucleFunctionMiddleware(FunctionMiddleware):
         try:
             # HashChainSink wraps each event in a hash-chain entry and
             # signs periodically; NullSink discards.
-            self._sink.append(
-                {"kind": "capability_receipt", "receipt": receipt.to_dict()}
-            )
+            self._sink.append({"kind": "capability_receipt", "receipt": receipt.to_dict()})
         except Exception:  # pragma: no cover
             # Never let receipt emission break the agent's main path —
             # but log loudly. A deployment that silently drops receipts is a

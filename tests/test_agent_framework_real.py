@@ -22,6 +22,7 @@ The integration's wire-up against ``agent-framework`` 1.6+ actually works:
 
 This is the M2 milestone for ``docs/proposals/agent-framework-middleware.md``.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -30,13 +31,11 @@ import pytest
 agent_framework = pytest.importorskip("agent_framework")
 pytest.importorskip("cryptography")
 
-from raucle_detect.audit import HashChainSink, NullSink  # noqa: E402
 from raucle_detect.capability import CapabilityGate, CapabilityIssuer  # noqa: E402
 from raucle_detect.integrations.agent_framework import (  # noqa: E402
     RaucleFunctionMiddleware,
     set_in_force_token,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -176,6 +175,7 @@ async def test_real_context_deny_raises_middleware_termination(issuer, gate, cap
     # The framework's MiddlewareTermination carries the refusal payload as
     # the `result` attribute. Verify it's there and parseable.
     import json
+
     refusal = json.loads(exc_info.value.result)
     assert refusal["raucle"]["decision"] == "DENY"
     assert "advice" in refusal["raucle"]

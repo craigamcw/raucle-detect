@@ -59,6 +59,7 @@ behaviour. M3 ships the upstream PR to ``microsoft/agent-governance-
 toolkit``; until that lands, the stub interface here is the canonical
 shape we are asking for.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -68,7 +69,6 @@ from typing import Any
 
 from raucle_detect.capability import CapabilityGate
 from raucle_detect.integrations.agent_framework import get_in_force_token
-
 
 # ---------------------------------------------------------------------------
 # Proposal-shape stubs.
