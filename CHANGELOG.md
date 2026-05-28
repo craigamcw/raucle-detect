@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.12.0 (2026-05-27)
+
+### Microsoft Agent Governance Toolkit integration — now first-class
+
+raucle's contribution at [microsoft/agent-governance-toolkit#2610](https://github.com/microsoft/agent-governance-toolkit/pull/2610) — adding `proof_artefact` and `verification_pointers` carry-through on AGT's `BackendDecision` — **merged upstream on 2026-05-27** (commit `25abf72`, accepted by Microsoft maintainer Imran Siddique). raucle's reference integration ships in this release as a first-class module.
+
+- **`raucle_detect.integrations.agt_backend.RauclePolicyBackend`** — implements AGT's `agent_os.policies.backends.ExternalPolicyBackend` Protocol. Plug raucle into any AGT-governed agent through the same seam OPA and Cedar already use. The backend reads the in-force capability token from the asyncio-ContextVar that the Agent Framework middleware also uses, so a single primed token covers both integration paths.
+- Every `BackendDecision` raucle returns carries the cited `proof_artefact` (the policy proof hash from the capability token) and a `verification_pointers` dict (issuer pubkey URL, policy registry URL, optional Lean development URL). AGT's `PolicyEvaluator` propagates both into `PolicyDecision.audit_entry`, so any AGT audit-chain consumer immediately gets offline-verifiable evidence attached to every raucle-rendered decision.
+- Graceful degradation — the backend detects whether the installed AGT carries the merged fields and silently drops them on older installs. raucle deployments survive pre-merge AGT.
+- 7 tests in `tests/test_agt_backend.py`. Skipped automatically when `agent_os` is not installed; passing 7/7 against `microsoft/agent-governance-toolkit@main` post-merge.
+
+This is the second of the three Microsoft-stack integrations. v0.11.0 shipped the Agent Framework `FunctionMiddleware`; v0.12.0 ships the AGT backend; the third (Azure AI Foundry MCP Gateway sidecar) ships when the recorded walkthrough lands.
+
+### Stub-shape integration deprecated
+
+The pre-merge `raucle_detect.integrations.agt` module — containing the `IPolicyProvider` stub we originally proposed (Microsoft instead chose to keep the existing `ExternalPolicyBackend` Protocol they already ship, which we then extended) — remains importable for one minor version and will be removed in v0.13.0. New consumers should use `raucle_detect.integrations.agt_backend.RauclePolicyBackend`.
+
 ## Unreleased
 
 ### Relicensed: MIT → AGPL-3.0-or-later + commercial
