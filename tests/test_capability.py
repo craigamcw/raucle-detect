@@ -275,3 +275,213 @@ def test_policy_proof_hash_round_trips():
     decision = _gate(iss).check(cap, tool="t", args={})
     assert decision.allowed
     assert cap.policy_proof_hash == "sha256:" + "a" * 64
+
+
+# ---------------------------------------------------------------------------
+# FIX 2 — Strict proof-enforced mint mode
+# ---------------------------------------------------------------------------
+
+
+pytest.importorskip("z3", reason="strict-mint tests need the [proof] extra")
+
+
+def _proven_proof(
+    grammar_hash: str = "sha256:" + "g" * 64,
+    policy_hash: str = "sha256:" + "p" * 64,
+):
+    from raucle_detect.prove import ProofResult
+
+    return ProofResult(
+        status="PROVEN",
+        prover="raucle.json-schema/v1",
+        prover_version="0.9.0",
+        grammar_hash=grammar_hash,
+        policy_hash=policy_hash,
+    )
+
+
+def _undecided_proof():
+    from raucle_detect.prove import ProofResult
+
+    return ProofResult(
+        status="UNDECIDED",
+        prover="raucle.json-schema/v1",
+        prover_version="0.9.0",
+        grammar_hash="sha256:" + "g" * 64,
+        policy_hash="sha256:" + "p" * 64,
+        notes=["solver timeout"],
+    )
+
+
+def _refuted_proof():
+    from raucle_detect.prove import ProofResult
+
+    return ProofResult(
+        status="REFUTED",
+        prover="raucle.json-schema/v1",
+        prover_version="0.9.0",
+        grammar_hash="sha256:" + "g" * 64,
+        policy_hash="sha256:" + "p" * 64,
+        counterexample={"amount": 99999},
+    )
+
+
+def test_default_mode_unchanged():
+    """``require_proof=False`` (default) preserves existing behaviour:
+    mint with no proof_result still succeeds."""
+    iss = _issuer()
+    cap = iss.mint(agent_id="agent:x", tool="t")
+    assert cap.signature
+    assert cap.policy_proof_hash is None
+    assert cap.grammar_hash is None
+    assert cap.policy_hash is None
+
+
+def test_strict_mint_refuses_without_proof():
+    from raucle_detect.errors import PolicyUnproven
+
+    iss = CapabilityIssuer.generate(issuer="p.x", require_proof=True)
+    assert iss.require_proof is True
+    with pytest.raises(PolicyUnproven, match="requires a ProofResult"):
+        iss.mint(agent_id="agent:x", tool="t")
+
+
+def test_strict_mint_refuses_undecided():
+    from raucle_detect.errors import PolicyUnproven
+
+    iss = CapabilityIssuer.generate(issuer="p.x", require_proof=True)
+    with pytest.raises(PolicyUnproven, match="PROVEN.*UNDECIDED"):
+        iss.mint(agent_id="agent:x", tool="t", proof_result=_undecided_proof())
+
+
+def test_strict_mint_refuses_refuted():
+    from raucle_detect.errors import PolicyUnproven
+
+    iss = CapabilityIssuer.generate(issuer="p.x", require_proof=True)
+    with pytest.raises(PolicyUnproven, match="PROVEN.*REFUTED"):
+        iss.mint(agent_id="agent:x", tool="t", proof_result=_refuted_proof())
+
+
+def test_strict_mint_binds_proven_hashes_into_token():
+    """The cited proof's content-address, grammar_hash, and policy_hash
+    all end up bound in the capability's signed body — visible to any
+    downstream verifier."""
+    iss = CapabilityIssuer.generate(issuer="p.x", require_proof=True)
+    proof = _proven_proof()
+    cap = iss.mint(agent_id="agent:x", tool="t", proof_result=proof)
+    assert cap.policy_proof_hash == proof.hash
+    assert cap.grammar_hash == proof.grammar_hash
+    assert cap.policy_hash == proof.policy_hash
+    # Token round-trips through dict (grammar/policy hashes preserved).
+    rebuilt = Capability.from_dict(cap.to_dict())
+    assert rebuilt.policy_proof_hash == proof.hash
+    assert rebuilt.grammar_hash == proof.grammar_hash
+    assert rebuilt.policy_hash == proof.policy_hash
+
+
+def test_mint_rejects_conflicting_policy_proof_hash_and_proof_result():
+    iss = _issuer()
+    proof = _proven_proof()
+    with pytest.raises(ValueError, match="conflicts"):
+        iss.mint(
+            agent_id="agent:x",
+            tool="t",
+            proof_result=proof,
+            policy_proof_hash="sha256:" + "z" * 64,
+        )
+
+
+def test_mint_rejects_grammar_hash_mismatch_against_proof():
+    from raucle_detect.errors import PolicyUnproven
+
+    iss = _issuer()
+    proof = _proven_proof()
+    with pytest.raises(PolicyUnproven, match="grammar_hash"):
+        iss.mint(
+            agent_id="agent:x",
+            tool="t",
+            proof_result=proof,
+            grammar_hash="sha256:" + "x" * 64,
+        )
+
+
+def test_env_var_enables_strict_mode(monkeypatch):
+    """``RAUCLE_REQUIRE_PROOF=1`` enables strict mode without changing
+    construction sites."""
+    from raucle_detect.errors import PolicyUnproven
+
+    monkeypatch.setenv("RAUCLE_REQUIRE_PROOF", "1")
+    iss = CapabilityIssuer.generate(issuer="p.env")
+    assert iss.require_proof is True
+    with pytest.raises(PolicyUnproven):
+        iss.mint(agent_id="agent:x", tool="t")
+
+
+# ---------------------------------------------------------------------------
+# Gate-time proof enforcement (FIX 2 / D2)
+# ---------------------------------------------------------------------------
+
+
+def test_gate_proof_mode_off_is_noop():
+    iss = _issuer()
+    cap = iss.mint(agent_id="agent:x", tool="t")
+    gate = CapabilityGate(
+        trusted_issuers={iss.key_id: iss.public_key_pem},
+        proof_enforcement_mode="off",
+    )
+    assert gate.check(cap, tool="t", args={}).allowed
+
+
+def test_gate_proof_mode_lenient_warns_on_missing_cache(caplog):
+    import logging
+
+    iss = _issuer()
+    proof = _proven_proof()
+    cap = iss.mint(agent_id="agent:x", tool="t", proof_result=proof)
+    gate = CapabilityGate(
+        trusted_issuers={iss.key_id: iss.public_key_pem},
+        proof_enforcement_mode="lenient",
+        trusted_proofs={},  # empty — proof not present
+    )
+    with caplog.at_level(logging.WARNING):
+        decision = gate.check(cap, tool="t", args={})
+    assert decision.allowed
+    assert "lenient" in caplog.text
+
+
+def test_gate_proof_mode_strict_denies_missing_cache():
+    iss = _issuer()
+    proof = _proven_proof()
+    cap = iss.mint(agent_id="agent:x", tool="t", proof_result=proof)
+    gate = CapabilityGate(
+        trusted_issuers={iss.key_id: iss.public_key_pem},
+        proof_enforcement_mode="strict",
+        trusted_proofs={},
+    )
+    d = gate.check(cap, tool="t", args={})
+    assert d.allowed is False
+    assert "not in trusted_proofs" in d.reason
+
+
+def test_gate_proof_mode_strict_denies_token_with_no_proof_hash():
+    iss = _issuer()
+    cap = iss.mint(agent_id="agent:x", tool="t")  # no proof
+    gate = CapabilityGate(
+        trusted_issuers={iss.key_id: iss.public_key_pem},
+        proof_enforcement_mode="strict",
+    )
+    d = gate.check(cap, tool="t", args={})
+    assert d.allowed is False
+    assert "no policy_proof_hash" in d.reason
+
+
+def test_gate_proof_mode_strict_allows_matching_proof():
+    iss = _issuer()
+    proof = _proven_proof()
+    cap = iss.mint(agent_id="agent:x", tool="t", proof_result=proof)
+    gate = CapabilityGate(
+        trusted_issuers={iss.key_id: iss.public_key_pem},
+        proof_enforcement_mode="strict",
+        trusted_proofs={proof.hash: proof},
+    )
+    assert gate.check(cap, tool="t", args={}).allowed

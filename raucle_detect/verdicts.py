@@ -111,8 +111,15 @@ class VerdictSigner:
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PublicFormat.SubjectPublicKeyInfo,
             )
-        except Exception:
-            self._public_pem = b""
+        except Exception as exc:
+            # Fail loud — a signer that cannot expose its public key
+            # cannot produce verifiable receipts. Surface, don't swallow.
+            from raucle_detect.errors import ConfigurationError
+
+            logger.error("VerdictSigner: failed to extract public key bytes: %s", exc)
+            raise ConfigurationError(
+                f"VerdictSigner: failed to extract public key bytes: {exc}"
+            ) from exc
 
     @classmethod
     def generate(cls) -> VerdictSigner:
@@ -130,8 +137,10 @@ class VerdictSigner:
         return self._public_pem
 
     def key_id(self) -> str:
-        if not self._public_pem:
-            return "unsigned"
+        # ``_public_pem`` is always populated post-``__init__`` — a
+        # missing public key now raises ``ConfigurationError`` at
+        # construction rather than silently producing an "unsigned"
+        # key id (which generates unverifiable receipts).
         return hashlib.sha256(self._public_pem).hexdigest()[:16]
 
     def issue(

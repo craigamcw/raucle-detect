@@ -1,5 +1,86 @@
 # Changelog
 
+## Unreleased
+
+### Security — fail-loud cryptographic configuration (HOLD SCOPE FIX 1)
+
+Six places in the codebase used `try / except: pass` patterns that silently
+degraded cryptographic guarantees when configuration was wrong. Banking and
+healthcare deployers explicitly do NOT want a silent fallback — they want a
+loud failure they can act on. The behaviour is now:
+
+- **Explicit config + broken = REFUSE.** Operator misconfigured the
+  deployment; raise `ConfigurationError`, exit non-zero.
+- **No config + safe default exists = WARN.** Log a prominent WARNING and
+  continue in explicitly-marked unsigned mode.
+- **Never silent.**
+
+Specifics:
+
+- `raucle_detect/errors.py` — new module exposing two named exception types:
+  `ConfigurationError` (broken explicit config) and `PolicyUnproven` (strict
+  mint mode refused).
+- `raucle_detect.server._init_compliance()` — extracted from import-time
+  init. When `RAUCLE_DETECT_VERDICT_KEY_PEM` or
+  `RAUCLE_DETECT_AUDIT_PRIVATE_KEY_PEM` is set but unparseable, raises
+  `ConfigurationError` (module import fails; uvicorn refuses to start).
+  When no key is configured at all, emits a `WARNING` and continues in
+  unsigned mode.
+- `VerdictSigner.__init__` and `Ed25519Signer.__init__` — replaced
+  `except Exception: self._public_pem = b""` with a `logger.error(...)` +
+  `raise ConfigurationError(...)`. A signer that cannot expose its public
+  key cannot produce verifiable receipts; the swallowed-error path produced
+  receipts that looked normal but were silently unverifiable.
+- `audit.sink_from_env()` — when `RAUCLE_DETECT_AUDIT_PRIVATE_KEY_PEM` is set
+  but invalid, raises `ConfigurationError` instead of warning and returning
+  an unsigned sink.
+- `HashChainSink.__init__` — when no signer is supplied, emits a prominent
+  `WARNING` at construction. **Every newly-created chain now writes a
+  `chain_meta` header on line 1** carrying `{signed: bool, version, key_id?,
+  signature?, created_at}`. The header is Ed25519-signed when a signer is
+  present.
+- `AuditVerifier` — reads the header and surfaces
+  `report.signed_mode ∈ {"signed", "unsigned", "unknown"}` plus
+  `report.chain_key_id`. Rejects signed checkpoints appearing in chains
+  whose header declares `signed=false` (forgery indicator). Rejects
+  checkpoints whose `key_id` does not match the header's `key_id`
+  (cross-chain splice indicator). Legacy chains without a header remain
+  verifiable but report `signed_mode == "unknown"`.
+
+### Security — strict proof-enforced mint mode (HOLD SCOPE FIX 2)
+
+Until now, `cap mint --policy-proof-hash` was advisory: a caller could pass
+any string. Tokens cited proofs they had no structural relationship to. The
+new strict mint mode makes the relationship enforceable:
+
+- `Capability` gains two new optional fields, `grammar_hash` and
+  `policy_hash`. Both nullable; backward-compatible default-absent. When
+  set, they're covered by `token_id` and the signature.
+- `CapabilityIssuer(..., require_proof=False)` is the new default; passing
+  `require_proof=True` (or setting `RAUCLE_REQUIRE_PROOF=1`) enables strict
+  mode. In strict mode, `mint()` requires a `ProofResult` whose `status` is
+  `PROVEN` — anything else (absent, REFUTED, UNDECIDED) raises
+  `PolicyUnproven`. The bound `policy_proof_hash`, `grammar_hash`, and
+  `policy_hash` are taken from the supplied `ProofResult` so the linkage is
+  structural, not advisory.
+- Even outside strict mode, `mint(proof_result=...)` refuses to bind a
+  non-PROVEN proof and refuses to bind contradictory hashes.
+- `CapabilityGate` gains `proof_enforcement_mode ∈ {"off", "lenient",
+  "strict"}` and `trusted_proofs: dict[str, ProofResult]`. Defence-in-depth
+  at gate time: `"lenient"` warns on missing/invalid proof; `"strict"`
+  denies. Default `"off"` preserves existing behaviour. (Registry-fetcher
+  ships in a follow-up; current cache is in-memory + caller-supplied.)
+- CLI: `raucle-detect cap mint --require-proof --proof-result PATH` for the
+  strict path. `--policy-proof-hash` still works for the legacy advisory
+  path.
+- `raucle-detect prove json|url|sql` already returned exit-code 2 on REFUTED
+  and 1 on UNDECIDED — both non-zero, both pipeline-fail by `set -e`. Now
+  asserted by tests so CI never silently regresses.
+
+15 new tests across `tests/test_audit.py`, `tests/test_verdicts.py`,
+`tests/test_capability.py`, `tests/test_server_init.py`,
+`tests/test_cli_exit_codes.py`.
+
 ## 0.12.0 (2026-05-27)
 
 ### Microsoft Agent Governance Toolkit integration — now first-class

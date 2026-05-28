@@ -391,7 +391,32 @@ def _build_parser() -> argparse.ArgumentParser:
     cap_mint.add_argument("--tool", required=True)
     cap_mint.add_argument("--constraints", help="Path to constraints JSON file")
     cap_mint.add_argument("--ttl-seconds", type=int, default=3600)
-    cap_mint.add_argument("--policy-proof-hash", help="Optional v0.9.0 ProofResult.hash to bind in")
+    cap_mint.add_argument(
+        "--policy-proof-hash",
+        help=(
+            "Optional v0.9.0 ProofResult.hash to bind in. Use --proof-result "
+            "instead when you have the full result on disk — that path also "
+            "binds the grammar/policy hashes for tighter verifiability."
+        ),
+    )
+    cap_mint.add_argument(
+        "--proof-result",
+        help=(
+            "Path to a ProofResult JSON (output of `raucle-detect prove`). "
+            "When supplied, the resulting token binds policy_proof_hash, "
+            "grammar_hash, and policy_hash to the proof's values. Required "
+            "when --require-proof is set."
+        ),
+    )
+    cap_mint.add_argument(
+        "--require-proof",
+        action="store_true",
+        help=(
+            "Strict mint mode. Refuse to issue unless a PROVEN ProofResult "
+            "is supplied via --proof-result. Equivalent to "
+            "RAUCLE_REQUIRE_PROOF=1."
+        ),
+    )
     cap_mint.add_argument("--out", required=True, help="Output token JSON path")
 
     cap_verify = cap_sub.add_parser("verify", help="Verify a token's signature + expiry")
@@ -1219,21 +1244,56 @@ def _cmd_cap_mint(args: argparse.Namespace) -> int:
     import json as _json
 
     from raucle_detect.capability import CapabilityIssuer
+    from raucle_detect.errors import PolicyUnproven
+    from raucle_detect.prove import ProofResult
 
-    issuer = CapabilityIssuer.load_private_key(issuer=args.issuer, path=args.key)
+    require_proof = bool(args.require_proof)
+
+    # Load the ProofResult once if --proof-result was supplied.
+    proof_result: ProofResult | None = None
+    if args.proof_result:
+        proof_dict = _json.loads(Path(args.proof_result).read_text())
+        # ``ProofResult.hash`` is a derived field; strip it from the
+        # ctor kwargs and let it be re-derived at access time.
+        proof_dict.pop("hash", None)
+        proof_result = ProofResult(**proof_dict)
+
+    if require_proof and proof_result is None:
+        print(
+            "\033[91mERROR\033[0m  --require-proof set but --proof-result missing",
+            file=sys.stderr,
+        )
+        return 2
+
+    issuer = CapabilityIssuer.load_private_key(
+        issuer=args.issuer, path=args.key, require_proof=require_proof
+    )
     constraints = {}
     if args.constraints:
         constraints = _json.loads(Path(args.constraints).read_text())
-    cap = issuer.mint(
-        agent_id=args.agent_id,
-        tool=args.tool,
-        constraints=constraints,
-        ttl_seconds=args.ttl_seconds,
-        policy_proof_hash=args.policy_proof_hash,
-    )
+
+    try:
+        cap = issuer.mint(
+            agent_id=args.agent_id,
+            tool=args.tool,
+            constraints=constraints,
+            ttl_seconds=args.ttl_seconds,
+            policy_proof_hash=args.policy_proof_hash,
+            proof_result=proof_result,
+        )
+    except PolicyUnproven as exc:
+        print(f"\033[91mPOLICY_UNPROVEN\033[0m  {exc}", file=sys.stderr)
+        return 2
+
     cap.save(args.out)
     print(f"Minted {cap.token_id} → {args.out}")
     print(f"  expires at: {cap.expires_at}")
+    if cap.policy_proof_hash:
+        print(f"  policy_proof_hash: {cap.policy_proof_hash}")
+    if cap.grammar_hash:
+        print(f"  grammar_hash:      {cap.grammar_hash}")
+    if cap.policy_hash:
+        print(f"  policy_hash:       {cap.policy_hash}")
     return 0
 
 

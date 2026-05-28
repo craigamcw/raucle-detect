@@ -82,9 +82,16 @@ class Ed25519Signer:
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PublicFormat.SubjectPublicKeyInfo,
             )
-        except Exception:
-            self._public_key = None
-            self._public_pem = b""
+        except Exception as exc:
+            # Fail loud — a signer that cannot expose its public key
+            # cannot produce checkpoint signatures that any downstream
+            # verifier can attribute. Surface, don't swallow.
+            from raucle_detect.errors import ConfigurationError
+
+            logger.error("Ed25519Signer: failed to extract public key bytes: %s", exc)
+            raise ConfigurationError(
+                f"Ed25519Signer: failed to extract public key bytes: {exc}"
+            ) from exc
 
     @classmethod
     def generate(cls) -> Ed25519Signer:
@@ -109,9 +116,11 @@ class Ed25519Signer:
         return self._public_pem
 
     def key_id(self) -> str:
-        """Stable short identifier derived from the public key (first 16 hex)."""
-        if not self._public_pem:
-            return "unsigned"
+        """Stable short identifier derived from the public key (first 16 hex).
+
+        ``_public_pem`` is always populated post-``__init__`` — a missing
+        public key now raises ``ConfigurationError`` at construction.
+        """
         return hashlib.sha256(self._public_pem).hexdigest()[:16]
 
 
@@ -155,6 +164,7 @@ class HashChainSink:
     """
 
     _GENESIS_HASH = "0" * 64
+    _CHAIN_META_VERSION = 1
 
     def __init__(
         self,
@@ -168,20 +178,67 @@ class HashChainSink:
         self._leaf_hashes: list[str] = []
         self._next_index = 0
         self._prev_hash = self._GENESIS_HASH
+        self._is_new_chain = False
 
         if hasattr(path, "write"):
             self._file: IO[str] = path  # type: ignore[assignment]
             self._owns_file = False
+            # In-memory IO is always treated as a freshly-created chain;
+            # the caller is responsible for any prior content.
+            self._is_new_chain = True
         else:
             path = Path(path)
+            self._is_new_chain = not path.exists()
             if path.exists():
                 # Resume an existing chain
                 self._resume(path)
             self._file = open(path, "a", encoding="utf-8")  # noqa: SIM115 — held for sink lifetime
             self._owns_file = True
 
+        # Loud warning when running without a signer: hash-chain is
+        # still tamper-evident, but the chain has no cryptographic
+        # attribution. Operators that want an attributable audit log
+        # must supply a signer.
+        if self._signer is None:
+            logger.warning(
+                "HashChainSink running UNSIGNED — hash chain is tamper-evident "
+                "but unattributed. Supply a signer or set "
+                "RAUCLE_DETECT_AUDIT_PRIVATE_KEY_PEM for cryptographic provenance."
+            )
+
+        # Newly-created chains MUST have a chain_meta header. It is the
+        # only record that self-describes the chain's signed-mode and
+        # key_id. Verifiers refuse to attribute signed-mode otherwise.
+        if self._is_new_chain:
+            self._write_chain_header_unsafe()
+
+    def _write_chain_header_unsafe(self) -> None:
+        """Emit the genesis ``chain_meta`` header. Called from ``__init__``
+        before any concurrent access is possible; does NOT acquire ``_lock``.
+
+        The header is itself Ed25519-signed when a signer is supplied, so
+        a downstream verifier can establish "this chain was created by
+        ``key_id``" without relying on a later checkpoint.
+        """
+        body: dict[str, Any] = {
+            "chain_meta": True,
+            "version": self._CHAIN_META_VERSION,
+            "signed": self._signer is not None,
+            "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        }
+        if self._signer is not None:
+            body["key_id"] = self._signer.key_id()
+            sig = self._signer.sign(_canonical_json(body))
+            body["signature"] = base64.b64encode(sig).decode("ascii")
+        self._file.write(json.dumps(body, ensure_ascii=False) + "\n")
+        self._file.flush()
+
     def _resume(self, path: Path) -> None:
-        """Read an existing chain and recover the tail hash + index."""
+        """Read an existing chain and recover the tail hash + index.
+
+        Skips both ``checkpoint`` and ``chain_meta`` records — those are
+        out-of-band metadata, not part of the event hash chain.
+        """
         with open(path, encoding="utf-8") as fh:
             for line in fh:
                 line = line.strip()
@@ -191,7 +248,7 @@ class HashChainSink:
                     rec = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if rec.get("checkpoint"):
+                if rec.get("checkpoint") or rec.get("chain_meta"):
                     continue
                 self._prev_hash = rec.get("hash", self._prev_hash)
                 self._next_index = rec.get("index", -1) + 1
@@ -314,7 +371,20 @@ def _merkle_root(leaf_hashes: list[str]) -> str:
 
 @dataclass
 class VerificationReport:
-    """Outcome of verifying an audit chain file."""
+    """Outcome of verifying an audit chain file.
+
+    ``signed_mode`` is derived from the chain's ``chain_meta`` header:
+
+    * ``"signed"``    — header declares ``signed=true`` and the header
+      signature verifies. Subsequent checkpoints must use the same
+      ``key_id`` as the header.
+    * ``"unsigned"``  — header declares ``signed=false``. Any signed
+      checkpoint in the chain is treated as a forgery indicator and the
+      chain is rejected.
+    * ``"unknown"``   — legacy chain with no ``chain_meta`` header.
+      Compliance teams should treat ``"unknown"`` as a soft failure;
+      promote to signed by starting a new chain file.
+    """
 
     valid: bool
     event_count: int
@@ -323,6 +393,8 @@ class VerificationReport:
     invalid_signatures: int
     first_invalid_index: int | None = None
     errors: list[str] = field(default_factory=list)
+    signed_mode: str = "unknown"  # "signed" | "unsigned" | "unknown"
+    chain_key_id: str | None = None  # populated from chain_meta when signed
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -333,6 +405,8 @@ class VerificationReport:
             "invalid_signatures": self.invalid_signatures,
             "first_invalid_index": self.first_invalid_index,
             "errors": self.errors,
+            "signed_mode": self.signed_mode,
+            "chain_key_id": self.chain_key_id,
         }
 
 
@@ -381,6 +455,10 @@ class AuditVerifier:
                     report.valid = False
                     continue
 
+                if rec.get("chain_meta"):
+                    self._verify_chain_header(rec, line_no, report)
+                    continue
+
                 if rec.get("checkpoint"):
                     self._verify_checkpoint(rec, leaf_hashes, expected_index, report)
                     continue
@@ -424,6 +502,49 @@ class AuditVerifier:
 
         return report
 
+    def _verify_chain_header(
+        self,
+        rec: dict[str, Any],
+        line_no: int,
+        report: VerificationReport,
+    ) -> None:
+        """Validate a ``chain_meta`` header and set ``signed_mode``."""
+        if report.signed_mode != "unknown":
+            # Multiple headers in one file = forgery indicator.
+            report.errors.append(f"line {line_no}: duplicate chain_meta header")
+            report.valid = False
+            return
+
+        is_signed = bool(rec.get("signed"))
+        report.signed_mode = "signed" if is_signed else "unsigned"
+
+        if is_signed:
+            kid = rec.get("key_id") or ""
+            report.chain_key_id = kid
+            sig_b64 = rec.get("signature")
+            if not sig_b64:
+                report.errors.append(
+                    f"line {line_no}: chain_meta declares signed=true but has no signature"
+                )
+                report.valid = False
+                return
+            if not self._public_key:
+                # We can't verify the header signature without a pubkey;
+                # surface as a soft failure so callers know.
+                report.errors.append(
+                    f"line {line_no}: chain_meta signature present but no public key supplied"
+                )
+                return
+            body = {k: v for k, v in rec.items() if k != "signature"}
+            try:
+                self._public_key.verify(base64.b64decode(sig_b64), _canonical_json(body))
+            except Exception as exc:
+                report.invalid_signatures += 1
+                report.errors.append(
+                    f"line {line_no}: chain_meta signature verification failed: {exc}"
+                )
+                report.valid = False
+
     def _verify_checkpoint(
         self,
         rec: dict[str, Any],
@@ -432,6 +553,16 @@ class AuditVerifier:
         report: VerificationReport,
     ) -> None:
         report.checkpoint_count += 1
+
+        # If the header declared an unsigned chain, a checkpoint (which
+        # carries a signature) is a forgery indicator.
+        if report.signed_mode == "unsigned":
+            report.errors.append(
+                f"checkpoint at index {rec.get('index', '?')}: signed checkpoint "
+                f"appearing in chain whose chain_meta declares signed=false"
+            )
+            report.valid = False
+            return
 
         ckpt_index = rec.get("index", -1)
         if ckpt_index != expected_index:
@@ -445,6 +576,17 @@ class AuditVerifier:
         if rec.get("merkle_root") != expected_root:
             report.errors.append(
                 f"checkpoint at index {ckpt_index}: merkle_root mismatch — chain tampered"
+            )
+            report.valid = False
+            return
+
+        # If the chain_meta header pinned a key_id, the checkpoint must
+        # use it. Defends against splicing a checkpoint from another
+        # chain into this one.
+        if report.chain_key_id and rec.get("key_id", "") != report.chain_key_id:
+            report.errors.append(
+                f"checkpoint at index {ckpt_index}: key_id {rec.get('key_id', '')!r} "
+                f"does not match chain_meta key_id {report.chain_key_id!r}"
             )
             report.valid = False
             return
@@ -513,5 +655,13 @@ def sink_from_env() -> HashChainSink | None:
         try:
             signer = Ed25519Signer.from_pem(key_pem.encode())
         except Exception as exc:
-            logger.warning("Failed to load audit signer key: %s", exc)
+            # Explicitly configured + failed = refuse to continue. An
+            # operator who sets the env var expects a signed chain; a
+            # silent fallback to unsigned violates that expectation.
+            from raucle_detect.errors import ConfigurationError
+
+            logger.critical("Failed to load audit signer from %s: %s", ENV_AUDIT_KEY, exc)
+            raise ConfigurationError(
+                f"audit signer (env {ENV_AUDIT_KEY}) failed to load: {exc}"
+            ) from exc
     return HashChainSink(path, signer=signer)

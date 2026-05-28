@@ -91,3 +91,16 @@ class TestVerdictRoundTrip:
         assert payload.model_version == "m-v1"
         assert payload.tenant == "acme"
         assert payload.extra == {"request_id": "abc-123"}
+
+
+class TestVerdictSignerFailLoud:
+    """FIX 1.2 — VerdictSigner fails loud on a private key whose public
+    bytes can't be extracted. Previously this was swallowed and the
+    signer silently produced unverifiable receipts."""
+
+    def test_raises_configuration_error_on_bad_private_key(self):
+        from raucle_detect.errors import ConfigurationError
+        from raucle_detect.verdicts import VerdictSigner
+
+        with pytest.raises(ConfigurationError):
+            VerdictSigner(private_key=object())

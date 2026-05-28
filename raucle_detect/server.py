@@ -32,6 +32,7 @@ GET  /metrics       Prometheus-compatible counters (plain text)
 
 from __future__ import annotations
 
+import logging
 import os
 import secrets
 import threading
@@ -40,7 +41,10 @@ from collections import defaultdict
 from typing import Any
 
 from raucle_detect import __version__
+from raucle_detect.errors import ConfigurationError
 from raucle_detect.scanner import Scanner, ScanResult
+
+logger = logging.getLogger(__name__)
 
 try:
     from fastapi import FastAPI, HTTPException, Request  # type: ignore[import-untyped]
@@ -65,19 +69,77 @@ _burst_limit = int(os.environ.get("RAUCLE_DETECT_BURST_LIMIT", "20"))
 _model_version = os.environ.get("RAUCLE_DETECT_MODEL_VERSION", "")
 _tenant_default = os.environ.get("RAUCLE_DETECT_TENANT") or None
 
-# Optional compliance machinery — built from env if configured
-_audit_sink: Any = None
-_verdict_signer: Any = None
-try:
-    from raucle_detect.audit import sink_from_env
-    from raucle_detect.verdicts import VerdictSigner
 
-    _audit_sink = sink_from_env()
-    _signer_pem = os.environ.get("RAUCLE_DETECT_VERDICT_KEY_PEM", "")
-    if _signer_pem:
-        _verdict_signer = VerdictSigner.from_pem(_signer_pem.encode())
-except Exception:  # cryptography not installed or invalid config
-    pass
+def _init_compliance() -> tuple[Any, Any]:
+    """Build the optional audit sink + verdict signer from environment.
+
+    The principle: **explicitly configured but broken = REFUSE; simply
+    absent = WARN loudly and continue in unsigned mode.** Never silent.
+
+    Returns ``(audit_sink, verdict_signer)``. Either may be ``None``.
+
+    Raises
+    ------
+    ConfigurationError
+        If an explicit env var is set but the corresponding initialiser
+        fails (e.g. ``RAUCLE_DETECT_VERDICT_KEY_PEM`` set but unparseable).
+    """
+    audit_sink: Any = None
+    verdict_signer: Any = None
+
+    signer_pem = os.environ.get("RAUCLE_DETECT_VERDICT_KEY_PEM", "")
+
+    # The audit + verdicts modules require ``cryptography``.
+    try:
+        from raucle_detect.audit import sink_from_env
+        from raucle_detect.verdicts import VerdictSigner
+    except ImportError as exc:
+        if signer_pem or os.environ.get("RAUCLE_DETECT_AUDIT_PATH"):
+            # Explicit config but the library isn't installed — that's
+            # an operator error.
+            logger.critical(
+                "raucle_detect server: cryptography backend unavailable but "
+                "compliance env vars are set: %s",
+                exc,
+            )
+            raise ConfigurationError(
+                "compliance backend unavailable (install raucle-detect[compliance]) "
+                f"but compliance env vars are set: {exc}"
+            ) from exc
+        logger.warning(
+            "raucle_detect server: running in UNSIGNED mode — verdicts will not "
+            "be verifiable. Install raucle-detect[compliance] and set "
+            "RAUCLE_DETECT_VERDICT_KEY_PEM for signed receipts."
+        )
+        return audit_sink, verdict_signer
+
+    # Audit sink. ``sink_from_env`` itself raises ``ConfigurationError``
+    # when the key env var is set but invalid; we let that propagate.
+    audit_sink = sink_from_env()
+
+    # Verdict signer.
+    if signer_pem:
+        try:
+            verdict_signer = VerdictSigner.from_pem(signer_pem.encode())
+        except Exception as exc:
+            logger.critical(
+                "raucle_detect server: failed to load verdict signer from "
+                "RAUCLE_DETECT_VERDICT_KEY_PEM: %s",
+                exc,
+            )
+            raise ConfigurationError(
+                f"verdict signer (RAUCLE_DETECT_VERDICT_KEY_PEM) failed to load: {exc}"
+            ) from exc
+    else:
+        logger.warning(
+            "raucle_detect server: RAUCLE_DETECT_VERDICT_KEY_PEM not set — "
+            "scan results will not include signed receipts."
+        )
+
+    return audit_sink, verdict_signer
+
+
+_audit_sink, _verdict_signer = _init_compliance()
 
 _scanner = Scanner(
     mode=_mode,

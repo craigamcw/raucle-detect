@@ -66,10 +66,14 @@ import datetime as dt
 import hashlib
 import json
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from raucle_detect.prove import ProofResult
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +162,12 @@ class Capability:
     expires_at: int
     parent_id: str | None = None
     policy_proof_hash: str | None = None
+    # Structural binding of the cited proof. When set, downstream
+    # verifiers can confirm the proof referenced by ``policy_proof_hash``
+    # was actually over this schema/policy without trusting the issuer.
+    # Both are nullable and default-absent for backward compatibility.
+    grammar_hash: str | None = None
+    policy_hash: str | None = None
     signature: str = ""
 
     def body(self) -> dict[str, Any]:
@@ -173,6 +183,8 @@ class Capability:
             "expires_at": self.expires_at,
             "parent_id": self.parent_id,
             "policy_proof_hash": self.policy_proof_hash,
+            "grammar_hash": self.grammar_hash,
+            "policy_hash": self.policy_hash,
         }
 
     def to_dict(self) -> dict[str, Any]:
@@ -195,6 +207,8 @@ class Capability:
             expires_at=int(d["expires_at"]),
             parent_id=d.get("parent_id"),
             policy_proof_hash=d.get("policy_proof_hash"),
+            grammar_hash=d.get("grammar_hash"),
+            policy_hash=d.get("policy_hash"),
             signature=d.get("signature", ""),
         )
 
@@ -232,9 +246,32 @@ def _normalise_constraints(c: dict[str, Any]) -> dict[str, Any]:
 
 
 class CapabilityIssuer:
-    """Holds an Ed25519 private key; mints and attenuates Capability tokens."""
+    """Holds an Ed25519 private key; mints and attenuates Capability tokens.
 
-    def __init__(self, issuer: str, private_key: Any) -> None:
+    Parameters
+    ----------
+    issuer
+        The issuer identifier (e.g. ``"acme.bank.kyc"``).
+    private_key
+        The Ed25519 private key. Use :meth:`generate` /
+        :meth:`load_private_key` rather than constructing one directly
+        unless you have a key already in hand.
+    require_proof
+        Strict mint mode. When ``True``, :meth:`mint` refuses to issue
+        any capability unless a ``PROVEN`` :class:`~raucle_detect.prove.ProofResult`
+        is supplied. Defaults to ``False`` for backward compatibility;
+        also reads the ``RAUCLE_REQUIRE_PROOF`` environment variable
+        (``"1"`` / ``"true"`` enables strict mode without changing
+        construction sites).
+    """
+
+    def __init__(
+        self,
+        issuer: str,
+        private_key: Any,
+        *,
+        require_proof: bool | None = None,
+    ) -> None:
         if not issuer:
             raise ValueError("issuer must not be empty")
         self.issuer = issuer
@@ -246,17 +283,35 @@ class CapabilityIssuer:
         )
         self.public_key_pem = pub_pem.decode("ascii")
         self.key_id = _sha256_hex(pub_pem)[:16]
+        # Env-var fallback: the kwarg always wins when explicitly set;
+        # otherwise consult ``RAUCLE_REQUIRE_PROOF``.
+        if require_proof is None:
+            env = os.environ.get("RAUCLE_REQUIRE_PROOF", "").strip().lower()
+            self._require_proof = env in {"1", "true", "yes", "on"}
+        else:
+            self._require_proof = require_proof
+
+    @property
+    def require_proof(self) -> bool:
+        """True when this issuer is in strict-mint mode."""
+        return self._require_proof
 
     @classmethod
-    def generate(cls, issuer: str) -> CapabilityIssuer:
+    def generate(cls, issuer: str, *, require_proof: bool | None = None) -> CapabilityIssuer:
         _, ed25519 = _require_crypto()
-        return cls(issuer=issuer, private_key=ed25519.Ed25519PrivateKey.generate())
+        return cls(
+            issuer=issuer,
+            private_key=ed25519.Ed25519PrivateKey.generate(),
+            require_proof=require_proof,
+        )
 
     @classmethod
-    def load_private_key(cls, issuer: str, path: str | Path) -> CapabilityIssuer:
+    def load_private_key(
+        cls, issuer: str, path: str | Path, *, require_proof: bool | None = None
+    ) -> CapabilityIssuer:
         serialization, _ = _require_crypto()
         priv = serialization.load_pem_private_key(Path(path).read_bytes(), password=None)
-        return cls(issuer=issuer, private_key=priv)
+        return cls(issuer=issuer, private_key=priv, require_proof=require_proof)
 
     def save_private_key(self, path: str | Path) -> None:
         serialization, _ = _require_crypto()
@@ -276,9 +331,89 @@ class CapabilityIssuer:
         ttl_seconds: int = 3600,
         not_before_offset: int = 0,
         policy_proof_hash: str | None = None,
+        proof_result: ProofResult | None = None,
+        grammar_hash: str | None = None,
+        policy_hash: str | None = None,
     ) -> Capability:
+        """Mint a fresh capability token.
+
+        When ``proof_result`` is supplied, the resulting token binds
+        ``policy_proof_hash``, ``grammar_hash`` and ``policy_hash`` to
+        the proof's values. Downstream verifiers can then confirm —
+        without trusting the issuer — that the cited proof was actually
+        over this schema and policy.
+
+        In strict mode (``require_proof=True`` on the issuer, or
+        ``RAUCLE_REQUIRE_PROOF=1`` in the environment), a
+        ``ProofResult`` whose status is ``"PROVEN"`` is required;
+        anything else (absent, ``REFUTED``, ``UNDECIDED``) raises
+        :class:`~raucle_detect.errors.PolicyUnproven`.
+
+        Backward-compatible default (``require_proof=False``,
+        ``proof_result=None``) preserves existing behaviour: a token is
+        minted with whatever ``policy_proof_hash`` / ``grammar_hash`` /
+        ``policy_hash`` the caller supplied (typically all ``None``).
+
+        Parameters
+        ----------
+        proof_result
+            Optional. When supplied, ``policy_proof_hash`` is forced to
+            ``proof_result.hash`` and the grammar/policy hashes are
+            taken from the proof. Supplying both ``proof_result`` and a
+            conflicting ``policy_proof_hash`` is a ``ValueError``.
+        grammar_hash, policy_hash
+            Optional explicit values, for callers that want to bind
+            hashes without producing a ``ProofResult``. Ignored when
+            ``proof_result`` is supplied (the proof's hashes win).
+        """
+        from raucle_detect.errors import PolicyUnproven
+
         _validate_agent_id(agent_id)
         _validate_tool(tool)
+
+        # ── Strict-mode validation ──────────────────────────────────
+        if self._require_proof:
+            if proof_result is None:
+                raise PolicyUnproven(
+                    "CapabilityIssuer(require_proof=True): mint() requires a "
+                    "ProofResult; none was supplied"
+                )
+            if proof_result.status != "PROVEN":
+                raise PolicyUnproven(
+                    f"CapabilityIssuer(require_proof=True): mint() requires a "
+                    f"PROVEN ProofResult; got status {proof_result.status!r}"
+                )
+
+        # ── Derive the bound hashes from the proof when present ─────
+        if proof_result is not None:
+            if proof_result.status != "PROVEN":
+                # Even outside strict mode: binding a non-PROVEN proof
+                # to a capability is nonsensical. Refuse it explicitly.
+                raise PolicyUnproven(
+                    f"mint(): refuse to bind a non-PROVEN ProofResult "
+                    f"(status={proof_result.status!r}) to a capability"
+                )
+            if policy_proof_hash is not None and policy_proof_hash != proof_result.hash:
+                raise ValueError(
+                    "policy_proof_hash conflicts with proof_result.hash; "
+                    "pass one or the other, not both"
+                )
+            policy_proof_hash = proof_result.hash
+            # Cross-check caller-supplied hashes against the proof's
+            # if the caller asserted them — surface mismatches loudly.
+            if grammar_hash is not None and grammar_hash != proof_result.grammar_hash:
+                raise PolicyUnproven(
+                    f"grammar_hash {grammar_hash!r} does not match "
+                    f"ProofResult.grammar_hash {proof_result.grammar_hash!r}"
+                )
+            if policy_hash is not None and policy_hash != proof_result.policy_hash:
+                raise PolicyUnproven(
+                    f"policy_hash {policy_hash!r} does not match "
+                    f"ProofResult.policy_hash {proof_result.policy_hash!r}"
+                )
+            grammar_hash = proof_result.grammar_hash
+            policy_hash = proof_result.policy_hash
+
         now = _now()
         cap = Capability(
             token_id="",
@@ -292,6 +427,8 @@ class CapabilityIssuer:
             expires_at=now + ttl_seconds,
             parent_id=None,
             policy_proof_hash=policy_proof_hash,
+            grammar_hash=grammar_hash,
+            policy_hash=policy_hash,
         )
         cap.token_id = "cap:" + _sha256_hex(_canonical_json(cap.body()))[:24]
         # Re-canonicalise with token_id included.
@@ -446,11 +583,54 @@ class CapabilityGate:
         *,
         trusted_issuers: dict[str, str],
         parent_resolver: Any = None,
+        proof_enforcement_mode: str = "off",
+        trusted_proofs: dict[str, ProofResult] | None = None,
     ) -> None:
+        """Construct a CapabilityGate.
+
+        Parameters
+        ----------
+        trusted_issuers
+            ``{key_id: public_key_pem}``. Required.
+        parent_resolver
+            Optional. See class docstring.
+        proof_enforcement_mode
+            Defence-in-depth at gate time. One of:
+
+            * ``"off"``     — default; ``policy_proof_hash`` on the
+              token is informational. Gate behaviour unchanged.
+            * ``"lenient"`` — if the token has a ``policy_proof_hash``
+              and the proof is in ``trusted_proofs``, the gate verifies
+              the proof is ``PROVEN`` and that the token's ``grammar_hash`` /
+              ``policy_hash`` match the proof's. Missing proofs are
+              logged at ``WARNING`` and the call is allowed to proceed.
+            * ``"strict"``  — token MUST carry ``policy_proof_hash``,
+              the proof MUST be in ``trusted_proofs``, it MUST be
+              ``PROVEN``, and ``grammar_hash`` / ``policy_hash`` MUST
+              match. Any miss is a DENY with an explicit reason.
+
+            [DECIDE: gate-time proof enforcement] — the gate uses an
+            in-memory ``trusted_proofs`` cache. Fetching proofs from a
+            published policy registry at runtime (with TTL caching and
+            signature verification on the manifest) is a phase-2 feature
+            scoped separately; until that lands, operators that want
+            lenient / strict mode supply the cache themselves at boot.
+        trusted_proofs
+            Optional. ``{proof_hash: ProofResult}`` cache consulted in
+            ``"lenient"`` / ``"strict"`` modes. Ignored when mode is
+            ``"off"``.
+        """
         if not trusted_issuers:
             raise ValueError("CapabilityGate requires at least one trusted issuer")
+        if proof_enforcement_mode not in {"off", "lenient", "strict"}:
+            raise ValueError(
+                f"proof_enforcement_mode must be 'off' | 'lenient' | 'strict'; "
+                f"got {proof_enforcement_mode!r}"
+            )
         self._issuers = dict(trusted_issuers)
         self._resolver = parent_resolver
+        self._proof_mode = proof_enforcement_mode
+        self._trusted_proofs: dict[str, ProofResult] = dict(trusted_proofs or {})
 
     def check(
         self,
@@ -509,6 +689,16 @@ class CapabilityGate:
         if why:
             return GateDecision(False, f"constraint violated: {why}", token.token_id)
 
+        # 7.5) Proof enforcement (defence-in-depth at gate time).
+        # In "off" mode this is a no-op. In "lenient" / "strict" the
+        # gate consults the in-memory ``trusted_proofs`` cache and
+        # verifies the cited proof is PROVEN and that the token's bound
+        # grammar/policy hashes match.
+        if self._proof_mode != "off":
+            proof_decision = self._check_proof_binding(token)
+            if proof_decision is not None:
+                return proof_decision
+
         # 8) Optional chain verification.
         chain: list[str] = []
         if token.parent_id and self._resolver is not None:
@@ -543,6 +733,65 @@ class CapabilityGate:
                 current = parent
 
         return GateDecision(True, "ok", token.token_id, chain)
+
+    def _check_proof_binding(self, token: Capability) -> GateDecision | None:
+        """Gate-time proof enforcement. Returns ``None`` to allow, or a
+        DENY :class:`GateDecision` to reject.
+
+        Behaviour depends on ``self._proof_mode``:
+
+        * ``"lenient"`` — missing proof is logged at ``WARNING`` and
+          allowed. Present-but-invalid (REFUTED / UNDECIDED / hash
+          mismatch) is denied.
+        * ``"strict"`` — missing proof, missing binding, or any
+          discrepancy is denied.
+        """
+        strict = self._proof_mode == "strict"
+
+        if not token.policy_proof_hash:
+            if strict:
+                return GateDecision(
+                    False,
+                    "strict proof mode: token has no policy_proof_hash",
+                    token.token_id,
+                )
+            return None  # lenient: no proof to check
+
+        proof = self._trusted_proofs.get(token.policy_proof_hash)
+        if proof is None:
+            msg = f"policy_proof_hash {token.policy_proof_hash!r} not in trusted_proofs cache"
+            if strict:
+                return GateDecision(False, f"strict proof mode: {msg}", token.token_id)
+            logger.warning("lenient proof mode: %s", msg)
+            return None
+
+        if proof.status != "PROVEN":
+            return GateDecision(
+                False,
+                f"proof for {token.policy_proof_hash!r} is {proof.status!r}, not PROVEN",
+                token.token_id,
+            )
+        if token.grammar_hash and token.grammar_hash != proof.grammar_hash:
+            return GateDecision(
+                False,
+                f"token grammar_hash {token.grammar_hash!r} does not match "
+                f"proof grammar_hash {proof.grammar_hash!r}",
+                token.token_id,
+            )
+        if token.policy_hash and token.policy_hash != proof.policy_hash:
+            return GateDecision(
+                False,
+                f"token policy_hash {token.policy_hash!r} does not match "
+                f"proof policy_hash {proof.policy_hash!r}",
+                token.token_id,
+            )
+        if strict and not (token.grammar_hash and token.policy_hash):
+            return GateDecision(
+                False,
+                "strict proof mode: token missing grammar_hash or policy_hash binding",
+                token.token_id,
+            )
+        return None
 
     @staticmethod
     def _verify_signature(token: Capability, pem: str) -> None:
