@@ -20,7 +20,7 @@ jobs:
       contents: read
     steps:
       - name: Check out raucle-detect
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 1
 
@@ -50,7 +50,7 @@ jobs:
           echo "Syncing version: v${VERSION}"
 
       - name: Check out raucle.com
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: craigamcw/raucle.com
           token: ${{ secrets.WEBSITE_SYNC_TOKEN }}
@@ -58,7 +58,7 @@ jobs:
           ref: main
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
