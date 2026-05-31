@@ -637,6 +637,7 @@ class CapabilityGate:
         parent_resolver: Any = None,
         proof_enforcement_mode: str = "off",
         trusted_proofs: dict[str, ProofResult] | None = None,
+        revoked_token_ids: set[str] | None = None,
     ) -> None:
         """Construct a CapabilityGate.
 
@@ -683,6 +684,18 @@ class CapabilityGate:
         self._resolver = parent_resolver
         self._proof_mode = proof_enforcement_mode
         self._trusted_proofs: dict[str, ProofResult] = dict(trusted_proofs or {})
+        self._revoked: set[str] = set(revoked_token_ids or ())
+
+    def revoke(self, token_id: str) -> None:
+        """Add a token id to this gate's revocation denylist.
+
+        A revoked token (or any child that cites it as ``parent_id``) is
+        DENY'd even if its signature and expiry are still valid. This is
+        the early-revocation path that complements short TTLs; for fleets
+        of gates, distribute the denylist out of band (a phase-2 signed
+        revocation feed is scoped separately).
+        """
+        self._revoked.add(token_id)
 
     def check(
         self,
@@ -711,6 +724,14 @@ class CapabilityGate:
         expected_id = "cap:" + _sha256_hex(_canonical_json(token.body()))[:24]
         if expected_id != token.token_id:
             return GateDecision(False, "token_id does not match body", token.token_id)
+
+        # 3.5) Revocation denylist (early revocation before expiry).
+        # A revoked token, or any child that cites a revoked token as its
+        # parent, is refused.
+        if token.token_id in self._revoked:
+            return GateDecision(False, f"token {token.token_id} is revoked", token.token_id)
+        if token.parent_id and token.parent_id in self._revoked:
+            return GateDecision(False, f"parent token {token.parent_id} is revoked", token.token_id)
 
         # 4) Time bounds.
         if ts < token.not_before:
