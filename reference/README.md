@@ -50,9 +50,14 @@ cd provenance-rs && cargo test
 cd provenance-cs && dotnet test test/Raucle.Provenance.Tests.csproj
 ```
 
-All five are MIT-licensed (same as the repository). Contributions of
-further language ports are welcome — keep the canonical-JSON bytes
-identical to the vector above and add a parity test.
+All five reference implementations are **MIT-licensed** (see
+[`LICENSE`](./LICENSE)) — deliberately permissive so the standard is
+trivial to adopt in any product, including proprietary ones. This is
+distinct from the AGPL-3.0-or-later licence that governs the engine in
+the rest of this repository; see [`../GOVERNANCE.md`](../GOVERNANCE.md).
+The specification itself is CC-BY-4.0. Contributions of further language
+ports are welcome — keep the canonical-JSON bytes identical to the
+vector above and add a parity test.
 
 ## Framework integrations
 
