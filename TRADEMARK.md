@@ -43,5 +43,6 @@ is the same posture used by essentially every open-source company
 Email **`legal@raucle.com`**. We grant reasonable requests (conference
 talks, integrations, articles) readily; we just need to know.
 
-*This policy may be updated. Trademark rights are asserted whether or not
-the Marks are formally registered; registration is in progress.*
+*This policy may be updated. Trademark rights are asserted through use
+whether or not the Marks are formally registered (common-law rights);
+formal registration may follow as resources allow.*
