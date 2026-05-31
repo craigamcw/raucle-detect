@@ -485,3 +485,22 @@ def test_gate_proof_mode_strict_allows_matching_proof():
         trusted_proofs={proof.hash: proof},
     )
     assert gate.check(cap, tool="t", args={}).allowed
+
+
+def test_unknown_constraint_key_raises_not_silently_dropped():
+    """A mis-cased/typo'd constraint key must error, not be silently ignored.
+
+    Regression: `cap mint --constraints` previously dropped unknown keys
+    (e.g. camelCase `allowedValues`), minting a token enforcing less than
+    intended. The normaliser now rejects unknown keys loudly.
+    """
+    import pytest
+
+    from raucle_detect.capability import _normalise_constraints
+
+    with pytest.raises(ValueError, match="unknown constraint key"):
+        _normalise_constraints({"allowedValues": {"invoice": ["4471"]}})
+
+    # Correct snake_case is accepted unchanged.
+    ok = _normalise_constraints({"allowed_values": {"invoice": ["4471"]}})
+    assert ok == {"allowed_values": {"invoice": ["4471"]}}

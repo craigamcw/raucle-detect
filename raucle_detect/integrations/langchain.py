@@ -230,16 +230,10 @@ class RaucleCallbackHandler(BaseCallbackHandler):
         agent_id = (metadata or {}).get("agent_id") or "<unbound>"
 
         if token is None:
-            decision = GateDecision(
-                allowed=False, reason="no in-force capability token"
-            )
+            decision = GateDecision(allowed=False, reason="no in-force capability token")
         else:
-            check_args = (
-                call_args if isinstance(call_args, dict) else {"input": call_args}
-            )
-            decision = self.gate.check(
-                token=token, tool=tool_name, args=check_args
-            )
+            check_args = call_args if isinstance(call_args, dict) else {"input": call_args}
+            decision = self.gate.check(token=token, tool=tool_name, args=check_args)
 
         self._emit_receipt(
             token=token,

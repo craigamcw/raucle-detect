@@ -220,8 +220,37 @@ class Capability:
         return cls.from_dict(json.loads(Path(path).read_text()))
 
 
+_KNOWN_CONSTRAINT_KEYS = frozenset(
+    {
+        "forbidden_values",
+        "allowed_values",
+        "max_value",
+        "min_value",
+        "required_present",
+        "forbidden_field_combinations",
+    }
+)
+
+
 def _normalise_constraints(c: dict[str, Any]) -> dict[str, Any]:
-    """Canonical form so attenuation comparisons are exact."""
+    """Canonical form so attenuation comparisons are exact.
+
+    Raises
+    ------
+    ValueError
+        If ``c`` contains an unrecognised constraint key. This is a guard
+        against silently dropping a rule because of a typo or wrong case
+        (e.g. ``allowedValues`` instead of ``allowed_values``) — an unknown
+        key would otherwise be ignored, minting a token that enforces less
+        than the operator intended.
+    """
+    unknown = set(c) - _KNOWN_CONSTRAINT_KEYS
+    if unknown:
+        raise ValueError(
+            f"unknown constraint key(s): {sorted(unknown)}. "
+            f"Constraint keys are snake_case; valid keys are "
+            f"{sorted(_KNOWN_CONSTRAINT_KEYS)}."
+        )
     out: dict[str, Any] = {}
     if "forbidden_values" in c:
         out["forbidden_values"] = {k: sorted(v) for k, v in c["forbidden_values"].items()}

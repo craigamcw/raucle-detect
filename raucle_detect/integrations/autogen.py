@@ -179,17 +179,14 @@ def gated_tools(
     """
     if not _HAS_AUTOGEN:
         raise RuntimeError(
-            "gated_tools requires autogen-core. "
-            "Install with: pip install 'raucle-detect[autogen]'"
+            "gated_tools requires autogen-core. Install with: pip install 'raucle-detect[autogen]'"
         )
 
     resolver = token_resolver or _default_resolver
     out: list[Any] = []
     for t in tools:
         if not isinstance(t, FunctionTool):
-            logger.warning(
-                "raucle: %r is not a FunctionTool; passing through ungated", t
-            )
+            logger.warning("raucle: %r is not a FunctionTool; passing through ungated", t)
             out.append(t)
             continue
         out.append(
@@ -224,9 +221,7 @@ def _wrap_function_tool(
     """
     original_func = getattr(inner, "_func", None) or getattr(inner, "func", None)
     if original_func is None:  # pragma: no cover - defensive
-        logger.warning(
-            "raucle: cannot find inner callable on %r; passing through ungated", inner
-        )
+        logger.warning("raucle: cannot find inner callable on %r; passing through ungated", inner)
         return inner
 
     tool_name = getattr(inner, "name", None) or original_func.__name__
@@ -235,9 +230,7 @@ def _wrap_function_tool(
     async def gated(**kwargs: Any) -> Any:
         token = resolver(tool_name)
         if token is None:
-            decision = GateDecision(
-                allowed=False, reason="no in-force capability token"
-            )
+            decision = GateDecision(allowed=False, reason="no in-force capability token")
         else:
             decision = gate.check(token=token, tool=tool_name, args=kwargs)
 
