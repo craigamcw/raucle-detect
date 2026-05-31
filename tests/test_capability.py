@@ -550,3 +550,36 @@ def test_package_version_matches_metadata():
     import raucle_detect
 
     assert raucle_detect.__version__ == "0.13.0"
+
+
+def test_revocation_denylist_refuses_token_and_children():
+    """A revoked token (and children citing it as parent) is DENY'd before expiry."""
+    from raucle_detect.capability import CapabilityGate, CapabilityIssuer
+
+    issuer = CapabilityIssuer.generate(issuer="acme.bank")
+    gate = CapabilityGate(trusted_issuers={issuer.key_id: issuer.public_key_pem})
+    tok = issuer.mint(agent_id="agent:ops", tool="lookup_customer", ttl_seconds=300)
+    child = issuer.attenuate(tok, narrower_agent_id="agent:ops.sub")
+
+    # Valid before revocation.
+    assert gate.check(tok, tool="lookup_customer").allowed
+    assert gate.check(child, tool="lookup_customer", agent_id="agent:ops.sub").allowed
+
+    # Revoke the parent → both parent and child are refused.
+    gate.revoke(tok.token_id)
+    d_parent = gate.check(tok, tool="lookup_customer")
+    assert not d_parent.allowed and "revoked" in d_parent.reason
+    d_child = gate.check(child, tool="lookup_customer", agent_id="agent:ops.sub")
+    assert not d_child.allowed and "revoked" in d_child.reason
+
+
+def test_revocation_via_constructor():
+    from raucle_detect.capability import CapabilityGate, CapabilityIssuer
+
+    issuer = CapabilityIssuer.generate(issuer="acme.bank")
+    tok = issuer.mint(agent_id="agent:ops", tool="lookup_customer", ttl_seconds=300)
+    gate = CapabilityGate(
+        trusted_issuers={issuer.key_id: issuer.public_key_pem},
+        revoked_token_ids={tok.token_id},
+    )
+    assert not gate.check(tok, tool="lookup_customer").allowed
