@@ -551,4 +551,4 @@ raucle-detect is **dual-licensed**:
 
 Self-hosting raucle-detect inside your own organisation is free under AGPL. Embedding it in a product you distribute, or offering it as a hosted service to third parties, generally requires a commercial licence.
 
-Copyright (c) 2026 Raucle Ltd.
+Copyright (c) 2026 epic28 Ltd (trading as Raucle)

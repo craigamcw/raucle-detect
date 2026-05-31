@@ -1,7 +1,7 @@
 # Trademark policy
 
 **"Raucle"**, the Raucle logo, and **"raucle-detect"** are trademarks of
-Raucle Ltd. (the "Marks"), used to identify the official project and its
+epic28 Ltd (trading as Raucle) (the "Marks"), used to identify the official project and its
 origin. This policy explains how you may and may not use the Marks. It is
 separate from, and additional to, the software licences in this
 repository: **a software licence grants rights in the *code*; it does not

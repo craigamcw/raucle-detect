@@ -102,7 +102,7 @@ The pre-merge `raucle_detect.integrations.agt` module — containing the `IPolic
 
 ### Relicensed: MIT → AGPL-3.0-or-later + commercial
 
-raucle-detect is now dual-licensed. The default open-source licence becomes the GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later); a commercial licence is available from Raucle Ltd. for organisations whose use is incompatible with AGPL terms.
+raucle-detect is now dual-licensed. The default open-source licence becomes the GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later); a commercial licence is available from epic28 Ltd (trading as Raucle) for organisations whose use is incompatible with AGPL terms.
 
 The change protects the project from being absorbed into closed-source commercial forks while preserving full openness for self-hosting enterprises, academic research, security audits, and contributors. Self-hosting inside a single organisation for internal use — the dominant use case in our regulated-fintech ICP — is unaffected.
 
