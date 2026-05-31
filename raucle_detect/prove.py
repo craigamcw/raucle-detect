@@ -173,6 +173,7 @@ class JSONSchemaProver:
        bounds / combinations); a positive whitelist is enforced at the gate,
        not discharged as an SMT proof here. Whitelist keys passed in a
        ``prove`` policy are ignored — express them as capability constraints.
+       The same applies to ``starts_with`` (string-prefix) constraints.
     """
 
     timeout_ms: int = 5000

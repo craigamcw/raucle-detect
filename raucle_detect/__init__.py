@@ -13,7 +13,7 @@ AGPL-3.0-or-later (with commercial licence available) -- Copyright (c) 2026 Rauc
 See LICENSE, LICENSING.md, COMMERCIAL.md in the repository root.
 """
 
-__version__ = "0.7.0"
+__version__ = "0.13.0"
 __author__ = "Raucle"
 __license__ = "AGPL-3.0-or-later"
 

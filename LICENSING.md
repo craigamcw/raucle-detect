@@ -3,7 +3,7 @@
 raucle-detect is released under a **dual licence**:
 
 1. **GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later)** — the default. See [LICENSE](LICENSE) for the full text.
-2. **A commercial licence** from Raucle Ltd., available for organisations who cannot or do not wish to comply with the AGPL.
+2. **A commercial licence** from epic28 Ltd (trading as Raucle), available for organisations who cannot or do not wish to comply with the AGPL.
 
 Most users can stop reading here: if you use raucle-detect under AGPL, you are covered. The AGPL is a strong-copyleft licence that requires anyone who *modifies* raucle-detect and *makes it available to users over a network* — i.e., embeds it in a hosted service — to release their modifications under the same licence. If you self-host raucle-detect inside your organisation and do not redistribute or expose it as a service to third parties, the AGPL imposes no obligations beyond preserving the copyright notices.
 
@@ -19,7 +19,7 @@ We chose this model deliberately:
 
 ## Contributing
 
-Contributions to raucle-detect are accepted under the AGPL-3.0 by default. Significant contributors may be asked to sign a Contributor Licence Agreement (CLA) granting Raucle Ltd. the right to also license their contribution under our commercial licence; this is what makes the dual-licence model possible. The CLA does not remove your rights to your contribution — it adds rights for Raucle.
+Contributions to raucle-detect are accepted under the AGPL-3.0 by default. Significant contributors may be asked to sign a Contributor Licence Agreement (CLA) granting epic28 Ltd (trading as Raucle) the right to also license their contribution under our commercial licence; this is what makes the dual-licence model possible. The CLA does not remove your rights to your contribution — it adds rights for Raucle.
 
 ## Earlier versions
 

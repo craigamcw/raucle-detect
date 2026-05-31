@@ -224,6 +224,7 @@ _KNOWN_CONSTRAINT_KEYS = frozenset(
     {
         "forbidden_values",
         "allowed_values",
+        "starts_with",
         "max_value",
         "min_value",
         "required_present",
@@ -256,6 +257,8 @@ def _normalise_constraints(c: dict[str, Any]) -> dict[str, Any]:
         out["forbidden_values"] = {k: sorted(v) for k, v in c["forbidden_values"].items()}
     if "allowed_values" in c:
         out["allowed_values"] = {k: sorted(v) for k, v in c["allowed_values"].items()}
+    if "starts_with" in c:
+        out["starts_with"] = dict(c["starts_with"])
     if "max_value" in c:
         out["max_value"] = dict(c["max_value"])
     if "min_value" in c:
@@ -547,6 +550,26 @@ def _merge_narrowing(parent: dict[str, Any], extra: dict[str, Any]) -> dict[str,
             out["allowed_values"][fld] = sorted(set(out["allowed_values"][fld]) & set(vals))
         else:
             out["allowed_values"][fld] = sorted(set(vals))
+
+    for fld, prefix in extra.get("starts_with", {}).items():
+        out.setdefault("starts_with", {})
+        existing = out["starts_with"].get(fld)
+        if existing is None:
+            out["starts_with"][fld] = prefix
+        elif prefix.startswith(existing):
+            # Child extends the parent's prefix → strictly narrower. Keep child's.
+            out["starts_with"][fld] = prefix
+        elif existing.startswith(prefix):
+            # Child's prefix is broader than the parent's → would broaden. Refuse.
+            raise ValueError(
+                f"attenuation cannot broaden starts_with[{fld!r}]: "
+                f"{prefix!r} is broader than parent {existing!r}"
+            )
+        else:
+            raise ValueError(
+                f"attenuation starts_with[{fld!r}] {prefix!r} is disjoint from "
+                f"parent {existing!r} — no non-empty narrowing exists"
+            )
 
     for fld, bound in extra.get("max_value", {}).items():
         out.setdefault("max_value", {})
@@ -840,6 +863,9 @@ def _check_constraints(c: dict[str, Any], args: dict[str, Any]) -> str | None:
     for fld, oks in c.get("allowed_values", {}).items():
         if fld in args and args[fld] not in oks:
             return f"{fld}={args[fld]!r} is not in allowed_values"
+    for fld, prefix in c.get("starts_with", {}).items():
+        if fld in args and not (isinstance(args[fld], str) and args[fld].startswith(prefix)):
+            return f"{fld}={args[fld]!r} does not start with {prefix!r}"
     for fld, bound in c.get("max_value", {}).items():
         if fld in args and args[fld] > bound:
             return f"{fld}={args[fld]!r} exceeds max_value {bound!r}"

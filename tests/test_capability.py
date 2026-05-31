@@ -504,3 +504,49 @@ def test_unknown_constraint_key_raises_not_silently_dropped():
     # Correct snake_case is accepted unchanged.
     ok = _normalise_constraints({"allowed_values": {"invoice": ["4471"]}})
     assert ok == {"allowed_values": {"invoice": ["4471"]}}
+
+
+def test_starts_with_constraint_allows_and_denies():
+    """`starts_with` (the README hero example) enforces a string prefix."""
+    from raucle_detect.capability import CapabilityGate, CapabilityIssuer
+
+    issuer = CapabilityIssuer.generate(issuer="acme.bank.kyc")
+    gate = CapabilityGate(trusted_issuers={issuer.key_id: issuer.public_key_pem})
+    tok = issuer.mint(
+        agent_id="agent:kyc-prod",
+        tool="lookup_customer",
+        constraints={"starts_with": {"customer_id": "C-"}},
+        ttl_seconds=300,
+    )
+    assert tok.constraints == {"starts_with": {"customer_id": "C-"}}
+    assert gate.check(tok, tool="lookup_customer", args={"customer_id": "C-123"}).allowed
+    bad = gate.check(tok, tool="lookup_customer", args={"customer_id": "X-9"})
+    assert not bad.allowed and "does not start with" in bad.reason
+    # non-string value also fails the prefix check
+    assert not gate.check(tok, tool="lookup_customer", args={"customer_id": 42}).allowed
+
+
+def test_starts_with_attenuation_narrows_not_broadens():
+    from raucle_detect.capability import CapabilityIssuer
+
+    issuer = CapabilityIssuer.generate(issuer="acme.bank.kyc")
+    parent = issuer.mint(
+        agent_id="agent:kyc",
+        tool="lookup_customer",
+        constraints={"starts_with": {"customer_id": "C-"}},
+        ttl_seconds=300,
+    )
+    child = issuer.attenuate(parent, extra_constraints={"starts_with": {"customer_id": "C-9"}})
+    assert child.constraints["starts_with"]["customer_id"] == "C-9"
+
+    import pytest
+
+    with pytest.raises(ValueError, match="cannot broaden"):
+        issuer.attenuate(parent, extra_constraints={"starts_with": {"customer_id": "C"}})
+
+
+def test_package_version_matches_metadata():
+    """__version__ must match the installed package metadata (regression: was 0.7.0)."""
+    import raucle_detect
+
+    assert raucle_detect.__version__ == "0.13.0"
