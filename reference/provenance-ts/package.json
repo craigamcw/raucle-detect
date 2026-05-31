@@ -1,0 +1,38 @@
+{
+  "name": "@raucle/provenance",
+  "version": "0.1.0",
+  "description": "TypeScript reference implementation of the Raucle Provenance Receipt v1 spec (https://raucle.com/spec/provenance/v1)",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test --import tsx 'test/**/*.test.ts'",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "ai-security",
+    "provenance",
+    "prompt-injection",
+    "jws",
+    "ed25519",
+    "audit"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0"
+  }
+}

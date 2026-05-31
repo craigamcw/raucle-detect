@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Raucle.Provenance</RootNamespace>
+    <AssemblyName>Raucle.Provenance</AssemblyName>
+    <PackageId>Raucle.Provenance</PackageId>
+    <Version>0.1.0</Version>
+    <Description>C# reference implementation of the Raucle Provenance Receipt v1 spec (https://raucle.com/spec/provenance/v1)</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- .NET's BCL has no Ed25519; BouncyCastle (MIT) provides it. -->
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.4.0" />
+  </ItemGroup>
+
+</Project>
