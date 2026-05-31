@@ -1,0 +1,19 @@
+{
+  "name": "@raucle/vercel-ai-middleware",
+  "version": "0.1.0",
+  "description": "raucle capability gate + signed provenance receipts for Vercel AI SDK tool calls",
+  "type": "module",
+  "license": "MIT",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist", "src"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx 'test/**/*.test.ts'"
+  },
+  "peerDependencies": { "ai": ">=4" },
+  "peerDependenciesMeta": { "ai": { "optional": true } },
+  "devDependencies": { "@types/node": "^22", "tsx": "^4.7.0", "typescript": "^5.4.0" },
+  "keywords": ["ai-sdk","vercel","ai-agents","provenance","capability","ai-security"],
+  "engines": { "node": ">=20" }
+}

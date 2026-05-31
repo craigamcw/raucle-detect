@@ -53,3 +53,11 @@ cd provenance-cs && dotnet test test/Raucle.Provenance.Tests.csproj
 All five are MIT-licensed (same as the repository). Contributions of
 further language ports are welcome — keep the canonical-JSON bytes
 identical to the vector above and add a parity test.
+
+## Framework integrations
+
+- **[`vercel-ai-middleware/`](./vercel-ai-middleware)** — gate Vercel AI SDK
+  (`ai` ≥ 4) tool calls against a capability policy and emit a signed
+  receipt per decision, built on the TypeScript implementation above.
+  (Python integrations for the Microsoft Agent Framework, LangChain, and
+  AutoGen live in [`raucle_detect/integrations/`](../raucle_detect/integrations).)
