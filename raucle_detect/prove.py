@@ -164,6 +164,15 @@ class JSONSchemaProver:
       useful when the schema is permissive and the policy is strict)
     - ``forbidden_field_combinations`` -- ``[[a, b], ...]`` (a present AND
       b present is a violation)
+
+    .. note::
+       ``allowed_values`` (whitelists) is a **gate-time** capability
+       constraint (see :func:`raucle_detect.capability._check_constraints`)
+       and is intentionally **not** part of this prover's policy grammar.
+       This prover proves the *absence of violations* (forbidden values /
+       bounds / combinations); a positive whitelist is enforced at the gate,
+       not discharged as an SMT proof here. Whitelist keys passed in a
+       ``prove`` policy are ignored — express them as capability constraints.
     """
 
     timeout_ms: int = 5000
