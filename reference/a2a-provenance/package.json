@@ -1,0 +1,13 @@
+{
+  "name": "@raucle/a2a-provenance",
+  "version": "0.1.0",
+  "description": "Raucle ⇄ A2A binding: verifiable per-skill authorisation for Agent-to-Agent via signed provenance receipts",
+  "type": "module",
+  "license": "MIT",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist","src"],
+  "scripts": { "build": "tsc", "typecheck": "tsc --noEmit", "test": "node --test --import tsx 'test/**/*.test.ts'" },
+  "devDependencies": { "@types/node": "^22", "tsx": "^4.7.0", "typescript": "^5.4.0" },
+  "keywords": ["a2a","agent-to-agent","ai-agents","provenance","authorisation","ai-security"],
+  "engines": { "node": ">=20" }
+}

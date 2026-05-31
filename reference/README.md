@@ -60,6 +60,10 @@ ports are welcome — keep the canonical-JSON bytes identical to the
 vector above and add a parity test.
 
 ## Framework integrations
+- **[`a2a-provenance/`](./a2a-provenance)** — verifiable per-skill
+  authorisation for Google's A2A (Agent-to-Agent) protocol: emit +
+  verify `agent_handoff` receipts bound to an Agent Card extension.
+  See the [binding profile](../standards/a2a/README.md).
 
 - **[`vercel-ai-middleware/`](./vercel-ai-middleware)** — gate Vercel AI SDK
   (`ai` ≥ 4) tool calls against a capability policy and emit a signed
