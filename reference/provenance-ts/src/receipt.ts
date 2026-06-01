@@ -75,7 +75,9 @@ export interface Receipt {
 
 function b64uEncode(bytes: Uint8Array): string {
   const s = Buffer.from(bytes).toString('base64')
-  return s.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  // String#replaceAll with literal args: no regex (avoids a ReDoS-shaped
+  // pattern) and byte-identical for base64 (padding '=' is trailing-only).
+  return s.replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '')
 }
 
 function b64uDecode(s: string): Uint8Array<ArrayBuffer> {
