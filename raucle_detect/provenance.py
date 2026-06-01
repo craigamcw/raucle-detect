@@ -77,6 +77,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from . import registry as _registry
+
 logger = logging.getLogger(__name__)
 
 
@@ -225,19 +227,39 @@ def _b64url_decode(data: str) -> bytes:
     return base64.urlsafe_b64decode(data + padding)
 
 
+#: Portable integer range for v1 signed/hashed material. JavaScript numbers are
+#: IEEE-754 doubles, so the TS reference can only represent integers exactly up
+#: to 2^53-1; Go/Rust/C# use 64-bit ints. To guarantee a value round-trips
+#: byte-identically across ALL five implementations we restrict integers to the
+#: JS safe-integer range (the most restrictive). Python ints are unbounded, so
+#: without this a large Python-valid integer would sign here but be unrepresentable
+#: (or lossy) in the TS port — a cross-language canonical divergence (§8.10 #6).
+_MAX_SAFE_INT = 2**53 - 1
+_MIN_SAFE_INT = -(2**53 - 1)
+
+
 def _reject_floats(obj: Any) -> None:
-    """Raise if *obj* contains any float.
+    """Raise if *obj* contains a float, or an integer outside the safe range.
 
     The v1 payload schema uses only strings, integers, and arrays. Floats are
     rejected (not serialised) so the canonical bytes stay identical across the
-    five reference implementations: the TS/Go/Rust/C# encoders reject
-    non-integer numbers, and float canonicalisation (RFC 8785 §3.2.2) is the one
-    genuinely hard part of JCS. ``bool`` is an ``int`` subclass and is allowed.
+    five reference implementations, and integers are bounded to the JS
+    safe-integer range so every value is exactly representable in all of them.
+    ``bool`` is an ``int`` subclass and is allowed (it serialises as
+    ``true``/``false``, not a number).
     """
     if isinstance(obj, float):
         raise ValueError(
             "canonical JSON: floats are not permitted in v1 signed/hashed material "
             "(use integers; float canonicalisation is not cross-implementation stable)"
+        )
+    if isinstance(obj, bool):
+        pass  # bool is an int subclass but serialises as a JSON boolean
+    elif isinstance(obj, int) and not (_MIN_SAFE_INT <= obj <= _MAX_SAFE_INT):
+        raise ValueError(
+            f"canonical JSON: integer {obj} is outside the portable safe-integer "
+            f"range [{_MIN_SAFE_INT}, {_MAX_SAFE_INT}] (not representable in all "
+            f"reference implementations)"
         )
     if isinstance(obj, dict):
         for v in obj.values():
@@ -827,11 +849,16 @@ class ProvenanceLogger:
                     continue
                 try:
                     raw = json.loads(line)
-                    h = raw.get("receipt_hash")
-                    taint = raw.get("taint", [])
-                    if h:
-                        self._taint_by_hash[h] = set(taint)
-                except (json.JSONDecodeError, KeyError):
+                    # Taint is read from the SIGNED JWS, never the envelope: the
+                    # minimal envelope no longer mirrors payload fields, and even
+                    # when it did those copies were unsigned/untrusted.
+                    jws = raw.get("jws")
+                    if not jws:
+                        continue
+                    receipt = ProvenanceReceipt.from_jws(jws)
+                    if receipt.receipt_hash:
+                        self._taint_by_hash[receipt.receipt_hash] = set(receipt.taint)
+                except (json.JSONDecodeError, KeyError, ValueError):
                     continue
 
     # ------------------------------------------------------------------
@@ -1067,7 +1094,17 @@ class ProvenanceLogger:
 
     def _emit(self, receipt: ProvenanceReceipt) -> str:
         receipt.sign(self._agent)
-        self._file.write(json.dumps(receipt.to_dict(), ensure_ascii=False) + "\n")
+        # §8.1 minimal envelope: write ONLY {receipt_hash, jws}. The JWS already
+        # carries the canonical, signed payload — mirroring payload fields into
+        # the envelope (the old to_dict() format) created unsigned, unvalidated
+        # duplicates a reader could be tricked into trusting. The verifier
+        # rejects any other top-level field.
+        self._file.write(
+            json.dumps(
+                {"receipt_hash": receipt.receipt_hash, "jws": receipt.jws}, ensure_ascii=False
+            )
+            + "\n"
+        )
         self._file.flush()
         self._taint_by_hash[receipt.receipt_hash] = set(receipt.taint)
         return receipt.receipt_hash
@@ -1198,6 +1235,13 @@ class ProvenanceVerifier:
                     # otherwise let two parsers disagree on which receipt the
                     # line carries (envelope smuggling, §8.10 #3).
                     raw = json.loads(line, object_pairs_hook=_reject_duplicate_keys)
+                    # §8.1 envelope dimension: the wrapper carries exactly
+                    # {receipt_hash, jws}. Reject any other top-level field
+                    # (unless a registered x-raucle- versioned extension) — an
+                    # unknown field is envelope malleability we never validate.
+                    extra = _registry.unknown_envelope_fields(set(raw))
+                    if extra:
+                        raise ValueError(f"unknown envelope field(s): {sorted(extra)}")
                     # validate_structure=False: the chain verifier reports each
                     # structural error per-line below (via _structural_errors)
                     # rather than raising on the first, so callers see the full

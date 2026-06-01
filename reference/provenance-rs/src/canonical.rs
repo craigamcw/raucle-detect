@@ -32,9 +32,23 @@ fn write_value(out: &mut String, v: &Value) -> Result<(), CanonicalError> {
         Value::Null => out.push_str("null"),
         Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
         Value::Number(n) => {
+            // Portable safe-integer range (§8.10 #6): the TS port stores numbers
+            // as IEEE-754 doubles, exact only to ±(2^53-1). Bound every integer
+            // so the canonical bytes match across all five implementations.
+            const MAX_SAFE: i64 = (1i64 << 53) - 1;
             if let Some(i) = n.as_i64() {
+                if !(-MAX_SAFE..=MAX_SAFE).contains(&i) {
+                    return Err(CanonicalError(
+                        "integer outside the portable safe range [-(2^53-1), 2^53-1]".into(),
+                    ));
+                }
                 out.push_str(&i.to_string());
             } else if let Some(u) = n.as_u64() {
+                if u > MAX_SAFE as u64 {
+                    return Err(CanonicalError(
+                        "integer outside the portable safe range [-(2^53-1), 2^53-1]".into(),
+                    ));
+                }
                 out.push_str(&u.to_string());
             } else {
                 return Err(CanonicalError(

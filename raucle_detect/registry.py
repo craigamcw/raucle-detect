@@ -218,3 +218,91 @@ def unmodelled_policy_keys(policy_keys: frozenset[str] | set[str]) -> set[str]:
     UNDECIDED rather than a PROVEN that silently ignored those keys.
     """
     return set(policy_keys) - PROVER_ENCODABLE_KEYS
+
+
+# ---------------------------------------------------------------------------
+# Other modelled-language dimensions (§8.1). Each is an explicit allowlist; any
+# key/field outside it hits the dimension's conservative verdict. Consumers
+# derive their checks from these and the drift test pins them, so a fail-open
+# gap cannot reappear outside the capability-constraint dimension (the residual
+# Codex flagged after the first implementation pass).
+# ---------------------------------------------------------------------------
+
+#: JSON Schema object-level keywords the JSONSchemaProver models. An unmodelled
+#: keyword downgrades a would-be PROVEN to UNDECIDED (it may reshape the value
+#: space in a way the prover does not capture).
+JSON_SCHEMA_OBJECT_KEYS: frozenset[str] = frozenset(
+    {
+        "type",
+        "properties",
+        "required",
+        "additionalProperties",
+        "title",
+        "description",
+        "$schema",
+        "$id",
+        "$defs",
+        "definitions",
+    }
+)
+
+#: URLPolicyProver grammar keys. Unknown key → UNDECIDED (the prover cannot
+#: certify completeness over a dimension it does not model).
+URL_GRAMMAR_KEYS: frozenset[str] = frozenset(
+    {"schemes", "hosts", "path_prefixes", "query_keys", "query_keys_closed"}
+)
+
+#: URLPolicyProver policy obligations. Unknown key → UNDECIDED.
+URL_POLICY_KEYS: frozenset[str] = frozenset(
+    {"require_https", "forbid_query_keys", "host_allowlist", "max_path_depth"}
+)
+
+#: SQLClauseProver grammar keys. Unknown key → UNDECIDED. ``allowed_tables`` is
+#: tolerated here as a recognised (but ignored) mirror of the policy key — the
+#: policy copy dominates, and passing it ONLY in the grammar is a distinct,
+#: loudly-rejected caller error.
+SQL_GRAMMAR_KEYS: frozenset[str] = frozenset({"templates", "allowed_tables"})
+
+#: SQLClauseProver policy keys. Unknown key → UNDECIDED.
+SQL_POLICY_KEYS: frozenset[str] = frozenset(
+    {"forbidden_tokens", "allow_statement_chaining", "allowed_tables"}
+)
+
+#: Provenance JSONL chain-envelope fields (§8.1 verifier dimension). The wrapper
+#: record around each receipt carries exactly these; any other top-level key is
+#: rejected unless it is a registered versioned/namespaced extension (§8.1
+#: versioned-extension rule).
+ENVELOPE_FIELDS: frozenset[str] = frozenset({"receipt_hash", "jws"})
+
+#: Reserved prefix for forward-compatible envelope extensions. A field with this
+#: prefix is tolerated (but ignored) so a future spec minor-version can add
+#: fields without every old verifier rejecting them; any other unknown field is
+#: rejected. Bare (unprefixed) unknown fields are NEVER tolerated.
+ENVELOPE_EXTENSION_PREFIX = "x-raucle-"
+
+
+def _unknown(keys: frozenset[str] | set[str], allowed: frozenset[str]) -> set[str]:
+    return set(keys) - allowed
+
+
+def unmodelled_url_keys(
+    grammar_keys: frozenset[str] | set[str], policy_keys: frozenset[str] | set[str]
+) -> set[str]:
+    """URL grammar/policy keys outside the modelled surface (→ UNDECIDED)."""
+    return _unknown(grammar_keys, URL_GRAMMAR_KEYS) | _unknown(policy_keys, URL_POLICY_KEYS)
+
+
+def unmodelled_sql_keys(
+    grammar_keys: frozenset[str] | set[str], policy_keys: frozenset[str] | set[str]
+) -> set[str]:
+    """SQL grammar/policy keys outside the modelled surface (→ UNDECIDED)."""
+    return _unknown(grammar_keys, SQL_GRAMMAR_KEYS) | _unknown(policy_keys, SQL_POLICY_KEYS)
+
+
+def unknown_envelope_fields(fields: frozenset[str] | set[str]) -> set[str]:
+    """Envelope fields that are neither modelled nor a registered extension."""
+    return {
+        k
+        for k in fields
+        if k not in ENVELOPE_FIELDS and not k.startswith(ENVELOPE_EXTENSION_PREFIX)
+    }

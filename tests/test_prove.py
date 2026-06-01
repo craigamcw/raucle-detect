@@ -303,3 +303,43 @@ def test_sql_unmodelled_constructs_undecided():
     # sanity: plain modelled SELECT still PROVEN
     ok = p.prove({"templates": ["SELECT id FROM customers WHERE id = 1"]}, pol)
     assert ok.status == "PROVEN", ok.status
+
+
+def test_url_prover_unknown_keys_undecided():
+    """B1/§8.1: URLPolicyProver must NOT certify a grammar/policy carrying a key
+    it does not model — unknown key → UNDECIDED (never a false PROVEN)."""
+    from raucle_detect.prove import URLPolicyProver
+
+    p = URLPolicyProver()
+    base_grammar = {"schemes": ["https"], "hosts": ["api.example.com"]}
+    # sanity: clean grammar/policy → PROVEN
+    assert p.prove(base_grammar, {"require_https": True}).status == "PROVEN"
+    # unknown grammar key
+    g = dict(base_grammar, unmodelled_url_dimension=["x"])
+    assert p.prove(g, {"require_https": True}).status == "UNDECIDED"
+    # unknown policy key
+    assert p.prove(base_grammar, {"unmodelled_policy_obligation": True}).status == "UNDECIDED"
+
+
+def test_sql_unmodelled_construct_undecided_without_allowed_tables():
+    """B2/§8.4: the unmodelled-SQL net must run even when no allowed_tables is
+    set — otherwise UNNEST / quoted idents / recursive CTEs return false PROVEN."""
+    from raucle_detect.prove import SQLClauseProver
+
+    p = SQLClauseProver()
+    # No allowed_tables in policy at all.
+    assert p.prove({"templates": ["SELECT * FROM UNNEST(xs)"]}, {}).status == "UNDECIDED"
+    assert p.prove({"templates": ['SELECT * FROM "tbl"']}, {}).status == "UNDECIDED"
+    rec = "WITH RECURSIVE t AS (SELECT 1) SELECT * FROM t"
+    assert p.prove({"templates": [rec]}, {}).status == "UNDECIDED"
+    # plain modelled SELECT still PROVEN with no allowed_tables
+    assert p.prove({"templates": ["SELECT id FROM customers"]}, {}).status == "PROVEN"
+
+
+def test_sql_unknown_policy_key_undecided():
+    """B2/§8.1: an unknown SQL policy key → UNDECIDED."""
+    from raucle_detect.prove import SQLClauseProver
+
+    p = SQLClauseProver()
+    r = p.prove({"templates": ["SELECT id FROM customers"]}, {"unmodelled_sql_obligation": 1})
+    assert r.status == "UNDECIDED", r.status

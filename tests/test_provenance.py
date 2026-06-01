@@ -271,11 +271,13 @@ class TestTaintMonotonicity:
             )
 
         # Inspect the second receipt directly — taint should include the
-        # inherited tag without the caller having to forward it.
+        # inherited tag without the caller having to forward it. Taint lives in
+        # the signed JWS, not the (minimal) envelope, so parse it back.
         with open(chain_path) as fh:
             records = [json.loads(line) for line in fh if line.strip()]
         assert records[1]["receipt_hash"] == h_tool
-        assert "external_user" in records[1]["taint"]
+        r2 = ProvenanceReceipt.from_jws(records[1]["jws"])
+        assert "external_user" in r2.taint
 
         verifier = ProvenanceVerifier(public_keys={identity.key_id: identity.public_key_pem()})
         report = verifier.verify_chain(chain_path)
@@ -313,7 +315,12 @@ class TestTaintMonotonicity:
         )
         r2.sign(identity)
 
-        chain_path.write_text(json.dumps(r1.to_dict()) + "\n" + json.dumps(r2.to_dict()) + "\n")
+        # Minimal envelope ({receipt_hash, jws}) — the verifier rejects any
+        # other top-level field (§8.1).
+        def _env(r):
+            return json.dumps({"receipt_hash": r.receipt_hash, "jws": r.jws})
+
+        chain_path.write_text(_env(r1) + "\n" + _env(r2) + "\n")
 
         verifier = ProvenanceVerifier(public_keys={identity.key_id: identity.public_key_pem()})
         report = verifier.verify_chain(chain_path)
@@ -494,3 +501,41 @@ def test_verifier_enforces_capability_statement(tmp_path):
     strict_stmt = dataclasses.replace(idy.statement, allowed_models=["m1"])
     rep2 = ProvenanceVerifier(keys, capabilities={idy.key_id: strict_stmt}).verify_chain(chain)
     assert not rep2.valid and rep2.capability_violations >= 1
+
+
+class TestEnvelopeAndIntegerDomain:
+    def test_unknown_envelope_field_rejected(self, tmp_path):
+        """B5/§8.1: a chain-envelope record with a field beyond {receipt_hash,
+        jws} (and not an x-raucle- extension) is rejected."""
+        identity = AgentIdentity.generate(agent_id="agent:e")
+        chain_path = tmp_path / "chain.jsonl"
+        with ProvenanceLogger(agent=identity, sink_path=chain_path) as log:
+            log.record_user_input(text="hi")
+        rec = json.loads(chain_path.read_text().strip())
+        rec["injected"] = "evil"
+        chain_path.write_text(json.dumps(rec) + "\n")
+        verifier = ProvenanceVerifier(public_keys={identity.key_id: identity.public_key_pem()})
+        report = verifier.verify_chain(chain_path)
+        assert report.valid is False
+        assert any("unknown envelope field" in e for e in report.errors)
+
+    def test_versioned_extension_envelope_field_tolerated(self, tmp_path):
+        identity = AgentIdentity.generate(agent_id="agent:e")
+        chain_path = tmp_path / "chain.jsonl"
+        with ProvenanceLogger(agent=identity, sink_path=chain_path) as log:
+            log.record_user_input(text="hi")
+        rec = json.loads(chain_path.read_text().strip())
+        rec["x-raucle-trace"] = "abc"
+        chain_path.write_text(json.dumps(rec) + "\n")
+        verifier = ProvenanceVerifier(public_keys={identity.key_id: identity.public_key_pem()})
+        report = verifier.verify_chain(chain_path)
+        assert report.valid is True
+
+    def test_oversized_integer_rejected_in_canonical(self):
+        """B6/§8.10: integers outside the portable safe range are rejected so
+        canonical bytes stay identical across the five reference impls."""
+        from raucle_detect.provenance import _canonical_json
+
+        _canonical_json({"iat": 2**53 - 1})  # safe, ok
+        with pytest.raises(ValueError, match="safe-integer"):
+            _canonical_json({"iat": 2**53})

@@ -54,6 +54,8 @@ from typing import IO, Any
 
 from raucle_detect.scanner import Scanner
 
+from .provenance import ProvenanceReceipt
+
 logger = logging.getLogger(__name__)
 
 
@@ -400,15 +402,28 @@ class Replayer:
         return result
 
     def _process_receipt(self, raw: dict[str, Any], result: ReplayResult) -> None:
+        # Payload fields live in the signed JWS, not the (minimal §8.1) envelope.
+        # Parse them back from the JWS; fall back to envelope fields only for
+        # legacy rich-envelope chains.
+        receipt_hash = raw.get("receipt_hash", "")
+        operation = raw.get("operation", "")
+        input_hash = raw.get("input_hash", "")
+        original_verdict = raw.get("guardrail_verdict", "")
+        jws = raw.get("jws")
+        if jws:
+            try:
+                parsed = ProvenanceReceipt.from_jws(jws)
+            except ValueError:
+                return
+            operation = parsed.operation.value
+            input_hash = parsed.input_hash
+            original_verdict = parsed.guardrail_verdict
+
         # Only `guardrail_scan` receipts are replayable. Every other operation
         # describes an event (a model call, a tool call) whose outcome is not a
         # function of the scanner — replaying them would be meaningless.
-        if raw.get("operation") != "guardrail_scan":
+        if operation != "guardrail_scan":
             return
-
-        input_hash = raw.get("input_hash", "")
-        receipt_hash = raw.get("receipt_hash", "")
-        original_verdict = raw.get("guardrail_verdict", "")
         if not input_hash or not original_verdict:
             return
 

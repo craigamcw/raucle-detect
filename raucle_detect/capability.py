@@ -69,6 +69,7 @@ import logging
 import math
 import os
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -266,6 +267,46 @@ class Capability:
 _KNOWN_CONSTRAINT_KEYS = _registry.KNOWN_CONSTRAINT_KEYS
 
 
+def _require_json_scalar(kind: str, field: str, v: Any) -> None:
+    """Reject a value-list member that is not a JSON scalar (§8.5).
+
+    Permitted: ``str``, ``int``, ``bool``. Rejected: floats (not cross-impl
+    stable), ``None``, ``bytes``, and any nested container (list/dict/set/tuple)
+    — none of which are valid, comparable members of a constraint value set.
+    ``bool`` is permitted (an ``int`` subclass) since it serialises as a JSON
+    boolean and compares unambiguously.
+    """
+    # bool is an int subclass, so (str, int) already admits True/False.
+    if isinstance(v, (str, int)):
+        return
+    raise ValueError(
+        f"{kind}[{field!r}] contains {type(v).__name__} {v!r}; members must be "
+        f"JSON scalars (str/int/bool) — floats, None, bytes and nested "
+        f"containers are not permitted (§8.5)"
+    )
+
+
+def _validate_field_keys(kind: str, mapping: dict[str, Any]) -> None:
+    """Field-name (constraint key) validation (§8.5).
+
+    Keys must be non-empty strings, and must remain distinct after Unicode NFC
+    normalisation — otherwise two visually/semantically equal field names (e.g.
+    a precomposed vs decomposed accented form) could collide at the tool
+    boundary while appearing distinct in the signed token.
+    """
+    seen: dict[str, str] = {}
+    for key in mapping:
+        if not isinstance(key, str) or not key:
+            raise ValueError(f"{kind} field name must be a non-empty string, got {key!r} (§8.5)")
+        norm = unicodedata.normalize("NFC", key)
+        if norm in seen and seen[norm] != key:
+            raise ValueError(
+                f"{kind} field names {seen[norm]!r} and {key!r} collide under "
+                f"Unicode NFC normalisation (§8.5)"
+            )
+        seen[norm] = key
+
+
 def _require_int_bound(kind: str, field: str, bound: Any) -> None:
     """Reject a numeric-bound value that is not a real integer (§8.5).
 
@@ -293,11 +334,17 @@ def _as_value_list(kind: str, field: str, v: Any) -> list[Any]:
     shape at mint/normalise rather than silently weakening (and signing) the
     policy.
     """
-    if isinstance(v, (str, bytes)) or not isinstance(v, (list, tuple, set, frozenset)):
+    # §8.5: accept ONLY a JSON array (list). A set/frozenset is unordered (its
+    # serialisation is non-deterministic) and a tuple/bytes/str is not a JSON
+    # array — none may be silently coerced into signed token material.
+    if not isinstance(v, list):
         raise ValueError(
-            f"{kind}[{field!r}] must be a list of values, got {type(v).__name__} "
-            f"{v!r} — wrap a single value in a list, e.g. [{v!r}]"
+            f"{kind}[{field!r}] must be a list (JSON array) of values, got "
+            f"{type(v).__name__} {v!r} — wrap a single value in a list, e.g. [{v!r}] "
+            f"(sets/tuples/strings are not accepted; §8.5)"
         )
+    for member in v:
+        _require_json_scalar(kind, field, member)
     return list(v)
 
 
@@ -322,16 +369,19 @@ def _normalise_constraints(c: dict[str, Any]) -> dict[str, Any]:
         )
     out: dict[str, Any] = {}
     if "forbidden_values" in c:
+        _validate_field_keys("forbidden_values", c["forbidden_values"])
         out["forbidden_values"] = {
             k: sorted(_as_value_list("forbidden_values", k, v))
             for k, v in c["forbidden_values"].items()
         }
     if "allowed_values" in c:
+        _validate_field_keys("allowed_values", c["allowed_values"])
         out["allowed_values"] = {
             k: sorted(_as_value_list("allowed_values", k, v))
             for k, v in c["allowed_values"].items()
         }
     if "starts_with" in c:
+        _validate_field_keys("starts_with", c["starts_with"])
         for fld, prefix in c["starts_with"].items():
             if not isinstance(prefix, str):
                 raise ValueError(
@@ -340,20 +390,60 @@ def _normalise_constraints(c: dict[str, Any]) -> dict[str, Any]:
                 )
         out["starts_with"] = dict(c["starts_with"])
     if "max_value" in c:
+        _validate_field_keys("max_value", c["max_value"])
         for fld, bound in c["max_value"].items():
             _require_int_bound("max_value", fld, bound)
         out["max_value"] = dict(c["max_value"])
     if "min_value" in c:
+        _validate_field_keys("min_value", c["min_value"])
         for fld, bound in c["min_value"].items():
             _require_int_bound("min_value", fld, bound)
         out["min_value"] = dict(c["min_value"])
     if "required_present" in c:
-        out["required_present"] = sorted(c["required_present"])
+        out["required_present"] = sorted(_require_field_name_list("required_present", c))
     if "forbidden_field_combinations" in c:
-        out["forbidden_field_combinations"] = sorted(
-            sorted(combo) for combo in c["forbidden_field_combinations"]
-        )
+        combos = c["forbidden_field_combinations"]
+        if not isinstance(combos, list):
+            raise ValueError(
+                "forbidden_field_combinations must be a list of field-name lists (§8.5)"
+            )
+        norm_combos = []
+        for combo in combos:
+            if not isinstance(combo, list):
+                raise ValueError(
+                    f"forbidden_field_combinations entry {combo!r} must be a list of "
+                    f"field names (§8.5)"
+                )
+            for fld in combo:
+                if not isinstance(fld, str) or not fld:
+                    raise ValueError(
+                        f"forbidden_field_combinations field name must be a non-empty "
+                        f"string, got {fld!r} (§8.5)"
+                    )
+            norm_combos.append(sorted(combo))
+        out["forbidden_field_combinations"] = sorted(norm_combos)
     return out
+
+
+def _require_field_name_list(kind: str, c: dict[str, Any]) -> list[str]:
+    """Validate a field-name list constraint (required_present): a JSON list of
+    non-empty strings, distinct under Unicode NFC (§8.5)."""
+    val = c[kind]
+    if not isinstance(val, list):
+        raise ValueError(
+            f"{kind} must be a JSON list of field names, got {type(val).__name__} (§8.5)"
+        )
+    seen: dict[str, str] = {}
+    for fld in val:
+        if not isinstance(fld, str) or not fld:
+            raise ValueError(f"{kind} field name must be a non-empty string, got {fld!r} (§8.5)")
+        norm = unicodedata.normalize("NFC", fld)
+        if norm in seen and seen[norm] != fld:
+            raise ValueError(
+                f"{kind} field names {seen[norm]!r} and {fld!r} collide under Unicode NFC (§8.5)"
+            )
+        seen[norm] = fld
+    return val
 
 
 # ---------------------------------------------------------------------------
