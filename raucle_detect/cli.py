@@ -27,7 +27,11 @@ logger = logging.getLogger(__name__)
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="raucle-detect",
-        description="Raucle Detect -- prompt injection detection for LLM applications",
+        description=(
+            "Raucle Detect -- verifiable authorization & audit for AI agents: "
+            "capability tokens, SMT/Lean-proven policies, and signed provenance receipts "
+            "(prompt-injection detection included)."
+        ),
     )
     parser.add_argument("--version", action="version", version=f"raucle-detect {__version__}")
 
@@ -1359,6 +1363,39 @@ def _cmd_cap_attenuate(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """CLI entry point with clean, developer-facing error handling.
+
+    Expected user errors (missing files, bad JSON, missing optional extras,
+    invalid input) print as a one-line ``error: ...`` to stderr with a
+    non-zero exit code — never a raw Python traceback. Genuinely unexpected
+    errors still raise so they surface a stack trace for debugging.
+    """
+    from raucle_detect.errors import ConfigurationError, PolicyUnproven
+
+    try:
+        return _dispatch(argv)
+    except (KeyboardInterrupt, BrokenPipeError):
+        return 130
+    except FileNotFoundError as exc:
+        print(f"error: file not found: {exc.filename or exc}", file=sys.stderr)
+        return 1
+    except ImportError as exc:
+        # The message already names the extra to install, e.g.
+        # "requires the [proof] extra: pip install 'raucle-detect[proof]'".
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except json.JSONDecodeError as exc:
+        print(f"error: invalid JSON: {exc}", file=sys.stderr)
+        return 1
+    except KeyError as exc:
+        print(f"error: malformed input: missing required field {exc}", file=sys.stderr)
+        return 1
+    except (ConfigurationError, PolicyUnproven, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
+def _dispatch(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
