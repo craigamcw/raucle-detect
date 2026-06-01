@@ -8,65 +8,65 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
-	"regexp"
 	"sort"
 )
 
-var (
-	validOperations = map[string]bool{
-		"user_input": true, "model_call": true, "tool_call": true,
-		"retrieval": true, "guardrail_scan": true, "agent_handoff": true,
-		"sanitisation": true, "merge": true,
-	}
-	validVerdicts = map[string]bool{
-		"ALLOW": true, "BLOCK": true, "SANITISE": true, "NA": true,
-	}
-	agentIDRe = regexp.MustCompile(`^agent:[a-z0-9][a-z0-9_\-./]{0,127}$`)
-	taintRe   = regexp.MustCompile(`^[a-z][a-z0-9_:\-]{0,63}$`)
-	hex256Re  = regexp.MustCompile(`^[0-9a-f]{64}$`)
-)
+// This implementation mirrors the canonical Python reference
+// (raucle_detect/provenance.py) byte-for-byte: same JOSE header (incl.
+// the "raucle/v1": "provenance" tag), same payload field set/ordering,
+// same string-typed model/tool/corpus, sha256:-prefixed hashes, and the
+// same content-addressed id ("sha256:" + hex(sha256(jws))).
 
 const (
-	jwsTyp = "provenance-receipt/v1"
+	iss    = "raucle-detect/provenance"
+	typ    = "provenance-receipt/v1"
+	jwsTyp = typ
 )
+
+var validOperations = map[string]bool{
+	"user_input": true, "model_call": true, "tool_call": true,
+	"retrieval": true, "guardrail_scan": true, "agent_handoff": true,
+	"sanitisation": true, "merge": true,
+}
 
 var jwsCrit = []string{"raucle/v1"}
 
+// knownFields is the closed set of payload keys a verifier accepts
+// (plus x_-prefixed extensions). Mirrors the spec §4 field list.
 var knownFields = map[string]bool{
-	"iss": true, "iat": true, "agent_id": true, "agent_key_id": true,
-	"operation": true, "parents": true, "input_hash": true,
-	"output_hash": true, "taint": true, "ruleset_hash": true,
-	"guardrail_verdict": true, "model": true, "tool": true,
-	"corpus": true, "tenant": true,
+	"iss": true, "typ": true, "iat": true, "agent_id": true,
+	"agent_key_id": true, "operation": true, "parents": true,
+	"input_hash": true, "output_hash": true, "taint": true,
+	"ruleset_hash": true, "guardrail_verdict": true, "model": true,
+	"tool": true, "corpus": true, "tenant": true,
 }
 
-// Payload is the v1 receipt payload (§4).
+// Payload is the v1 receipt payload (§4). String-typed hash/model/tool
+// fields mirror the canonical Python reference exactly.
 type Payload struct {
-	Iss              string
 	Iat              int64
 	AgentID          string
 	AgentKeyID       string
 	Operation        string
 	Parents          []string
-	InputHash        string
-	OutputHash       string
 	Taint            []string
+	InputHash        string // empty means absent; value is "sha256:<hex>"
+	OutputHash       string // empty means absent
+	Model            string // empty means absent
+	Tool             string // empty means absent
+	Corpus           string // empty means absent
 	RulesetHash      string // empty means absent
-	GuardrailVerdict string // defaults to "NA"
-	Model            map[string]any
-	Tool             map[string]any
-	Corpus           map[string]any
-	Tenant           string // empty means absent
-	// Extra holds x_-prefixed extension fields (§14).
-	Extra map[string]any
+	GuardrailVerdict string // empty means absent
+	Tenant           string // empty means absent; "" tenant set via TenantSet
+	TenantSet        bool   // mirrors Python's `tenant is not None`
 }
 
 // Receipt is a signed payload.
 type Receipt struct {
 	JWS     string
 	Payload Payload
-	// ID is the content-addressed identifier (§8): hex SHA-256 of the
-	// Compact JWS ASCII bytes.
+	// ID is the content-addressed identifier (§8): "sha256:" + hex
+	// SHA-256 of the Compact JWS ASCII bytes.
 	ID string
 }
 
@@ -83,35 +83,27 @@ func sha256Hex(b []byte) string {
 	return hex.EncodeToString(d[:])
 }
 
-// Validate enforces the §4 payload rules.
+// Validate enforces the §4 payload rules. It is intentionally lenient in
+// the same places the Python reference is: it does not re-shape hashes
+// or models, it only enforces structural invariants the spec mandates.
 func (p *Payload) Validate() error {
 	if !validOperations[p.Operation] {
 		return fmt.Errorf("unknown operation: %s", p.Operation)
 	}
-	verdict := p.GuardrailVerdict
-	if verdict == "" {
-		verdict = "NA"
+	if p.Operation == "guardrail_scan" && p.GuardrailVerdict == "" {
+		return fmt.Errorf("guardrail_scan requires a verdict (§4)")
 	}
-	if !validVerdicts[verdict] {
-		return fmt.Errorf("unknown verdict: %s", verdict)
+	if (p.Operation == "guardrail_scan") && p.RulesetHash == "" {
+		return fmt.Errorf("guardrail_scan requires ruleset_hash (§4)")
 	}
-	if !agentIDRe.MatchString(p.AgentID) {
-		return fmt.Errorf("invalid agent_id: %s", p.AgentID)
+	if p.Operation == "model_call" && p.Model == "" {
+		return fmt.Errorf("model_call requires model (§4)")
 	}
-	if !hex256Re.MatchString(p.InputHash) {
-		return fmt.Errorf("input_hash must be 64-hex SHA-256")
+	if (p.Operation == "tool_call" || p.Operation == "sanitisation") && p.Tool == "" {
+		return fmt.Errorf("%s requires tool (§4)", p.Operation)
 	}
-	if !hex256Re.MatchString(p.OutputHash) {
-		return fmt.Errorf("output_hash must be 64-hex SHA-256")
-	}
-	if p.RulesetHash != "" && !hex256Re.MatchString(p.RulesetHash) {
-		return fmt.Errorf("ruleset_hash must be 64-hex SHA-256")
-	}
-	if (p.Operation == "guardrail_scan" || p.Operation == "sanitisation") && p.RulesetHash == "" {
-		return fmt.Errorf("%s requires ruleset_hash (§5)", p.Operation)
-	}
-	if p.Operation == "guardrail_scan" && verdict == "NA" {
-		return fmt.Errorf("guardrail_scan requires a concrete verdict")
+	if (p.Operation == "retrieval" || p.Operation == "sanitisation") && p.Corpus == "" {
+		return fmt.Errorf("%s requires corpus (§4)", p.Operation)
 	}
 	if p.Operation == "user_input" && len(p.Parents) > 0 {
 		return fmt.Errorf("user_input must have no parents")
@@ -119,73 +111,59 @@ func (p *Payload) Validate() error {
 	if p.Operation != "user_input" && len(p.Parents) == 0 {
 		return fmt.Errorf("%s requires at least one parent", p.Operation)
 	}
-	for _, t := range p.Taint {
-		if !taintRe.MatchString(t) {
-			return fmt.Errorf("invalid taint tag: %s", t)
-		}
-	}
-	if !sort.StringsAreSorted(p.Taint) {
-		return fmt.Errorf("taint MUST be sorted (§4)")
-	}
-	if p.Operation == "model_call" && p.Model == nil {
-		return fmt.Errorf("model_call requires .model")
-	}
-	if p.Operation == "tool_call" && p.Tool == nil {
-		return fmt.Errorf("tool_call requires .tool")
-	}
-	if p.Operation == "retrieval" && p.Corpus == nil {
-		return fmt.Errorf("retrieval requires .corpus")
-	}
-	for k := range p.Extra {
-		if len(k) < 2 || k[:2] != "x_" {
-			return fmt.Errorf("extra field %s must use x_ prefix (§14)", k)
-		}
-	}
 	return nil
 }
 
+// toMap builds the canonical payload object exactly as Python's
+// ProvenanceReceipt.payload() does. Parents and taint are sorted.
 func (p *Payload) toMap() map[string]any {
-	verdict := p.GuardrailVerdict
-	if verdict == "" {
-		verdict = "NA"
+	parents := append([]string(nil), p.Parents...)
+	sort.Strings(parents)
+	taint := append([]string(nil), p.Taint...)
+	sort.Strings(taint)
+
+	parentsAny := make([]any, len(parents))
+	for i, v := range parents {
+		parentsAny[i] = v
 	}
-	parents := make([]any, len(p.Parents))
-	for i, v := range p.Parents {
-		parents[i] = v
+	taintAny := make([]any, len(taint))
+	for i, v := range taint {
+		taintAny[i] = v
 	}
-	taint := make([]any, len(p.Taint))
-	for i, v := range p.Taint {
-		taint[i] = v
-	}
+
 	m := map[string]any{
-		"iss":               p.Iss,
-		"iat":               p.Iat,
-		"agent_id":          p.AgentID,
-		"agent_key_id":      p.AgentKeyID,
-		"operation":         p.Operation,
-		"parents":           parents,
-		"input_hash":        p.InputHash,
-		"output_hash":       p.OutputHash,
-		"taint":             taint,
-		"guardrail_verdict": verdict,
+		"iss":          iss,
+		"typ":          typ,
+		"iat":          p.Iat,
+		"agent_id":     p.AgentID,
+		"agent_key_id": p.AgentKeyID,
+		"operation":    p.Operation,
+		"parents":      parentsAny,
+		"taint":        taintAny,
+	}
+	if p.InputHash != "" {
+		m["input_hash"] = p.InputHash
+	}
+	if p.OutputHash != "" {
+		m["output_hash"] = p.OutputHash
+	}
+	if p.Model != "" {
+		m["model"] = p.Model
+	}
+	if p.Tool != "" {
+		m["tool"] = p.Tool
+	}
+	if p.Corpus != "" {
+		m["corpus"] = p.Corpus
 	}
 	if p.RulesetHash != "" {
 		m["ruleset_hash"] = p.RulesetHash
 	}
-	if p.Model != nil {
-		m["model"] = p.Model
+	if p.GuardrailVerdict != "" {
+		m["guardrail_verdict"] = p.GuardrailVerdict
 	}
-	if p.Tool != nil {
-		m["tool"] = p.Tool
-	}
-	if p.Corpus != nil {
-		m["corpus"] = p.Corpus
-	}
-	if p.Tenant != "" {
+	if p.TenantSet {
 		m["tenant"] = p.Tenant
-	}
-	for k, v := range p.Extra {
-		m[k] = v
 	}
 	return m
 }
@@ -196,14 +174,17 @@ func payloadFromMap(m map[string]any) (Payload, error) {
 			return Payload{}, fmt.Errorf("reserved unknown field: %s", k)
 		}
 	}
-	p := Payload{Extra: map[string]any{}}
+	// typ must equal the spec literal (§4).
+	if t, _ := m["typ"].(string); t != typ {
+		return Payload{}, fmt.Errorf("payload typ must be %q, got %q", typ, t)
+	}
+	p := Payload{}
 	getStr := func(k string) string {
 		if v, ok := m[k].(string); ok {
 			return v
 		}
 		return ""
 	}
-	p.Iss = getStr("iss")
 	if iat, ok := m["iat"].(float64); ok {
 		p.Iat = int64(iat)
 	}
@@ -212,9 +193,17 @@ func payloadFromMap(m map[string]any) (Payload, error) {
 	p.Operation = getStr("operation")
 	p.InputHash = getStr("input_hash")
 	p.OutputHash = getStr("output_hash")
+	p.Model = getStr("model")
+	p.Tool = getStr("tool")
+	p.Corpus = getStr("corpus")
 	p.RulesetHash = getStr("ruleset_hash")
 	p.GuardrailVerdict = getStr("guardrail_verdict")
-	p.Tenant = getStr("tenant")
+	if tv, ok := m["tenant"]; ok {
+		p.TenantSet = true
+		if s, ok := tv.(string); ok {
+			p.Tenant = s
+		}
+	}
 	if arr, ok := m["parents"].([]any); ok {
 		for _, e := range arr {
 			if s, ok := e.(string); ok {
@@ -229,21 +218,15 @@ func payloadFromMap(m map[string]any) (Payload, error) {
 			}
 		}
 	}
-	if mm, ok := m["model"].(map[string]any); ok {
-		p.Model = mm
-	}
-	if mm, ok := m["tool"].(map[string]any); ok {
-		p.Tool = mm
-	}
-	if mm, ok := m["corpus"].(map[string]any); ok {
-		p.Corpus = mm
-	}
-	for k, v := range m {
-		if len(k) >= 2 && k[:2] == "x_" {
-			p.Extra[k] = v
-		}
-	}
 	return p, nil
+}
+
+// PayloadFromHarness builds a Payload from a decoded JSON object as used
+// by the cross-language conformance harness. It tolerates payloads that
+// already carry the constant iss/typ (they are re-injected on emit).
+func PayloadFromHarness(m map[string]any) Payload {
+	p, _ := payloadFromMap(m)
+	return p
 }
 
 // Emit signs a payload and returns a Receipt.
@@ -252,10 +235,11 @@ func Emit(p Payload, priv ed25519.PrivateKey) (Receipt, error) {
 		return Receipt{}, err
 	}
 	header := map[string]any{
-		"alg":  "EdDSA",
-		"typ":  jwsTyp,
-		"kid":  p.AgentKeyID,
-		"crit": toAnySlice(jwsCrit),
+		"alg":       "EdDSA",
+		"typ":       jwsTyp,
+		"kid":       p.AgentKeyID,
+		"crit":      toAnySlice(jwsCrit),
+		"raucle/v1": "provenance",
 	}
 	headerB, err := canonicalEncode(header)
 	if err != nil {
@@ -268,7 +252,7 @@ func Emit(p Payload, priv ed25519.PrivateKey) (Receipt, error) {
 	signingInput := b64u(headerB) + "." + b64u(payloadB)
 	sig := ed25519.Sign(priv, []byte(signingInput))
 	jws := signingInput + "." + b64u(sig)
-	return Receipt{JWS: jws, Payload: p, ID: sha256Hex([]byte(jws))}, nil
+	return Receipt{JWS: jws, Payload: p, ID: "sha256:" + sha256Hex([]byte(jws))}, nil
 }
 
 // Verify checks a Compact JWS against pub and parses it.
@@ -324,7 +308,7 @@ func Verify(jws string, pub ed25519.PublicKey) (Receipt, error) {
 	if header["kid"] != p.AgentKeyID {
 		return Receipt{}, fmt.Errorf("header.kid != payload.agent_key_id (§3)")
 	}
-	return Receipt{JWS: jws, Payload: p, ID: sha256Hex([]byte(jws))}, nil
+	return Receipt{JWS: jws, Payload: p, ID: "sha256:" + sha256Hex([]byte(jws))}, nil
 }
 
 // ── small helpers ─────────────────────────────────────────────────

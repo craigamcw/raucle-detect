@@ -2,33 +2,42 @@ package provenance
 
 import (
 	"crypto/ed25519"
-	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func sha(s string) string {
-	d := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(d[:])
+func parseEd25519PubPEM(p string) (ed25519.PublicKey, error) {
+	block, _ := pem.Decode([]byte(p))
+	if block == nil {
+		return nil, fmt.Errorf("no PEM block")
+	}
+	key, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+	pk, ok := key.(ed25519.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("not an ed25519 key")
+	}
+	return pk, nil
 }
 
 func basePayload() Payload {
-	h := sha("hello")
 	return Payload{
-		Iss:              "https://test.example/raucle",
-		Iat:              1748505600,
-		AgentID:          "agent:test.scanner",
-		AgentKeyID:       "k_test01",
-		Operation:        "user_input",
-		Parents:          nil,
-		InputHash:        h,
-		OutputHash:       h,
-		Taint:            []string{"untrusted_user"},
-		GuardrailVerdict: "NA",
-		Extra:            map[string]any{},
+		Iat:        1700000001,
+		AgentID:    "agent:test.scanner",
+		AgentKeyID: "k_test01",
+		Operation:  "user_input",
+		Parents:    nil,
+		InputHash:  "sha256:f8c3bf62a9aa3e6fc1619c250e48abe7519373d3edf41be62eb5dc45199af2ef",
+		Taint:      []string{"untrusted_user"},
 	}
 }
 
@@ -53,8 +62,8 @@ func TestEmitVerifyRoundtrip(t *testing.T) {
 	if parsed.Payload.AgentID != "agent:test.scanner" {
 		t.Fatalf("agent_id mismatch: %s", parsed.Payload.AgentID)
 	}
-	if parsed.ID != r.ID || len(r.ID) != 64 {
-		t.Fatalf("id mismatch/len: %s", parsed.ID)
+	if parsed.ID != r.ID || !strings.HasPrefix(r.ID, "sha256:") {
+		t.Fatalf("id mismatch/prefix: %s", parsed.ID)
 	}
 }
 
@@ -72,7 +81,8 @@ func TestVerifyRejectsWrongAlg(t *testing.T) {
 	r, _ := Emit(basePayload(), priv)
 	parts := strings.Split(r.JWS, ".")
 	badHeader, _ := json.Marshal(map[string]any{
-		"alg": "HS256", "typ": jwsTyp, "kid": "k_test01", "crit": []string{"raucle/v1"},
+		"alg": "HS256", "typ": jwsTyp, "kid": "k_test01",
+		"crit": []string{"raucle/v1"}, "raucle/v1": "provenance",
 	})
 	hb := base64.RawURLEncoding.EncodeToString(badHeader)
 	if _, err := Verify(hb+"."+parts[1]+"."+parts[2], pub); err == nil {
@@ -85,7 +95,8 @@ func TestVerifyRequiresCrit(t *testing.T) {
 	r, _ := Emit(basePayload(), priv)
 	parts := strings.Split(r.JWS, ".")
 	badHeader, _ := json.Marshal(map[string]any{
-		"alg": "EdDSA", "typ": jwsTyp, "kid": "k_test01", "crit": []string{},
+		"alg": "EdDSA", "typ": jwsTyp, "kid": "k_test01",
+		"crit": []string{}, "raucle/v1": "provenance",
 	})
 	hb := base64.RawURLEncoding.EncodeToString(badHeader)
 	if _, err := Verify(hb+"."+parts[1]+"."+parts[2], pub); err == nil {
@@ -93,22 +104,29 @@ func TestVerifyRequiresCrit(t *testing.T) {
 	}
 }
 
-func TestRejectsUnsortedTaint(t *testing.T) {
-	_, priv := mustKeys(t)
-	p := basePayload()
-	p.Taint = []string{"z_x", "a_y"}
-	if _, err := Emit(p, priv); err == nil {
-		t.Fatal("expected sorted-taint rejection")
-	}
-}
-
 func TestNonUserInputRequiresParents(t *testing.T) {
 	_, priv := mustKeys(t)
 	p := basePayload()
 	p.Operation = "model_call"
-	p.Model = map[string]any{"provider": "t", "name": "e", "version": "1"}
+	p.Model = "test-model-v1"
 	if _, err := Emit(p, priv); err == nil {
 		t.Fatal("expected parent requirement")
+	}
+}
+
+func TestRejectsUnknownPayloadField(t *testing.T) {
+	if _, err := payloadFromMap(map[string]any{
+		"typ": typ, "operation": "user_input", "rogue": true,
+	}); err == nil {
+		t.Fatal("expected unknown-field rejection")
+	}
+}
+
+func TestRejectsMissingTyp(t *testing.T) {
+	if _, err := payloadFromMap(map[string]any{
+		"operation": "user_input",
+	}); err == nil {
+		t.Fatal("expected typ rejection")
 	}
 }
 
@@ -118,7 +136,7 @@ func TestChainTopoAndClosure(t *testing.T) {
 	p2 := basePayload()
 	p2.Operation = "model_call"
 	p2.Parents = []string{r1.ID}
-	p2.Model = map[string]any{"provider": "t", "name": "e", "version": "1"}
+	p2.Model = "test-model-v1"
 	r2, _ := Emit(p2, priv)
 	c, err := BuildChain([]Receipt{r1, r2})
 	if err != nil {
@@ -135,7 +153,7 @@ func TestChainRejectsTopoBreak(t *testing.T) {
 	p2 := basePayload()
 	p2.Operation = "model_call"
 	p2.Parents = []string{r1.ID}
-	p2.Model = map[string]any{"provider": "t", "name": "e", "version": "1"}
+	p2.Model = "test-model-v1"
 	r2, _ := Emit(p2, priv)
 	if _, err := BuildChain([]Receipt{r2, r1}); err == nil {
 		t.Fatal("expected topo violation")
@@ -149,39 +167,42 @@ func TestChainRejectsSilentTaintLoss(t *testing.T) {
 	p2.Operation = "model_call"
 	p2.Parents = []string{r1.ID}
 	p2.Taint = nil
-	p2.Model = map[string]any{"provider": "t", "name": "e", "version": "1"}
+	p2.Model = "test-model-v1"
 	r2, _ := Emit(p2, priv)
 	if _, err := BuildChain([]Receipt{r1, r2}); err == nil {
 		t.Fatal("expected taint monotonicity violation")
 	}
 }
 
-func TestSanitisationMustDeclareRemovedTaint(t *testing.T) {
+func TestSanitisationRemovesTagViaCorpus(t *testing.T) {
 	_, priv := mustKeys(t)
 	r1, _ := Emit(basePayload(), priv)
 	p2 := basePayload()
 	p2.Operation = "sanitisation"
 	p2.Parents = []string{r1.ID}
 	p2.Taint = nil
-	p2.RulesetHash = sha("rules-v1")
-	r2, _ := Emit(p2, priv)
-	if _, err := BuildChain([]Receipt{r1, r2}); err == nil {
-		t.Fatal("expected x_removed_taint requirement")
-	}
-}
-
-func TestSanitisationWithDeclaredRemovedPasses(t *testing.T) {
-	_, priv := mustKeys(t)
-	r1, _ := Emit(basePayload(), priv)
-	p2 := basePayload()
-	p2.Operation = "sanitisation"
-	p2.Parents = []string{r1.ID}
-	p2.Taint = nil
-	p2.RulesetHash = sha("rules-v1")
-	p2.Extra = map[string]any{"x_removed_taint": []any{"untrusted_user"}}
+	p2.Tool = "redactor:pii-v1"
+	p2.Corpus = "removed:untrusted_user"
+	p2.OutputHash = "sha256:e54b74eb9192b48055c48d2062bffdd23469ef7d70f960ff1293a47f86c8eba2"
 	r2, _ := Emit(p2, priv)
 	if _, err := BuildChain([]Receipt{r1, r2}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSanitisationUndeclaredDropFails(t *testing.T) {
+	_, priv := mustKeys(t)
+	r1, _ := Emit(basePayload(), priv)
+	p2 := basePayload()
+	p2.Operation = "sanitisation"
+	p2.Parents = []string{r1.ID}
+	p2.Taint = nil
+	p2.Tool = "redactor:pii-v1"
+	p2.Corpus = "removed:something_else"
+	p2.OutputHash = "sha256:e54b74eb9192b48055c48d2062bffdd23469ef7d70f960ff1293a47f86c8eba2"
+	r2, _ := Emit(p2, priv)
+	if _, err := BuildChain([]Receipt{r1, r2}); err == nil {
+		t.Fatal("expected sanitisation taint mismatch")
 	}
 }
 
@@ -201,4 +222,103 @@ func TestCanonicalParity(t *testing.T) {
 	}
 }
 
-var _ = equalStringSlices // keep helper referenced
+// ── shared cross-language conformance: the published test vectors ──
+
+type vectorFile struct {
+	PublicKeyPEM string `json:"public_key_pem"`
+	FixedSeedHex string `json:"fixed_seed_hex"`
+	Vectors      []struct {
+		Name            string `json:"name"`
+		ExpectedJWS     string `json:"expected_jws"`
+		ExpectedReceipt string `json:"expected_receipt_hash"`
+	} `json:"vectors"`
+}
+
+func loadVectors(t *testing.T) (vectorFile, ed25519.PublicKey) {
+	t.Helper()
+	path := filepath.Join("..", "..", "docs", "spec", "provenance", "v1", "test-vectors.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read vectors: %v", err)
+	}
+	var vf vectorFile
+	if err := json.Unmarshal(raw, &vf); err != nil {
+		t.Fatal(err)
+	}
+	pub, err := parseEd25519PubPEM(vf.PublicKeyPEM)
+	if err != nil {
+		t.Fatalf("parse pubkey: %v", err)
+	}
+	return vf, pub
+}
+
+// payloadFromJWS decodes (without verifying) the payload object from a
+// compact JWS into a Payload, so we can re-emit it from the fixed seed.
+func payloadFromJWS(t *testing.T, jws string) Payload {
+	t.Helper()
+	parts := strings.Split(jws, ".")
+	pb, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(pb, &m); err != nil {
+		t.Fatal(err)
+	}
+	p, err := payloadFromMap(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestSpecVectors(t *testing.T) {
+	vf, pub := loadVectors(t)
+	if len(vf.Vectors) == 0 {
+		t.Fatal("no vectors loaded")
+	}
+	seed, err := hexDecode(vf.FixedSeedHex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	priv := ed25519.NewKeyFromSeed(seed)
+
+	for _, v := range vf.Vectors {
+		t.Run(v.Name, func(t *testing.T) {
+			// (a) Verify the published JWS + recompute its content id.
+			r, err := Verify(v.ExpectedJWS, pub)
+			if err != nil {
+				t.Fatalf("verify failed: %v", err)
+			}
+			if r.ID != v.ExpectedReceipt {
+				t.Fatalf("receipt_hash mismatch:\n got=%s\nwant=%s", r.ID, v.ExpectedReceipt)
+			}
+			// (b) Re-emit from the fixed seed: the Go-produced JWS and id
+			//     MUST be byte-identical to the published vector.
+			p := payloadFromJWS(t, v.ExpectedJWS)
+			emitted, err := Emit(p, priv)
+			if err != nil {
+				t.Fatalf("emit failed: %v", err)
+			}
+			if emitted.JWS != v.ExpectedJWS {
+				t.Fatalf("emitted JWS differs:\n got=%s\nwant=%s", emitted.JWS, v.ExpectedJWS)
+			}
+			if emitted.ID != v.ExpectedReceipt {
+				t.Fatalf("emitted id differs:\n got=%s\nwant=%s", emitted.ID, v.ExpectedReceipt)
+			}
+		})
+	}
+}
+
+func hexDecode(s string) ([]byte, error) {
+	out := make([]byte, len(s)/2)
+	for i := 0; i < len(out); i++ {
+		var b int
+		_, err := fmt.Sscanf(s[2*i:2*i+2], "%02x", &b)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = byte(b)
+	}
+	return out, nil
+}

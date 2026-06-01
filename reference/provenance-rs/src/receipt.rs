@@ -1,4 +1,10 @@
 //! Receipt payload, envelope, emit/verify — §3, §4, §8.
+//!
+//! Mirrors the canonical Python reference (raucle_detect/provenance.py)
+//! byte-for-byte: same JOSE header (incl. the `"raucle/v1": "provenance"`
+//! tag), same payload field set, string-typed model/tool/corpus,
+//! sha256:-prefixed hashes, and the same content-addressed id
+//! (`"sha256:" + hex(sha256(jws))`).
 
 use crate::canonical::canonical_encode;
 use base64::Engine;
@@ -7,6 +13,7 @@ use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 
 const JWS_TYP: &str = "provenance-receipt/v1";
+const ISS: &str = "raucle-detect/provenance";
 
 #[derive(Debug)]
 pub struct ProvError(pub String);
@@ -24,7 +31,8 @@ fn err<T>(s: impl Into<String>) -> Result<T, ProvError> {
 fn known_field(k: &str) -> bool {
     matches!(
         k,
-        "iss" | "iat"
+        "iss" | "typ"
+            | "iat"
             | "agent_id"
             | "agent_key_id"
             | "operation"
@@ -55,53 +63,13 @@ fn valid_operation(op: &str) -> bool {
     )
 }
 
-fn valid_verdict(v: &str) -> bool {
-    matches!(v, "ALLOW" | "BLOCK" | "SANITISE" | "NA")
-}
-
-fn is_hex256(s: &str) -> bool {
-    s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
-}
-
-fn valid_agent_id(s: &str) -> bool {
-    let rest = match s.strip_prefix("agent:") {
-        Some(r) => r,
-        None => return false,
-    };
-    if rest.is_empty() || rest.len() > 128 {
-        return false;
-    }
-    let mut chars = rest.chars();
-    let first = chars.next().unwrap();
-    if !(first.is_ascii_lowercase() || first.is_ascii_digit()) {
-        return false;
-    }
-    rest.chars().all(|c| {
-        c.is_ascii_lowercase()
-            || c.is_ascii_digit()
-            || matches!(c, '_' | '-' | '.' | '/')
-    })
-}
-
-fn valid_taint(s: &str) -> bool {
-    if s.is_empty() || s.len() > 64 {
-        return false;
-    }
-    let mut chars = s.chars();
-    if !chars.next().unwrap().is_ascii_lowercase() {
-        return false;
-    }
-    s.chars()
-        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '_' | ':' | '-'))
-}
-
 /// A signed receipt.
 #[derive(Debug, Clone)]
 pub struct Receipt {
     pub jws: String,
     /// The parsed payload object.
     pub payload: Value,
-    /// Content-addressed id (§8): hex SHA-256 of the JWS ASCII bytes.
+    /// Content-addressed id (§8): "sha256:" + hex SHA-256 of the JWS.
     pub id: String,
 }
 
@@ -129,7 +97,13 @@ fn hex_encode(b: &[u8]) -> String {
     s
 }
 
-/// Validate a payload object against §4.
+fn str_field<'a>(obj: &'a Map<String, Value>, k: &str) -> Option<&'a str> {
+    obj.get(k).and_then(|v| v.as_str())
+}
+
+/// Validate a payload object against §4. Lenient where the Python
+/// reference is lenient: enforces structural invariants (required
+/// fields per operation, parent rules, typ literal), not value shapes.
 pub fn validate_payload(p: &Value) -> Result<(), ProvError> {
     let obj = match p.as_object() {
         Some(o) => o,
@@ -142,44 +116,38 @@ pub fn validate_payload(p: &Value) -> Result<(), ProvError> {
         }
     }
 
-    let op = obj.get("operation").and_then(|v| v.as_str()).unwrap_or("");
+    if str_field(obj, "typ") != Some(JWS_TYP) {
+        return err(format!("payload typ must be {JWS_TYP:?}"));
+    }
+
+    let op = str_field(obj, "operation").unwrap_or("");
     if !valid_operation(op) {
         return err(format!("unknown operation: {op}"));
     }
-    let verdict = obj
-        .get("guardrail_verdict")
-        .and_then(|v| v.as_str())
-        .unwrap_or("NA");
-    if !valid_verdict(verdict) {
-        return err(format!("unknown verdict: {verdict}"));
+
+    let has = |k: &str| str_field(obj, k).map(|s| !s.is_empty()).unwrap_or(false);
+
+    if op == "guardrail_scan" && !has("guardrail_verdict") {
+        return err("guardrail_scan requires guardrail_verdict (§4)");
     }
-    let agent_id = obj.get("agent_id").and_then(|v| v.as_str()).unwrap_or("");
-    if !valid_agent_id(agent_id) {
-        return err(format!("invalid agent_id: {agent_id}"));
+    if op == "guardrail_scan" && !has("ruleset_hash") {
+        return err("guardrail_scan requires ruleset_hash (§4)");
     }
-    let input_hash = obj.get("input_hash").and_then(|v| v.as_str()).unwrap_or("");
-    if !is_hex256(input_hash) {
-        return err("input_hash must be 64-hex SHA-256");
+    if op == "model_call" && !has("model") {
+        return err("model_call requires model (§4)");
     }
-    let output_hash = obj.get("output_hash").and_then(|v| v.as_str()).unwrap_or("");
-    if !is_hex256(output_hash) {
-        return err("output_hash must be 64-hex SHA-256");
+    if (op == "tool_call" || op == "sanitisation") && !has("tool") {
+        return err(format!("{op} requires tool (§4)"));
     }
-    if let Some(rh) = obj.get("ruleset_hash").and_then(|v| v.as_str()) {
-        if !is_hex256(rh) {
-            return err("ruleset_hash must be 64-hex SHA-256");
-        }
-    }
-    let has_ruleset = obj.get("ruleset_hash").and_then(|v| v.as_str()).is_some();
-    if (op == "guardrail_scan" || op == "sanitisation") && !has_ruleset {
-        return err(format!("{op} requires ruleset_hash (§5)"));
-    }
-    if op == "guardrail_scan" && verdict == "NA" {
-        return err("guardrail_scan requires a concrete verdict");
+    if (op == "retrieval" || op == "sanitisation") && !has("corpus") {
+        return err(format!("{op} requires corpus (§4)"));
     }
 
-    let parents = obj.get("parents").and_then(|v| v.as_array());
-    let parent_count = parents.map(|a| a.len()).unwrap_or(0);
+    let parent_count = obj
+        .get("parents")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
     if op == "user_input" && parent_count > 0 {
         return err("user_input must have no parents");
     }
@@ -187,51 +155,37 @@ pub fn validate_payload(p: &Value) -> Result<(), ProvError> {
         return err(format!("{op} requires at least one parent"));
     }
 
-    let taint = obj.get("taint").and_then(|v| v.as_array());
-    if let Some(taint) = taint {
-        let mut prev: Option<&str> = None;
-        for t in taint {
-            let s = match t.as_str() {
-                Some(s) => s,
-                None => return err("taint entries must be strings"),
-            };
-            if !valid_taint(s) {
-                return err(format!("invalid taint tag: {s}"));
-            }
-            if let Some(p) = prev {
-                if p > s {
-                    return err("taint MUST be sorted (§4)");
-                }
-            }
-            prev = Some(s);
-        }
-    }
-
-    if op == "model_call" && obj.get("model").is_none() {
-        return err("model_call requires .model");
-    }
-    if op == "tool_call" && obj.get("tool").is_none() {
-        return err("tool_call requires .tool");
-    }
-    if op == "retrieval" && obj.get("corpus").is_none() {
-        return err("retrieval requires .corpus");
-    }
     Ok(())
 }
 
-/// Emit (sign) a payload object. The object MUST already contain the
-/// spec fields; `guardrail_verdict` defaults to "NA" if absent.
-pub fn emit(payload: &Value, signing_key: &SigningKey) -> Result<Receipt, ProvError> {
-    // Normalise: fill guardrail_verdict default so the signed bytes are
-    // explicit (matches the other reference impls).
-    let mut obj: Map<String, Value> = payload
+/// Build the canonical payload object from caller-supplied fields,
+/// injecting the constant `iss`/`typ` and sorting parents+taint, exactly
+/// as Python's `ProvenanceReceipt.payload()` does.
+fn normalise_payload(payload: &Value) -> Result<Value, ProvError> {
+    let src = payload
         .as_object()
-        .ok_or_else(|| ProvError("payload must be an object".into()))?
-        .clone();
-    obj.entry("guardrail_verdict")
-        .or_insert_with(|| json!("NA"));
-    let payload = Value::Object(obj);
+        .ok_or_else(|| ProvError("payload must be an object".into()))?;
+    let mut obj: Map<String, Value> = src.clone();
+    obj.insert("iss".into(), json!(ISS));
+    obj.insert("typ".into(), json!(JWS_TYP));
 
+    // Sort parents + taint to match the canonical reference.
+    for key in ["parents", "taint"] {
+        if let Some(arr) = obj.get(key).and_then(|v| v.as_array()) {
+            let mut v: Vec<String> = arr
+                .iter()
+                .filter_map(|e| e.as_str().map(|s| s.to_string()))
+                .collect();
+            v.sort();
+            obj.insert(key.into(), json!(v));
+        }
+    }
+    Ok(Value::Object(obj))
+}
+
+/// Emit (sign) a payload object.
+pub fn emit(payload: &Value, signing_key: &SigningKey) -> Result<Receipt, ProvError> {
+    let payload = normalise_payload(payload)?;
     validate_payload(&payload)?;
 
     let kid = payload
@@ -244,6 +198,7 @@ pub fn emit(payload: &Value, signing_key: &SigningKey) -> Result<Receipt, ProvEr
         "typ": JWS_TYP,
         "kid": kid,
         "crit": ["raucle/v1"],
+        "raucle/v1": "provenance",
     });
 
     let header_b = canonical_encode(&header).map_err(|e| ProvError(e.0))?;
@@ -251,12 +206,8 @@ pub fn emit(payload: &Value, signing_key: &SigningKey) -> Result<Receipt, ProvEr
     let signing_input = format!("{}.{}", b64u(&header_b), b64u(&payload_b));
     let sig: Signature = signing_key.sign(signing_input.as_bytes());
     let jws = format!("{}.{}", signing_input, b64u(&sig.to_bytes()));
-    let id = sha256_hex(jws.as_bytes());
-    Ok(Receipt {
-        jws,
-        payload,
-        id,
-    })
+    let id = format!("sha256:{}", sha256_hex(jws.as_bytes()));
+    Ok(Receipt { jws, payload, id })
 }
 
 /// Verify a Compact JWS against a public key and parse it.
@@ -294,13 +245,6 @@ pub fn verify(jws: &str, verifying_key: &VerifyingKey) -> Result<Receipt, ProvEr
     let payload: Value = serde_json::from_slice(&b64u_decode(payload_b)?)
         .map_err(|e| ProvError(format!("payload parse: {e}")))?;
 
-    if let Some(obj) = payload.as_object() {
-        for k in obj.keys() {
-            if !known_field(k) && !k.starts_with("x_") {
-                return err(format!("reserved unknown field: {k}"));
-            }
-        }
-    }
     validate_payload(&payload)?;
 
     if header.get("kid").and_then(|v| v.as_str())
@@ -309,7 +253,7 @@ pub fn verify(jws: &str, verifying_key: &VerifyingKey) -> Result<Receipt, ProvEr
         return err("header.kid != payload.agent_key_id (§3)");
     }
 
-    let id = sha256_hex(jws.as_bytes());
+    let id = format!("sha256:{}", sha256_hex(jws.as_bytes()));
     Ok(Receipt {
         jws: jws.to_string(),
         payload,

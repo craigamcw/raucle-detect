@@ -1,7 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Crypto.Signers;
 
@@ -11,9 +10,12 @@ namespace Raucle.Provenance;
 /// Raucle Provenance Receipt v1 — C# reference implementation.
 /// Spec: https://raucle.com/spec/provenance/v1
 ///
-/// Mirrors the Python/TS/Go/Rust reference impls: same JWS envelope,
-/// same canonical-JSON bytes, same content-addressed identifiers. A
-/// receipt emitted by any implementation verifies in the others.
+/// Mirrors the canonical Python reference (raucle_detect/provenance.py)
+/// byte-for-byte: same JOSE header (incl. the "raucle/v1":"provenance"
+/// tag), same payload field set, string-typed model/tool/corpus,
+/// sha256:-prefixed hashes, and the same content-addressed id
+/// ("sha256:" + hex(sha256(jws))). A receipt emitted here verifies in
+/// the other reference implementations and yields the identical id.
 ///
 /// Ed25519 comes from BouncyCastle (the .NET BCL has no Ed25519);
 /// SHA-256 + base64url from the BCL.
@@ -21,26 +23,19 @@ namespace Raucle.Provenance;
 public static class Receipt
 {
     private const string JwsTyp = "provenance-receipt/v1";
+    private const string Iss = "raucle-detect/provenance";
 
     private static readonly HashSet<string> ValidOperations = new()
     {
         "user_input", "model_call", "tool_call", "retrieval",
         "guardrail_scan", "agent_handoff", "sanitisation", "merge",
     };
-    private static readonly HashSet<string> ValidVerdicts = new()
-    {
-        "ALLOW", "BLOCK", "SANITISE", "NA",
-    };
     private static readonly HashSet<string> KnownFields = new()
     {
-        "iss", "iat", "agent_id", "agent_key_id", "operation", "parents",
+        "iss", "typ", "iat", "agent_id", "agent_key_id", "operation", "parents",
         "input_hash", "output_hash", "taint", "ruleset_hash",
         "guardrail_verdict", "model", "tool", "corpus", "tenant",
     };
-
-    private static readonly Regex AgentId = new(@"^agent:[a-z0-9][a-z0-9_\-./]{0,127}$");
-    private static readonly Regex TaintTag = new(@"^[a-z][a-z0-9_:\-]{0,63}$");
-    private static readonly Regex Hex256 = new(@"^[0-9a-f]{64}$");
 
     // ── base64url ──────────────────────────────────────────────────
 
@@ -58,6 +53,9 @@ public static class Receipt
         Convert.ToHexString(SHA256.HashData(b)).ToLowerInvariant();
 
     // ── validation (§4) ────────────────────────────────────────────
+    // Lenient where the Python reference is lenient: enforces structural
+    // invariants (typ literal, required fields per operation, parent
+    // rules), not value shapes.
 
     public static void Validate(JObj p)
     {
@@ -65,44 +63,40 @@ public static class Receipt
             if (!KnownFields.Contains(k) && !k.StartsWith("x_"))
                 throw new ProvException($"reserved/unknown field: {k} (§14)");
 
+        if (p.Str("typ") != JwsTyp)
+            throw new ProvException($"payload typ must be {JwsTyp}");
+
         var op = p.Str("operation") ?? "";
         if (!ValidOperations.Contains(op)) throw new ProvException($"unknown operation: {op}");
-        var verdict = p.Str("guardrail_verdict") ?? "NA";
-        if (!ValidVerdicts.Contains(verdict)) throw new ProvException($"unknown verdict: {verdict}");
-        if (!AgentId.IsMatch(p.Str("agent_id") ?? "")) throw new ProvException("invalid agent_id");
-        if (!Hex256.IsMatch(p.Str("input_hash") ?? "")) throw new ProvException("input_hash must be 64-hex SHA-256");
-        if (!Hex256.IsMatch(p.Str("output_hash") ?? "")) throw new ProvException("output_hash must be 64-hex SHA-256");
 
-        var ruleset = p.Str("ruleset_hash");
-        if (ruleset != null && !Hex256.IsMatch(ruleset)) throw new ProvException("ruleset_hash must be 64-hex SHA-256");
-        if ((op is "guardrail_scan" or "sanitisation") && ruleset == null)
-            throw new ProvException($"{op} requires ruleset_hash (§5)");
-        if (op == "guardrail_scan" && verdict == "NA")
-            throw new ProvException("guardrail_scan requires a concrete verdict");
+        bool Has(string key) => !string.IsNullOrEmpty(p.Str(key));
+
+        if (op == "guardrail_scan" && !Has("guardrail_verdict"))
+            throw new ProvException("guardrail_scan requires guardrail_verdict (§4)");
+        if (op == "guardrail_scan" && !Has("ruleset_hash"))
+            throw new ProvException("guardrail_scan requires ruleset_hash (§4)");
+        if (op == "model_call" && !Has("model"))
+            throw new ProvException("model_call requires model (§4)");
+        if ((op is "tool_call" or "sanitisation") && !Has("tool"))
+            throw new ProvException($"{op} requires tool (§4)");
+        if ((op is "retrieval" or "sanitisation") && !Has("corpus"))
+            throw new ProvException($"{op} requires corpus (§4)");
 
         var parents = p.StrArray("parents") ?? new List<string>();
         if (op == "user_input" && parents.Count > 0) throw new ProvException("user_input must have no parents");
         if (op != "user_input" && parents.Count == 0) throw new ProvException($"{op} requires at least one parent");
-
-        var taint = p.StrArray("taint") ?? new List<string>();
-        foreach (var t in taint)
-            if (!TaintTag.IsMatch(t)) throw new ProvException($"invalid taint tag: {t}");
-        var sorted = taint.OrderBy(x => x, StringComparer.Ordinal).ToList();
-        if (!taint.SequenceEqual(sorted)) throw new ProvException("taint MUST be sorted (§4)");
-
-        if (op == "model_call" && !p.Members.ContainsKey("model")) throw new ProvException("model_call requires .model");
-        if (op == "tool_call" && !p.Members.ContainsKey("tool")) throw new ProvException("tool_call requires .tool");
-        if (op == "retrieval" && !p.Members.ContainsKey("corpus")) throw new ProvException("retrieval requires .corpus");
     }
 
     // ── emit / verify ──────────────────────────────────────────────
 
     public static SignedReceipt Emit(JObj payload, Ed25519PrivateKeyParameters privateKey)
     {
-        // Default guardrail_verdict to NA so signed bytes are explicit
-        // (matches the other reference impls).
-        if (!payload.Members.ContainsKey("guardrail_verdict"))
-            payload.Set("guardrail_verdict", JVal.Of("NA"));
+        // Inject the constant iss/typ and sort parents+taint, exactly as
+        // Python's ProvenanceReceipt.payload() does.
+        payload.Set("iss", JVal.Of(Iss));
+        payload.Set("typ", JVal.Of(JwsTyp));
+        SortStringArray(payload, "parents");
+        SortStringArray(payload, "taint");
 
         Validate(payload);
         var kid = payload.Str("agent_key_id") ?? throw new ProvException("missing agent_key_id");
@@ -111,7 +105,8 @@ public static class Receipt
             .Set("alg", JVal.Of("EdDSA"))
             .Set("typ", JVal.Of(JwsTyp))
             .Set("kid", JVal.Of(kid))
-            .Set("crit", JVal.Arr(new[] { "raucle/v1" }));
+            .Set("crit", JVal.Arr(new[] { "raucle/v1" }))
+            .Set("raucle/v1", JVal.Of("provenance"));
 
         var headerB = Canonical.Encode(header);
         var payloadB = Canonical.Encode(payload);
@@ -124,7 +119,7 @@ public static class Receipt
         var sig = signer.GenerateSignature();
 
         var jws = signingInput + "." + B64UrlEncode(sig);
-        return new SignedReceipt(jws, payload, Sha256Hex(Encoding.ASCII.GetBytes(jws)));
+        return new SignedReceipt(jws, payload, "sha256:" + Sha256Hex(Encoding.ASCII.GetBytes(jws)));
     }
 
     public static SignedReceipt Verify(string jws, Ed25519PublicKeyParameters publicKey)
@@ -150,15 +145,20 @@ public static class Receipt
 
         using var payloadDoc = JsonDocument.Parse(B64UrlDecode(payloadB));
         var payload = (JObj)JVal.FromJsonElement(payloadDoc.RootElement);
-        foreach (var k in payload.Members.Keys)
-            if (!KnownFields.Contains(k) && !k.StartsWith("x_"))
-                throw new ProvException($"reserved unknown field: {k}");
         Validate(payload);
 
         if (GetStr(header, "kid") != payload.Str("agent_key_id"))
             throw new ProvException("header.kid != payload.agent_key_id (§3)");
 
-        return new SignedReceipt(jws, payload, Sha256Hex(Encoding.ASCII.GetBytes(jws)));
+        return new SignedReceipt(jws, payload, "sha256:" + Sha256Hex(Encoding.ASCII.GetBytes(jws)));
+    }
+
+    private static void SortStringArray(JObj p, string key)
+    {
+        var arr = p.StrArray(key);
+        if (arr == null) return;
+        var sorted = arr.OrderBy(x => x, StringComparer.Ordinal);
+        p.Set(key, JVal.Arr(sorted));
     }
 
     private static string? GetStr(JsonElement e, string key) =>

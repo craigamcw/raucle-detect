@@ -49,8 +49,13 @@ export function buildChain(receipts: Receipt[]): Chain {
     const childTaint = new Set(r.payload.taint)
 
     if (r.payload.operation === 'sanitisation') {
+      // Sanitisation may drop tags it lists in `corpus` as
+      // "removed:<comma-separated>" (mirrors the Python verifier).
+      const corpus = (r.payload.corpus as string | undefined) ?? ''
       const removed = new Set<string>(
-        (r.payload['x_removed_taint'] as string[] | undefined) ?? [],
+        corpus.startsWith('removed:')
+          ? corpus.slice('removed:'.length).split(',').filter((s) => s.length > 0)
+          : [],
       )
       const missing = [...parentTaint].filter(
         (t) => !childTaint.has(t) && !removed.has(t),
@@ -58,7 +63,7 @@ export function buildChain(receipts: Receipt[]): Chain {
       if (missing.length > 0) {
         throw new ChainError(
           `sanitisation receipt ${r.id} dropped tags without declaring ` +
-            `them in x_removed_taint: ${missing.sort().join(', ')}`,
+            `them in corpus removed-set: ${missing.sort().join(', ')}`,
         )
       }
     } else {
