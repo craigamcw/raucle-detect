@@ -567,29 +567,55 @@ def _assert_safe_url(url: str) -> str:
                 f"refusing to fetch feed: host {host!r} resolves to "
                 f"disallowed (private/loopback/link-local/metadata) address {ip}"
             )
-    return host
+    # Pin the validated address so the connection dials exactly the IP we
+    # checked — closes the DNS-rebind / TOCTOU window where a second lookup
+    # at connect time could return a blocked address.
+    return host, resolved[0]
 
 
 def fetch_feed(url: str, *, timeout: float = 10.0) -> Feed:
     """Fetch a feed over HTTPS. The caller MUST then verify against a pinned pubkey.
 
     Hardened against SSRF: only ``https://`` URLs whose host resolves to a
-    public, routable IP are permitted; redirects are NOT followed; and the
-    response body is capped at ``_MAX_FEED_BYTES``.
+    public, routable IP are permitted; the connection is **pinned to the
+    validated IP** (no second DNS lookup at connect time, defeating
+    DNS-rebinding); redirects are NOT followed; and the response body is
+    capped at ``_MAX_FEED_BYTES``.
     """
-    from urllib.request import HTTPRedirectHandler, Request, build_opener
+    import http.client
+    import ssl
+    from urllib.parse import urlsplit
 
-    _assert_safe_url(url)
+    host, pinned_ip = _assert_safe_url(url)
+    parts = urlsplit(url)
+    port = parts.port or 443
+    path = parts.path or "/"
+    if parts.query:
+        path += "?" + parts.query
 
-    class _NoRedirect(HTTPRedirectHandler):
-        def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
-            raise ValueError(f"refusing to follow redirect to {newurl!r} while fetching feed")
+    # Connect to the pinned IP, but validate the certificate / send SNI for the
+    # real hostname.
+    ctx = ssl.create_default_context()
 
-    opener = build_opener(_NoRedirect)
-    req = Request(url, headers={"User-Agent": "raucle-detect-feed/1"})
-    with opener.open(req, timeout=timeout) as resp:  # noqa: S310 - https enforced above
+    class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+        def connect(self) -> None:  # type: ignore[override]
+            sock = socket.create_connection((pinned_ip, port), timeout)
+            self.sock = ctx.wrap_socket(sock, server_hostname=host)
+
+    conn = _PinnedHTTPSConnection(host, port, timeout=timeout)
+    try:
+        conn.request("GET", path, headers={"User-Agent": "raucle-detect-feed/1", "Host": host})
+        resp = conn.getresponse()
+        if resp.status in (301, 302, 303, 307, 308):
+            raise ValueError(
+                f"refusing to follow redirect (status {resp.status}) while fetching feed"
+            )
+        if resp.status != 200:
+            raise ValueError(f"refusing to load feed: HTTP {resp.status}")
         # Read one byte past the cap so we can detect oversize bodies.
         data = resp.read(_MAX_FEED_BYTES + 1)
+    finally:
+        conn.close()
     if len(data) > _MAX_FEED_BYTES:
         raise ValueError(f"refusing to load feed: response body exceeds {_MAX_FEED_BYTES} bytes")
     return Feed.from_dict(json.loads(data))

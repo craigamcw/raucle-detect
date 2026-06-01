@@ -65,29 +65,48 @@ def test_is_blocked_ip_classifications():
     assert not feed._is_blocked_ip("1.1.1.1")
 
 
+class _FakeResp:
+    """Stands in for http.client.HTTPResponse."""
+
+    def __init__(self, status, body=b""):
+        self.status = status
+        self._body = body
+
+    def read(self, n=-1):
+        return self._body[:n] if n and n > 0 else self._body
+
+
+def _fake_conn_base(resp):
+    """A fake http.client.HTTPSConnection base whose request/getresponse are no-ops.
+
+    fetch_feed defines `_PinnedHTTPSConnection(http.client.HTTPSConnection)` at call
+    time, so patching the base here makes the pinned subclass inherit these fakes —
+    and the real `connect()`/socket are never touched.
+    """
+    import http.client
+
+    class _Fake:
+        def __init__(self, *a, **k):
+            pass
+
+        def request(self, *a, **k):
+            pass
+
+        def getresponse(self):
+            return resp
+
+        def close(self):
+            pass
+
+    return http.client, _Fake
+
+
 def test_fetch_feed_caps_body_size(monkeypatch):
     """An oversized response body is rejected even from an allowed host."""
-
     oversize = b"x" * (feed._MAX_FEED_BYTES + 100)
-
-    class _FakeResp:
-        def read(self, n=-1):
-            # Mimic urllib: return up to n bytes.
-            return oversize[:n] if n and n > 0 else oversize
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *a):
-            return False
-
-    class _FakeOpener:
-        def open(self, req, timeout=None):
-            return _FakeResp()
-
-    # Skip the network/DNS safety gate for this body-size unit test.
-    monkeypatch.setattr(feed, "_assert_safe_url", lambda url: "example.com")
-    monkeypatch.setattr("urllib.request.build_opener", lambda *a, **k: _FakeOpener())
+    monkeypatch.setattr(feed, "_assert_safe_url", lambda url: ("example.com", "93.184.216.34"))
+    http_client, fake = _fake_conn_base(_FakeResp(200, oversize))
+    monkeypatch.setattr(http_client, "HTTPSConnection", fake)
 
     with pytest.raises(ValueError, match="exceeds"):
         fetch_feed("https://example.com/feed.json")
@@ -95,27 +114,9 @@ def test_fetch_feed_caps_body_size(monkeypatch):
 
 def test_fetch_feed_rejects_redirects(monkeypatch):
     """A redirect response must raise rather than being followed."""
-    from urllib.request import HTTPRedirectHandler
-
-    monkeypatch.setattr(feed, "_assert_safe_url", lambda url: "example.com")
-
-    # Drive the installed _NoRedirect handler directly: build the opener the
-    # same way fetch_feed does is awkward, so assert the handler class behaviour
-    # by invoking fetch_feed against a fake opener that triggers a redirect.
-    class _RedirectingOpener:
-        def open(self, req, timeout=None):
-            handler = _find_noredirect()
-            handler.redirect_request(req, None, 302, "Found", {}, "https://evil.internal/x")
-
-    def _find_noredirect():
-        # Reconstruct the same nested handler fetch_feed builds.
-        class _NoRedirect(HTTPRedirectHandler):
-            def redirect_request(self, req, fp, code, msg, headers, newurl):
-                raise ValueError(f"refusing to follow redirect to {newurl!r}")
-
-        return _NoRedirect()
-
-    monkeypatch.setattr("urllib.request.build_opener", lambda *a, **k: _RedirectingOpener())
+    monkeypatch.setattr(feed, "_assert_safe_url", lambda url: ("example.com", "93.184.216.34"))
+    http_client, fake = _fake_conn_base(_FakeResp(302))
+    monkeypatch.setattr(http_client, "HTTPSConnection", fake)
 
     with pytest.raises(ValueError, match="redirect"):
         fetch_feed("https://example.com/feed.json")

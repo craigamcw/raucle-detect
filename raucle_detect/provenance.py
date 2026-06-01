@@ -182,7 +182,10 @@ def hash_obj(obj: Any) -> str:
     return "sha256:" + _sha256_hex(_canonical_json(obj))
 
 
-_AGENT_ID_RE = re.compile(r"^agent:[a-z0-9][a-z0-9_\-./]{0,127}$")
+# Mirror the hardened capability gate grammar: dots must sit between
+# alphanumerics (no trailing/double dots), so the identifier model is shared
+# across the gate and the provenance layer.
+_AGENT_ID_RE = re.compile(r"^agent:[a-z0-9](?:[a-z0-9_\-]|\.(?=[a-z0-9])){0,126}[a-z0-9]?$")
 
 
 def _validate_agent_id(agent_id: str) -> None:
