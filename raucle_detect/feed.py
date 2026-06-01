@@ -49,11 +49,15 @@ from __future__ import annotations
 import base64
 import datetime as dt
 import hashlib
+import ipaddress
 import json
 import logging
+import os
+import socket
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 logger = logging.getLogger(__name__)
 
@@ -292,6 +296,24 @@ def _ed25519_verify(pub: Any, data: bytes, sig: bytes) -> None:
         raise ValueError(f"signature verification failed: {exc}") from exc
 
 
+def _write_private_bytes(path: Path, data: bytes) -> None:
+    """Write secret key material with owner-only (0600) permissions.
+
+    The file is created with a restrictive mode from the outset (via
+    ``os.open`` with mode ``0o600``) so the secret is never momentarily
+    world-readable, and the mode is re-asserted afterwards in case the
+    file already existed.
+    """
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    fd = os.open(str(path), flags, 0o600)
+    try:
+        os.write(fd, data)
+    finally:
+        os.close(fd)
+    # Re-assert in case the file pre-existed with looser permissions.
+    os.chmod(str(path), 0o600)
+
+
 # ---------------------------------------------------------------------------
 # Publisher
 # ---------------------------------------------------------------------------
@@ -331,7 +353,7 @@ class IOCSigner:
             format=serialization.PrivateFormat.PKCS8,
             encryption_algorithm=serialization.NoEncryption(),
         )
-        Path(path).write_bytes(pem)
+        _write_private_bytes(Path(path), pem)
 
     def sign_ioc(
         self,
@@ -479,11 +501,95 @@ def _severity_to_score(severity: str) -> float:
 # ---------------------------------------------------------------------------
 
 
-def fetch_feed(url: str, *, timeout: float = 10.0) -> Feed:
-    """Fetch a feed over HTTPS. The caller MUST then verify against a pinned pubkey."""
-    from urllib.request import Request, urlopen
+# Maximum feed body we are willing to read into memory (8 MiB). Feeds are
+# small JSON manifests; anything larger is treated as hostile / malformed.
+_MAX_FEED_BYTES = 8 * 1024 * 1024
 
+# Cloud-provider link-local metadata endpoint (AWS/GCP/Azure IMDS).
+_METADATA_IP = "169.254.169.254"
+
+
+def _is_blocked_ip(ip: str) -> bool:
+    """True if ``ip`` is private, loopback, link-local, or otherwise non-routable.
+
+    Also explicitly blocks the cloud metadata IP (which is link-local and so
+    would be caught anyway, but we name it for clarity / defence in depth).
+    """
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        # Unparseable address — fail closed.
+        return True
+    if ip == _METADATA_IP:
+        return True
+    return (
+        addr.is_private
+        or addr.is_loopback
+        or addr.is_link_local
+        or addr.is_reserved
+        or addr.is_multicast
+        or addr.is_unspecified
+    )
+
+
+def _assert_safe_url(url: str) -> str:
+    """Validate ``url`` for SSRF safety, returning the hostname.
+
+    Enforces:
+      * scheme must be exactly ``https`` (rejects file/ftp/http/etc.);
+      * the host must resolve only to public, routable IP addresses
+        (rejects loopback/private/link-local and the metadata IP).
+
+    Raises ``ValueError`` on any violation.
+    """
+    parts = urlsplit(url)
+    if parts.scheme != "https":
+        raise ValueError(
+            f"refusing to fetch feed: only https:// URLs are allowed, got scheme {parts.scheme!r}"
+        )
+    host = parts.hostname
+    if not host:
+        raise ValueError("refusing to fetch feed: URL has no host")
+
+    # Resolve the hostname and verify every resolved address is public. If
+    # the host is itself a literal IP, getaddrinfo returns it unchanged.
+    try:
+        infos = socket.getaddrinfo(host, parts.port or 443, proto=socket.IPPROTO_TCP)
+    except OSError as exc:
+        raise ValueError(f"refusing to fetch feed: cannot resolve host {host!r}: {exc}") from exc
+
+    resolved = {info[4][0] for info in infos}
+    if not resolved:
+        raise ValueError(f"refusing to fetch feed: host {host!r} resolved to no addresses")
+    for ip in resolved:
+        if _is_blocked_ip(ip):
+            raise ValueError(
+                f"refusing to fetch feed: host {host!r} resolves to "
+                f"disallowed (private/loopback/link-local/metadata) address {ip}"
+            )
+    return host
+
+
+def fetch_feed(url: str, *, timeout: float = 10.0) -> Feed:
+    """Fetch a feed over HTTPS. The caller MUST then verify against a pinned pubkey.
+
+    Hardened against SSRF: only ``https://`` URLs whose host resolves to a
+    public, routable IP are permitted; redirects are NOT followed; and the
+    response body is capped at ``_MAX_FEED_BYTES``.
+    """
+    from urllib.request import HTTPRedirectHandler, Request, build_opener
+
+    _assert_safe_url(url)
+
+    class _NoRedirect(HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+            raise ValueError(f"refusing to follow redirect to {newurl!r} while fetching feed")
+
+    opener = build_opener(_NoRedirect)
     req = Request(url, headers={"User-Agent": "raucle-detect-feed/1"})
-    with urlopen(req, timeout=timeout) as resp:  # noqa: S310 - https expected, caller verifies
-        data = resp.read()
+    with opener.open(req, timeout=timeout) as resp:  # noqa: S310 - https enforced above
+        # Read one byte past the cap so we can detect oversize bodies.
+        data = resp.read(_MAX_FEED_BYTES + 1)
+    if len(data) > _MAX_FEED_BYTES:
+        raise ValueError(f"refusing to load feed: response body exceeds {_MAX_FEED_BYTES} bytes")
     return Feed.from_dict(json.loads(data))

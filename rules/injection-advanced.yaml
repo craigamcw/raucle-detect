@@ -39,7 +39,7 @@ rules:
       - '(?i)complete\s+the\s+following\s+(sentence|pattern|text)\s*:'
       - '(?i)continue\s+(writing|generating|outputting)\s+from\s+where'
       - "(?i)finish\\s+this\\s+(thought|sentence)\\s*:\\s*[\"']"
-      - '(?i)here\s+is\s+the\s+beginning.*continue\s*(it)?'
+      - '(?i)here\s+is\s+the\s+beginning.{0,200}?continue\s*(it)?'
     score: 0.55
 
   # Hypothetical framing — wrapping harmful requests in academic/fictional context
@@ -63,7 +63,7 @@ rules:
     technique: emotional_manipulation
     severity: MEDIUM
     patterns:
-      - '(?i)if\s+you\s+don.?t\s+(help|answer|comply|do\s+this).*(someone|people|I)\s+(will|could)\s+(die|be\s+harmed|suffer)'
+      - '(?i)if\s+you\s+don.?t\s+(help|answer|comply|do\s+this).{0,200}?(someone|people|I)\s+(will|could)\s+(die|be\s+harmed|suffer)'
       - '(?i)this\s+is\s+(a\s+)?(life|death|emergency|urgent|critical)\s+situation'
       - '(?i)you\s+(must|have\s+to|need\s+to)\s+help\s+me\s+or\s+(else|people\s+will)'
       - '(?i)my\s+(life|job|family)\s+depends\s+on\s+(this|your\s+answer)'
@@ -104,6 +104,6 @@ rules:
     patterns:
       - '(?i)i.?ll\s+(give|tip|pay|reward)\s+you\s+\$?\d+'
       - '(?i)you\s+(will|can)\s+(earn|receive|get)\s+(a\s+)?(reward|bonus|tip|payment|points)'
-      - '(?i)if\s+you\s+(do|answer|comply|help).*(\$|dollars?|reward|bonus|tip)'
+      - '(?i)if\s+you\s+(do|answer|comply|help).{0,200}?(\$|dollars?|reward|bonus|tip)'
       - '(?i)your\s+(score|rating|performance)\s+(will|would)\s+(increase|improve|go\s+up)'
     score: 0.45

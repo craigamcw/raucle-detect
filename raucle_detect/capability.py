@@ -66,6 +66,7 @@ import datetime as dt
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 from dataclasses import dataclass, field
@@ -120,7 +121,18 @@ def _require_crypto() -> Any:
     return serialization, ed25519
 
 
-_AGENT_ID_RE = re.compile(r"^agent:[a-z0-9][a-z0-9_\-./]{0,127}$")
+# Must start and end with [a-z0-9]. Interior chars are [a-z0-9_-] or a single
+# dot used strictly as a separator: every '.' must be both preceded and
+# followed by [a-z0-9], forbidding a trailing '.' and consecutive '..'. This
+# stops a token for 'agent:billing.' over-authorising 'agent:billing..evil'
+# (AGENT-ID-REGEX). Length is bounded to keep parity with the prior 0..127
+# tail budget (full id capped at 134 chars: 'agent:' + 1 + up to 127).
+# Upper bound on a freshly-minted token's lifetime. Capabilities are meant to
+# be short-lived; one year is a generous ceiling that still rejects obvious
+# units bugs (e.g. passing milliseconds) and accidental "forever" tokens.
+_MAX_TTL_SECONDS = 366 * 24 * 60 * 60
+
+_AGENT_ID_RE = re.compile(r"^agent:[a-z0-9](?:[a-z0-9_\-]|\.(?=[a-z0-9])){0,126}[a-z0-9]?$")
 _TOOL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_\-./]{0,127}$")
 
 
@@ -354,7 +366,17 @@ class CapabilityIssuer:
             format=serialization.PrivateFormat.PKCS8,
             encryption_algorithm=serialization.NoEncryption(),
         )
-        Path(path).write_bytes(pem)
+        # Write the PKCS8 private key with owner-only permissions (0600).
+        # os.open with mode 0o600 creates the file restricted from the start
+        # rather than briefly exposing it world-readable at the default umask
+        # (KEY-PERMS). chmod afterwards covers a pre-existing file too.
+        p = os.fspath(path)
+        fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(pem)
+        finally:
+            os.chmod(p, 0o600)
 
     def mint(
         self,
@@ -404,6 +426,21 @@ class CapabilityIssuer:
 
         _validate_agent_id(agent_id)
         _validate_tool(tool)
+
+        # ── TTL sanity guard (TTL-LOW) ──────────────────────────────
+        # A token must live for a positive, bounded span. Zero/negative
+        # ttl would mint an already-dead token; an absurdly large ttl
+        # (years/centuries) defeats the short-lived-credential model and
+        # is almost always a units bug (ms vs s) at the call site.
+        if not isinstance(ttl_seconds, int) or isinstance(ttl_seconds, bool):
+            raise ValueError(f"ttl_seconds must be an int; got {ttl_seconds!r}")
+        if ttl_seconds <= 0:
+            raise ValueError(f"ttl_seconds must be positive; got {ttl_seconds}")
+        if ttl_seconds > _MAX_TTL_SECONDS:
+            raise ValueError(
+                f"ttl_seconds {ttl_seconds} exceeds the maximum {_MAX_TTL_SECONDS} "
+                f"(~{_MAX_TTL_SECONDS // 86400} days); capabilities are short-lived"
+            )
 
         # ── Strict-mode validation ──────────────────────────────────
         if self._require_proof:
@@ -815,6 +852,16 @@ class CapabilityGate:
                         token.token_id,
                         chain,
                     )
+                # Revocation must reach the whole ancestor chain, not just the
+                # token's direct parent. Revoking any ancestor denies every
+                # descendant when a resolver is present (REVOKE-DEPTH).
+                if parent.token_id in self._revoked:
+                    return GateDecision(
+                        False,
+                        f"ancestor token {parent.token_id} is revoked",
+                        token.token_id,
+                        chain,
+                    )
                 chain.append(parent.token_id)
                 current = parent
 
@@ -910,7 +957,16 @@ class CapabilityGate:
 
 def _is_number(v: Any) -> bool:
     # bool is a subclass of int — exclude it so True/False can't pass numeric bounds.
-    return isinstance(v, (int, float)) and not isinstance(v, bool)
+    # Reject non-finite floats (NaN / +inf / -inf): NaN comparisons are always
+    # False, so a NaN argument would otherwise satisfy BOTH max_value and
+    # min_value bounds, slipping past every numeric guard (GATE-NaN).
+    if isinstance(v, bool):
+        return False
+    if isinstance(v, int):
+        return True
+    if isinstance(v, float):
+        return math.isfinite(v)
+    return False
 
 
 def _check_constraints(c: dict[str, Any], args: dict[str, Any]) -> str | None:

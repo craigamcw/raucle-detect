@@ -13,9 +13,9 @@ rules:
     technique: markdown_exfiltration
     severity: HIGH
     patterns:
-      - '!\[.*\]\(https?://[^)]*\{\{.*\}\}'
-      - '(?i)!\[.*\]\(https?://.*attacker'
-      - '(?i)<img\s+src=["\x27]https?://[^"\x27]*\{\{'
+      - '!\[[^\]]{0,200}\]\(https?://[^)]{0,200}\{\{[^}]{0,200}\}\}'
+      - '(?i)!\[[^\]]{0,200}\]\(https?://[^)]{0,200}attacker'
+      - '(?i)<img\s+src=["\x27]https?://[^"\x27]{0,200}\{\{'
     score: 0.80
 
   # Unicode homoglyph evasion
