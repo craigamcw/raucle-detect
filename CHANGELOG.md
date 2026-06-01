@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.17.0 (unreleased) — fail-closed redesign (stricter by default)
+## 0.17.0 (2026-06-01) — fail-closed redesign (stricter by default)
 
 A structural pass that flips the prover/gate/verifier from "enumerate-bad" to
 **fail-closed**: anything the system does not explicitly model now hits a
