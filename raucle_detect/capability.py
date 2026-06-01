@@ -499,7 +499,10 @@ class CapabilityIssuer:
             # Narrowing is allowed only if the child agent_id is *more specific*,
             # interpreted as a prefix-extension of the parent's id (e.g.
             # agent:billing -> agent:billing.invoice).
-            if not narrower_agent_id.startswith(parent.agent_id):
+            if not (
+                narrower_agent_id == parent.agent_id
+                or narrower_agent_id.startswith(parent.agent_id + ".")
+            ):
                 raise ValueError(
                     f"narrower_agent_id {narrower_agent_id!r} is not a sub-scope of "
                     f"parent {parent.agent_id!r}"
@@ -745,11 +748,14 @@ class CapabilityGate:
                 False, f"token bound to tool {token.tool!r}, called {tool!r}", token.token_id
             )
 
-        # 6) Agent match (when supplied).
+        # 6) Agent match (when supplied). A caller's agent_id must equal the
+        # token's, or be a *dot-delimited descendant* of it. The delimiter is
+        # required so that 'agent:billing' does NOT authorise 'agent:billing-evil'
+        # (a bare prefix check would — CVE-class privilege escalation).
         if (
             agent_id is not None
             and agent_id != token.agent_id
-            and not agent_id.startswith(token.agent_id)
+            and not agent_id.startswith(token.agent_id + ".")
         ):
             return GateDecision(
                 False,
@@ -757,8 +763,13 @@ class CapabilityGate:
                 token.token_id,
             )
 
-        # 7) Argument constraints.
-        why = _check_constraints(token.constraints, args)
+        # 7) Argument constraints. Fail closed: any unexpected error while
+        # evaluating constraints is a DENY, never a propagated exception — the
+        # gate is a choke point and must never crash open.
+        try:
+            why = _check_constraints(token.constraints, args)
+        except Exception as exc:  # pragma: no cover - defensive
+            return GateDecision(False, f"constraint evaluation error (deny): {exc}", token.token_id)
         if why:
             return GateDecision(False, f"constraint violated: {why}", token.token_id)
 
@@ -876,23 +887,66 @@ class CapabilityGate:
             raise ValueError(str(exc)) from exc
 
 
+def _is_number(v: Any) -> bool:
+    # bool is a subclass of int — exclude it so True/False can't pass numeric bounds.
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
 def _check_constraints(c: dict[str, Any], args: dict[str, Any]) -> str | None:
-    """Return a non-empty reason string on violation, or None on pass."""
+    """Return a non-empty reason string on violation, or None on pass.
+
+    Security model: **positive and bound constraints fail closed**. A field
+    named by an ``allowed_values`` / ``starts_with`` / ``max_value`` /
+    ``min_value`` constraint that is *absent* from the call is a violation —
+    an absent field cannot be shown to satisfy the constraint, and allowing
+    it would let a caller bypass the rule by omitting (or aliasing) the
+    argument name. Numeric bounds additionally reject non-numeric values
+    (and booleans) with a DENY rather than raising.
+
+    Caveat (documented limitation): the gate enforces on the argument *names*
+    declared in the policy. It does not know the tool's parameter schema, so a
+    ``forbidden_values`` blacklist can still be evaded if the tool reads the
+    forbidden value under a different parameter name. Prefer ``allowed_values``
+    whitelists (which fail closed) over ``forbidden_values`` blacklists for
+    security-critical fields; binding the gate to the tool's declared schema is
+    tracked as a future hardening.
+    """
+    # Blacklist: a present, forbidden value is a violation. (Absent ⇒ no
+    # forbidden value present; see caveat above re: aliasing.)
     for fld, bads in c.get("forbidden_values", {}).items():
         if fld in args and args[fld] in bads:
             return f"{fld}={args[fld]!r} is in forbidden_values"
+
+    # Whitelist: field MUST be present and in the allowed set.
     for fld, oks in c.get("allowed_values", {}).items():
-        if fld in args and args[fld] not in oks:
+        if fld not in args:
+            return f"allowed_values field {fld!r} is absent from the call"
+        if args[fld] not in oks:
             return f"{fld}={args[fld]!r} is not in allowed_values"
+
+    # Prefix: field MUST be present and a string with the prefix.
     for fld, prefix in c.get("starts_with", {}).items():
-        if fld in args and not (isinstance(args[fld], str) and args[fld].startswith(prefix)):
+        if fld not in args:
+            return f"starts_with field {fld!r} is absent from the call"
+        if not (isinstance(args[fld], str) and args[fld].startswith(prefix)):
             return f"{fld}={args[fld]!r} does not start with {prefix!r}"
+
+    # Numeric bounds: field MUST be present and numeric (not bool).
     for fld, bound in c.get("max_value", {}).items():
-        if fld in args and args[fld] > bound:
+        if fld not in args:
+            return f"max_value field {fld!r} is absent from the call"
+        if not _is_number(args[fld]):
+            return f"{fld}={args[fld]!r} is not a number (max_value)"
+        if args[fld] > bound:
             return f"{fld}={args[fld]!r} exceeds max_value {bound!r}"
     for fld, bound in c.get("min_value", {}).items():
-        if fld in args and args[fld] < bound:
+        if fld not in args:
+            return f"min_value field {fld!r} is absent from the call"
+        if not _is_number(args[fld]):
+            return f"{fld}={args[fld]!r} is not a number (min_value)"
+        if args[fld] < bound:
             return f"{fld}={args[fld]!r} below min_value {bound!r}"
+
     for fld in c.get("required_present", []):
         if fld not in args:
             return f"required field {fld!r} missing"
