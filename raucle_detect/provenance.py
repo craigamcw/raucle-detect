@@ -515,7 +515,7 @@ class ProvenanceReceipt:
         payload = json.loads(payload_bytes, object_pairs_hook=_reject_duplicate_keys)
 
         if strict:
-            cls._enforce_header(header_b64)
+            cls._enforce_header(header_b64, expected_kid=payload.get("agent_key_id"))
 
         receipt = cls(
             agent_id=payload["agent_id"],
@@ -538,13 +538,17 @@ class ProvenanceReceipt:
         return receipt
 
     @classmethod
-    def _enforce_header(cls, header_b64: str) -> None:
+    def _enforce_header(cls, header_b64: str, expected_kid: str | None = None) -> None:
         """Validate the JOSE header of an untrusted receipt.
 
         Enforces ``alg == "EdDSA"`` and ``crit == ["raucle/v1"]`` with the
         sole critical parameter understood. Rejects unknown ``crit`` entries
         (RFC 7515 §4.1.11: a recipient that does not understand a listed
-        critical header MUST reject the JWS).
+        critical header MUST reject the JWS). When *expected_kid* is supplied,
+        the header ``kid`` must equal it — spec v1 §3 binds ``kid`` to the
+        payload ``agent_key_id``, and the TS/Go/Rust/C# verifiers all enforce
+        this; without it the Python verifier would ACCEPT bytes the four
+        sibling implementations REJECT (round-3 #6 cross-impl divergence).
         """
         try:
             header = json.loads(
@@ -573,6 +577,14 @@ class ProvenanceReceipt:
         for param in crit:
             if param not in header:
                 raise ValueError(f"critical header parameter {param!r} named in 'crit' but absent")
+
+        if expected_kid is not None:
+            kid = header.get("kid")
+            if kid != expected_kid:
+                raise ValueError(
+                    f"JOSE header kid {kid!r} does not match payload agent_key_id "
+                    f"{expected_kid!r} (spec v1 §3)"
+                )
 
     def to_dict(self) -> dict[str, Any]:
         d = self.payload()
@@ -1041,6 +1053,34 @@ class ProvenanceVerifier:
                         )
                         report.valid = False
                     else:
+                        # Identity binding: the receipt's agent_id must be the
+                        # identity the capability statement (and thus the key)
+                        # speaks for. Without this, any holder of an enrolled
+                        # key can sign a receipt claiming a different, trusted
+                        # agent_id and it verifies (round-3 #5 identity spoof).
+                        if receipt.agent_id != stmt.agent_id:
+                            report.capability_violations += 1
+                            report.errors.append(
+                                f"line {line_no}: receipt agent_id {receipt.agent_id!r} does not "
+                                f"match capability statement agent_id {stmt.agent_id!r} for "
+                                f"{receipt.agent_key_id}"
+                            )
+                            report.valid = False
+                        # Expiry: an expired capability statement must not
+                        # authorize receipts issued at/after it expired
+                        # (round-3 #4 — expires_at was never consulted).
+                        if (
+                            stmt.expires_at is not None
+                            and receipt.issued_at
+                            and receipt.issued_at >= stmt.expires_at
+                        ):
+                            report.capability_violations += 1
+                            report.errors.append(
+                                f"line {line_no}: capability statement for {receipt.agent_key_id} "
+                                f"expired at {stmt.expires_at} but receipt issued at "
+                                f"{receipt.issued_at}"
+                            )
+                            report.valid = False
                         if receipt.model and not stmt.permits_model(receipt.model):
                             report.capability_violations += 1
                             report.errors.append(
