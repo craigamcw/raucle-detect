@@ -526,6 +526,17 @@ class CapabilityIssuer:
 
         Raises ``ValueError`` if the requested attenuation would broaden
         permissions in any dimension.
+
+        .. warning::
+
+            **Strict proof mode (round-3 #15):** the child inherits the
+            parent's ``policy_proof_hash`` but NOT ``grammar_hash`` /
+            ``policy_hash`` (the child's constraint set differs from the proven
+            parent's, so the parent's proof does not bind to it). A
+            :class:`CapabilityGate` constructed with ``require_proof=True`` will
+            therefore DENY an attenuated child (fail-closed). To use attenuated
+            tokens under strict proof enforcement, mint the child directly with
+            its own ``ProofResult`` rather than deriving it via ``attenuate``.
         """
         if not parent.signature:
             raise ValueError("parent token is unsigned")
@@ -736,6 +747,17 @@ class CapabilityGate:
         the early-revocation path that complements short TTLs; for fleets
         of gates, distribute the denylist out of band (a phase-2 signed
         revocation feed is scoped separately).
+
+        .. important::
+
+            **Revocation depth requires a ``parent_resolver`` (round-3 #17).**
+            Without one, the gate can only check the token itself and its
+            *immediate* ``parent_id`` against the denylist — revoking a
+            grandparent does NOT deny a grandchild, because the gate cannot
+            walk past the direct parent. Construct the gate with a
+            ``parent_resolver`` to make revocation reach the whole ancestor
+            chain. Deep revocation is bounded in its absence only by token TTL,
+            so keep TTLs short if you rely on revocation without a resolver.
         """
         self._revoked.add(token_id)
 
