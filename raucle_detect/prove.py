@@ -69,6 +69,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from . import registry as _registry
+
 
 def _canonical_json(obj: Any) -> bytes:
     # allow_nan=False: NaN/Infinity are not valid JSON — reject, never emit.
@@ -218,6 +220,23 @@ class JSONSchemaProver:
             notes.append(
                 f"schema uses keyword(s) this prover does not model {unmodelled}; "
                 f"PROVEN downgraded to UNDECIDED (cannot certify completeness)"
+            )
+
+        # Policy-language whitelist (§8.2 — "decorative proof inputs"). The
+        # prover only encodes the constraint kinds flagged ``prover_encodable``
+        # in the Modelled Language Registry. A policy carrying any other key
+        # (e.g. ``allowed_values`` / ``starts_with``, which the gate DOES
+        # enforce but this prover does NOT model) would otherwise be certified
+        # PROVEN while silently ignoring that key — a proof that omitted part of
+        # the policy, then bound into the token's policy_proof_hash. Fail closed:
+        # any unmodelled policy key downgrades a would-be PROVEN to UNDECIDED.
+        unmodelled_policy = sorted(_registry.unmodelled_policy_keys(set(policy)))
+        if unmodelled_policy:
+            unmodelled = sorted(set(unmodelled) | set(unmodelled_policy))
+            notes.append(
+                f"policy uses constraint key(s) this prover does not model "
+                f"{unmodelled_policy}; PROVEN downgraded to UNDECIDED "
+                f"(cannot certify a policy whose keys it ignores)"
             )
         # Build Z3 variables per declared property.
         z3_vars: dict[str, Any] = {}

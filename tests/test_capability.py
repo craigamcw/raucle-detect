@@ -596,9 +596,15 @@ def test_revocation_denylist_refuses_token_and_children():
     from raucle_detect.capability import CapabilityGate, CapabilityIssuer
 
     issuer = CapabilityIssuer.generate(issuer="acme.bank")
-    gate = CapabilityGate(trusted_issuers={issuer.key_id: issuer.public_key_pem})
     tok = issuer.mint(agent_id="agent:ops", tool="lookup_customer", ttl_seconds=300)
     child = issuer.attenuate(tok, narrower_agent_id="agent:ops.sub")
+    # Revocation depth requires a parent_resolver; a token citing a parent_id is
+    # otherwise DENY'd because the chain cannot be verified (fail-closed, §8.7).
+    store = {tok.token_id: tok, child.token_id: child}
+    gate = CapabilityGate(
+        trusted_issuers={issuer.key_id: issuer.public_key_pem},
+        parent_resolver=store.get,
+    )
 
     # Valid before revocation.
     assert gate.check(tok, tool="lookup_customer").allowed
