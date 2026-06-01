@@ -74,9 +74,9 @@ test('verify rejects wrong alg', async () => {
     }),
   )
     .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '')
+    .replaceAll('+', '-')
+    .replaceAll('/', '_')
+    .replaceAll('=', '')
   await assert.rejects(
     () => verify(`${badHeader}.${payloadB}.${sigB}`, publicKey),
     /unsupported alg/,
@@ -97,9 +97,9 @@ test('verify requires crit raucle/v1', async () => {
     }),
   )
     .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '')
+    .replaceAll('+', '-')
+    .replaceAll('/', '_')
+    .replaceAll('=', '')
   await assert.rejects(
     () => verify(`${badHeader}.${payloadB}.${sigB}`, publicKey),
     /crit/,
