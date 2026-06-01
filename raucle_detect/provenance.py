@@ -173,6 +173,44 @@ def _structural_errors(receipt: ProvenanceReceipt) -> list[str]:
     return errs
 
 
+def _validate_receipt_strict(receipt: ProvenanceReceipt) -> None:
+    """The single documented strict per-receipt contract (§3.3).
+
+    A receipt is fully valid only when ALL of the following hold. The first
+    five are enforced inside :meth:`ProvenanceReceipt.from_jws` with
+    ``strict=True`` (they need the raw JWS bytes); this function adds the
+    structural layer, so a standalone ``from_jws(strict=True)`` is structurally
+    complete and not merely cryptographically/canonically sound.
+
+    Enforced by ``from_jws(strict=True)`` (cryptographic / canonical / header):
+      1. JOSE header: exact ``alg``/``typ``/``crit``/``kid``/``raucle/v1``, no
+         extra keys.
+      2. Canonical (JCS) byte-equality of header and payload.
+      3. Payload ``typ`` literal and non-empty ``iss``.
+      4. Duplicate-key rejection in header and payload.
+      5. ``header.kid`` bound to ``payload.agent_key_id``.
+
+    Enforced here (structural, spec v1 §3/§4.2/§6):
+      6. Root rule (only ``user_input``/``guardrail_scan`` may have empty
+         parents); ``merge`` arity (>= 2 parents).
+      7. Required-fields-per-operation.
+      8. ``parents``/``taint`` sorted lexicographically and unique.
+
+    Raises
+    ------
+    ValueError
+        On the first structural violation (joined into one message).
+
+    Note: cross-receipt DAG invariants (topological order, taint monotonicity,
+    capability-statement conformance) are chain-level and remain in
+    :meth:`ProvenanceVerifier.verify_chain`; they require the whole graph and
+    cannot be checked from a single receipt.
+    """
+    errs = _structural_errors(receipt)
+    if errs:
+        raise ValueError("; ".join(errs))
+
+
 # ---------------------------------------------------------------------------
 # Utilities — canonical JSON, base64url, Ed25519
 # ---------------------------------------------------------------------------
@@ -559,7 +597,9 @@ class ProvenanceReceipt:
     MAX_PAYLOAD_BYTES = 32 * 1024
 
     @classmethod
-    def from_jws(cls, jws: str, *, strict: bool = False) -> ProvenanceReceipt:
+    def from_jws(
+        cls, jws: str, *, strict: bool = False, validate_structure: bool = True
+    ) -> ProvenanceReceipt:
         """Parse a compact JWS string back into a receipt.
 
         Does NOT verify the signature — use :class:`ProvenanceVerifier`
@@ -634,6 +674,13 @@ class ProvenanceReceipt:
         )
         receipt.jws = jws
         receipt.receipt_hash = "sha256:" + _sha256_hex(jws.encode("ascii"))
+        # §3.3: a strict standalone parse is also structurally validated, so a
+        # malformed receipt (bad root rule, missing required field, unsorted
+        # parents/taint) is rejected here rather than silently parsing. The
+        # chain verifier opts out (validate_structure=False) so it can report
+        # each structural error per-line instead of raising on the first.
+        if strict and validate_structure:
+            _validate_receipt_strict(receipt)
         return receipt
 
     @classmethod
@@ -1151,7 +1198,13 @@ class ProvenanceVerifier:
                     # otherwise let two parsers disagree on which receipt the
                     # line carries (envelope smuggling, §8.10 #3).
                     raw = json.loads(line, object_pairs_hook=_reject_duplicate_keys)
-                    receipt = ProvenanceReceipt.from_jws(raw["jws"], strict=True)
+                    # validate_structure=False: the chain verifier reports each
+                    # structural error per-line below (via _structural_errors)
+                    # rather than raising on the first, so callers see the full
+                    # set of problems in one report.
+                    receipt = ProvenanceReceipt.from_jws(
+                        raw["jws"], strict=True, validate_structure=False
+                    )
                 except (json.JSONDecodeError, ValueError, KeyError) as exc:
                     report.errors.append(f"line {line_no}: malformed record: {exc}")
                     report.valid = False
