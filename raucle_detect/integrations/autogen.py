@@ -232,7 +232,13 @@ def _wrap_function_tool(
         if token is None:
             decision = GateDecision(allowed=False, reason="no in-force capability token")
         else:
-            decision = gate.check(token=token, tool=tool_name, args=kwargs)
+            # Pass agent_id so the gate enforces the token's agent scope.
+            # Without it the gate skips the descendant check entirely, so a
+            # token minted for agent A would authorize a call stamped agent B
+            # (round-3 #2). The other adapters all forward agent_id.
+            decision = gate.check(
+                token=token, tool=tool_name, args=kwargs, agent_id=agent_id
+            )
 
         _emit_receipt(
             sink,
