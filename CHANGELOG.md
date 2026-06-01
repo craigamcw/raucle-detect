@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.16.0 (2026-06-01) — security hardening (round 2 + re-audit)
+
+A full security-focused audit + confirmation re-audit. All CRITICAL/HIGH/MEDIUM
+findings closed with regression tests; receipt wire format unchanged (five-language
+byte-identity preserved). New `docs/security-model.md` documents the trust model.
+
+- **Gate:** reject non-finite numbers (NaN/Inf no longer satisfy numeric bounds);
+  agent_id grammar forbids trailing/double dots; revocation denies descendants of a
+  revoked ancestor when a resolver is configured.
+- **Provenance:** SANITISATION may only clear taint tags the agent's
+  `sanitisation_authority` permits (verifier-side); unknown `agent_key_id` is a
+  violation when capabilities are supplied; `from_jws` hardened (size caps, duplicate
+  keys rejected, strict `alg`/`crit`).
+- **Audit chain:** signed chains require a head checkpoint covering the final index;
+  `verify_chain(expected_head=...)` external anchor; unsigned/unknown chains are invalid
+  when a key is supplied.
+- **Provers:** `SQLClauseProver` no longer returns PROVEN for comma-join / subquery
+  table references it can't soundly resolve (UNDECIDED instead); `URLPolicyProver`
+  `max_path_depth` is UNDECIDED over prefix grammars.
+- **Scanner:** ReDoS fixed — per-pattern length cap on ALL patterns, bounded wildcard
+  spans, per-scan wall-clock budget (an 82s pathological scan is now ~0.01s).
+- **Feed:** `fetch_feed` is https-only, blocks private/loopback/metadata IPs, pins the
+  validated IP (no DNS-rebind), rejects redirects, caps body size.
+- **Keys/supply chain:** private keys written `0600`; `*.pem`/`*.key` git-ignored; CI
+  actions pinned to commit SHAs.
+
 ## 0.15.0 (2026-06-01) — security hardening
 
 Pre-launch end-to-end audit. Closes gate-authorisation bypasses, hardens the
