@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.16.4 (2026-06-01) — prover soundness + adapter scope (cross-model review)
+
+Findings from an independent cross-model (Codex) review, on top of the round-3
+adversarial audit and SonarQube static analysis. No wire-format change.
+
+- **JSONSchemaProver soundness (was a false PROVEN):** a `forbidden_values`
+  policy over a field that the schema permits via `additionalProperties` was
+  silently discarded, returning PROVEN even though e.g. `{"x":"ok","role":"admin"}`
+  is schema-valid and violates the policy. The prover now models an
+  attacker-suppliable additional property as a free variable and REFUTES (with a
+  counterexample); a closed schema (`additionalProperties: false`) keeps the
+  blacklist correctly vacuous.
+- **Agent Framework adapter:** the caller identity passed to the gate is now the
+  framework context's caller (deployer-populated `metadata`/`session`), not the
+  in-force token's own `agent_id` — so the token's agent scope is actually
+  enforced against the caller rather than checked against itself. Falls back to
+  the token's `agent_id` only when the framework surfaces no identity.
+- **Receipt verifier:** strict verification additionally enforces the JOSE `typ`
+  (`provenance-receipt/v1`) and the `raucle/v1: "provenance"` profile marker
+  (spec v1 §4.1), after the existing alg/crit/kid/signature checks.
+
 ## 0.16.3 (2026-06-01) — static-analysis hardening (SonarQube Cloud)
 
 Findings from a third, independent analysis method (SonarQube Cloud static

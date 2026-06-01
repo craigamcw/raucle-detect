@@ -14,7 +14,7 @@ Copyright (c) 2026 epic28 Ltd (trading as Raucle).
 See LICENSE, LICENSING.md, COMMERCIAL.md in the repository root.
 """
 
-__version__ = "0.16.3"
+__version__ = "0.16.4"
 __author__ = "Raucle"
 __license__ = "AGPL-3.0-or-later"
 
