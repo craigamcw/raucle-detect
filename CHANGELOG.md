@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.16.2 (2026-06-01) — security hardening (round 3 + blind cross-check)
+
+Two independent adversarial audits (a multi-agent finder/refutation workflow plus
+a blind independent pass) and manual verification of every fix. No receipt wire-format
+change; five-language byte-identity preserved. 20 new security regression tests.
+
+- **Provers:** `SQLClauseProver` no longer returns PROVEN for a query reading a
+  forbidden table via `EXCEPT`/`INTERSECT`/`MINUS`; default forbidden tokens add
+  `INTO`/`MERGE`/`CREATE`; `URLPolicyProver` returns UNDECIDED for `forbid_query_keys`
+  over an open query-key grammar (declare `query_keys_closed: true` to prove it).
+- **Adapters:** the AutoGen adapter now enforces the token's `agent_id` scope (was
+  recorded in the receipt but not checked); the LangChain adapter fails closed when a
+  `forbidden_values` blacklist can't be enforced on an opaque string tool input.
+- **Provenance verifier:** binds receipt `agent_id` to the capability statement,
+  enforces statement `expires_at`, and requires the JOSE `kid` to equal `agent_key_id`
+  (matching the TS/Go/Rust/C# verifiers).
+- **Audit:** keyless verification of a chain declaring `signed=true` now fails closed
+  (was reporting valid); `allow_nan=False` in canonical JSON; a non-hex (tampered) leaf
+  hash yields `valid=False` instead of crashing.
+- **Server:** request body / batch size caps, rate-bucket eviction (+ opt-in
+  `RAUCLE_TRUST_PROXY`), and `/metrics` gated behind auth when an API key is set.
+- **Other:** multimodal media/pixel/page caps; fixed a dead SSRF-pinning path in
+  `fetch_feed`; CLI keygen writes private keys 0600 atomically; MCP no longer echoes
+  raw exception text; conformance harness only claims five-language parity when all
+  five run; formal-proof claims in README / Lean docs scoped to what is actually
+  mechanised (the runtime gate enforces more than the Lean model proves).
+
 ## 0.16.1 (2026-06-01) — CLI developer-experience fix
 
 No behaviour or wire-format changes. Polishes the command-line surface.
