@@ -18,10 +18,10 @@ This is the **recommended integration** for AI-agent platforms on Microsoft's st
 ## Step 1 — install
 
 ```bash
-pip install 'raucle-detect[agent-framework]'
+pip install 'raucle-detect[agent-framework,compliance]'
 ```
 
-This pulls in `agent-framework>=1.6` alongside the raucle engine.
+This pulls in `agent-framework` alongside the raucle engine, plus the `compliance` extra (`cryptography`) that the capability tokens, signed audit chain, and receipts depend on.
 
 ---
 
@@ -162,42 +162,33 @@ No PR. No prompt-engineering. The malicious call **structurally cannot execute**
 head -2 receipts.log
 ```
 
-You'll see two JSON objects with:
+You'll see two JSON objects. Each is a hash-chained record (`index`, `timestamp`, `prev_hash`, `event`, `hash`) whose `event` carries the capability receipt:
 
-- `agent_id`, `tool`, `decision`, `reason`
+- `agent_id`, `tool`, `decision`, `decision_reason`
 - `policy_proof_hash` (cited from the token)
-- `args_hash` (sha256 of the actual call args — the args themselves stay local)
-- `signature` (Ed25519 over the canonical-JSON receipt)
-- `prev_hash`, `this_hash` (the hash-chain — tampering anywhere shows up downstream)
+- `call_args_hash` (sha256 of the actual call args — the args themselves stay local)
+- `index`, `prev_hash`, `hash` on the record (the hash chain — tampering anywhere shows up downstream)
 
-Verify the chain:
+The chain is anchored by periodic Ed25519-signed *checkpoint* records (signing is per-checkpoint, not per-record). To verify the chain offline, write the signer's public key to a PEM file and run `audit verify`:
 
-```bash
-raucle-detect receipt verify --log receipts.log --pubkey <PEM>
+```python
+with open("audit_pub.pem", "wb") as f:
+    f.write(signer.public_key_pem())
 ```
 
-Exit 0 = every receipt's signature is valid and the chain is intact.
+```bash
+raucle-detect audit verify receipts.log --pubkey audit_pub.pem
+```
+
+Exit 0 = the hash chain is intact and every checkpoint signature is valid.
 
 ---
 
 ## Step 8 — optionally ship receipts to Raucle Cloud
 
-If you want a system-of-record — searchable list, audit-pack export, share-link to a regulator — point the sink at Raucle Cloud's ingest endpoint:
+If you want a system-of-record — searchable list, audit-pack export, share-link to a regulator — keep writing to the local `HashChainSink` and upload the chain to [Raucle Cloud](https://cloud.raucle.com) out of band (e.g. a nightly job, or by tailing the log to the ingest endpoint). The hash chain and checkpoint signatures travel with the file, so the cloud just stores and indexes what you already produced.
 
-```python
-from raucle_detect.audit import CloudSink
-
-sink = CloudSink(
-    api_base="https://api.raucle.com",
-    api_key="rk_...",  # from cloud.raucle.com → Settings → API keys
-    signer=signer,
-)
-agent.middleware.add(RaucleFunctionMiddleware(gate=gate, sink=sink))
-```
-
-Same hash chain, same signature semantics — the cloud just stores and indexes the receipts. The gate still runs locally; no hot-path network call. **Self-hosters can skip this entirely**; the gate works without cloud.
-
-(`CloudSink` ships in raucle-detect v0.13.0+. If you're on v0.12.x, use `HashChainSink` and run an upload job nightly — example in `docs/operations/upload-receipts-to-cloud.md`.)
+The gate always runs locally; there is no hot-path network call. **Self-hosters can skip this entirely** — the gate and the signed audit chain work with no cloud at all.
 
 ---
 
@@ -211,9 +202,6 @@ The receipt is what an auditor sees. It cites the issuer, the policy proof hash,
 
 ## Where next
 
-- **[5. Prove a policy](06-prove-a-policy.md)** — produce a `policy_proof_hash` that demonstrates *no* string in the tool's schema can violate the constraints. Every receipt citing this proof inherits the guarantee.
-- **[6. AGT backend](07-agt-backend.md)** — run raucle as a Microsoft Agent Governance Toolkit `ExternalPolicyBackend`. The contract for this merged upstream on 2026-05-27.
-- **[Tightening constraints](../guides/constraint-recipes.md)** — patterns for common gating needs: amount caps, regex allowlists, time-of-day rules, two-person rule.
-- **[Backup + key rotation](../operations/key-rotation.md)** — production operations.
+- **[3. Prove a policy](06-prove-a-policy.md)** — produce a `policy_proof_hash` that demonstrates *no* string in the tool's schema can violate the constraints. Every receipt citing this proof inherits the guarantee.
 
 If you want to share a session's receipts with a regulator — time-limited URL, no auditor login, verifier bundle download — that's [Raucle Cloud's](https://cloud.raucle.com) `Share` feature.

@@ -12,22 +12,17 @@ This guide is task-first. Pick a path. Run the code. You'll have a working signe
 
 | If you have… | Start here | Time |
 |---|---|---|
-| Just curiosity / Python + nothing else | **[1. Hello, receipt](01-hello-receipt.md)** — mint a token, run the gate, verify a signed receipt. No agent framework needed. | 5 min |
+| Just curiosity / Python + nothing else | **[1. Hello, receipt](01-hello-receipt.md)** — mint a token, run the gate, verify a signed audit chain. No agent framework needed. | 5 min |
 | Microsoft Agent Framework (GA April 2026) | **[2. Agent Framework](02-agent-framework.md)** — drop-in `FunctionMiddleware`. One line. | 10 min |
-| LangChain / LangGraph | **[3. LangChain](03-langchain.md)** — wrap your tool list with raucle's gated wrapper. | 10 min |
-| AutoGen / a custom agent loop | **[4. Custom integration](05-custom.md)** — call the gate from wherever your agent dispatches tool calls. | 10 min |
-| You want to prove a policy is sound, not just configured | **[5. Prove a policy](06-prove-a-policy.md)** — SMT-backed `ProofResult`, content-addressed, citeable. | 10 min |
-| Microsoft Agent Governance Toolkit | **[6. AGT backend](07-agt-backend.md)** — drop-in `ExternalPolicyBackend`. *raucle's contract merged upstream 2026-05-27.* | 10 min |
-
-> **Already running raucle in production?** Skip to the [Operations guide](../operations/README.md) (in progress) — backup, key rotation, gate-flag fail-closed, audit-chain export.
+| You want to prove a policy is sound, not just configured | **[3. Prove a policy](06-prove-a-policy.md)** — SMT-backed `ProofResult`, content-addressed, citeable. | 10 min |
 
 ---
 
 ## Install
 
 ```bash
-# Engine only — gate, capability tokens, audit, receipts:
-pip install raucle-detect
+# Gate, capability tokens, signed audit chain, receipts (needs cryptography):
+pip install 'raucle-detect[compliance]'
 
 # Plus SMT prover (Z3, for prove-a-policy and counterexample extraction):
 pip install 'raucle-detect[proof]'
@@ -35,7 +30,7 @@ pip install 'raucle-detect[proof]'
 # Plus Microsoft Agent Framework adapter:
 pip install 'raucle-detect[agent-framework]'
 
-# Everything:
+# Engine extras bundle (rules + ml + server + compliance + multimodal + proof):
 pip install 'raucle-detect[all]'
 ```
 

@@ -30,7 +30,7 @@ issuer = CapabilityIssuer.generate(issuer="acme.bank.kyc")
 gate   = CapabilityGate(trusted_issuers={issuer.key_id: issuer.public_key_pem})
 sink   = HashChainSink("./receipts.log", signer=Ed25519Signer.generate())
 
-agent = ChatAgent(chat_client=..., tools=[...])
+agent = ChatAgent(chat_client=..., tools=[...])  # your Agent Framework agent
 agent.middleware.add(RaucleFunctionMiddleware(gate=gate, sink=sink))
 
 # Per-session: mint a capability and prime it.
@@ -40,7 +40,9 @@ set_in_force_token(issuer.mint(
 ))
 ```
 
-Every tool call your agent makes now produces a signed, hash-chained receipt that an auditor can verify offline. Calls that violate the capability's constraints are short-circuited via Microsoft's documented `MiddlewareTermination` path — no special-case error handling required.
+Every tool call your agent makes now appends a hash-chained receipt to `receipts.log` — each record links to the previous record's hash, and the chain is anchored by periodic Ed25519-signed checkpoints, so an auditor can verify it offline. Calls that violate the capability's constraints are short-circuited via Microsoft's documented `MiddlewareTermination` path — no special-case error handling required.
+
+> Requires the `agent-framework` extra (the snippet above) for the Microsoft adapter. The capability, audit, and receipt primitives alone need only `pip install 'raucle-detect[compliance]'`.
 
 **Full walkthrough:** [`docs/getting-started/`](docs/getting-started/README.md) — five-minute "hello receipt", Agent Framework / LangChain / AutoGen integrations, SMT-prove-a-policy, and the Microsoft AGT backend (contract merged upstream 2026-05-27).
 
@@ -54,7 +56,7 @@ A regulator has questions about a decision your agent made last quarter. A custo
 
 Heuristic guards (Microsoft Prompt Shields, Lakera Guard, AWS Bedrock policy controls) produce vendor logs that say *"we think it's fine."* A vendor log is a claim, not evidence. It does not survive cross-examination, does not export across organisational boundaries, and does not satisfy the audit-logging obligations of EU AI Act Article 12, the FCA's model-risk-management guidance, ISO/IEC 42001, or any other regime that requires defensible, independently-verifiable trails.
 
-raucle-detect closes that gap. Every gate decision the system makes — ALLOW or DENY — produces a *capability receipt*: a structured record citing the issuer's public key, the verified JSON Schema of the tool, the proof artefact of the policy, the Lean theorem identifier behind the soundness claim, the attenuation chain of capability tokens, and a hash of the actual call arguments. The receipt is signed under an Ed25519 key the deploying organisation publishes; the proof artefact and Lean development are likewise published. A third-party verifier holding only the deploying organisation's published material can independently confirm five properties offline: signature validity, schema hash, policy-proof hash, theorem closure (rebuild the Lean development), and constraint satisfaction. **No information asymmetry remains between the operator and the auditor.**
+raucle-detect closes that gap. Every gate decision the system makes — ALLOW or DENY — produces a *capability receipt*: a structured record citing the issuer's public key, the verified JSON Schema of the tool, the proof artefact of the policy, the Lean theorem identifier behind the soundness claim, the attenuation chain of capability tokens, and a hash of the actual call arguments. The receipt is signed under an Ed25519 key the deploying organisation publishes; the proof artefact and Lean development are likewise published. A third-party verifier holding only the deploying organisation's published material can independently confirm, **per receipt and offline**, four properties — signature validity, schema hash, policy-proof hash, and constraint satisfaction — with no contact with the vendor required. The soundness theorem behind a policy need only be checked **once** (by rebuilding the published Lean development), not per receipt. **The operator holds no verification advantage the auditor cannot reproduce.**
 
 ## Why the receipt can be trusted
 
@@ -70,10 +72,10 @@ The technique is under submission to **IEEE Security & Privacy 2027**. The paper
 
 The same primitives that produce trustworthy receipts also block prompt-injection-mediated tool misuse — this is the corollary, not the headline. Reported across three frontier-class open-weight model generations, four AgentDojo task suites, and three attack families:
 
-- **100% block rate** on attacker-controlled tool calls across 720 LLM-driven banking attempts — this is the *capability gate's structural guarantee* (a call outside the signed capability cannot execute), not a classifier confidence score (every non-zero residual is the same benchmark IBAN coincidence, documented in §6.5 of the paper).
+- **100% block rate** on attacker-controlled tool calls across 720 LLM-driven attempts **on the AgentDojo banking suite** — the *capability gate's structural guarantee* (a call outside the signed capability cannot execute), not a classifier confidence score. The only residual benchmark "success" is a known IBAN-collision artefact where the oracle cannot distinguish a user-authorised transfer from an attacker-induced one (§6.5). On the other suites a small residual attack-success rate remains, concentrated in attacks scored on free-form model *output* rather than a tool call — outside the gate's tool-call boundary (§6.2.3).
 - **+27 to +58 percentage-point** advantage in benign task completion versus the strongest contemporary text-side defence at equivalent security. On one cohort (Moonshot Kimi-k2.6), the baseline ASR is already 0%; the contemporary defence nonetheless collapses benign task completion by 34 percentage points, while raucle imposes 2.8 — demonstrating that shields-style collateral damage is independent of security necessity, whereas raucle's overhead scales with actual work done.
-- **Sub-100 µs** per-call gate latency at p50 on commodity hardware. End-to-end agent wall time with raucle enabled is *at or below* the unprotected baseline on four of eight measured cohorts (the gate terminates attacker-induced reasoning loops early).
-- A **static upper bound** verified by the gate's own constraint logic establishes 0 of 2,737 catalogued attack scenarios across AgentDojo and InjecAgent admit any attacker-controlled call.
+- **69 µs per-call gate latency at p50** (no-chain, x86_64 EPYC-Milan; `paper/eval/latency-x86.json`) — 268 µs for a 3-link attenuation chain, ~150 µs p50 on Apple-M ARM64. End-to-end agent wall time with raucle enabled is *at or below* the unprotected baseline on four of eight measured cohorts (the gate terminates attacker-induced reasoning loops early).
+- A **static upper bound** — a guarantee over the *catalogued attack arguments*, not an empirical attack-success measurement — verified by the gate's own constraint logic: 0 of 2,737 catalogued AgentDojo + InjecAgent scenarios admit any attacker-controlled call.
 
 Full results, the reproducibility package, and the IEEE S&P 2027 draft live under `paper/`.
 
@@ -122,11 +124,16 @@ pip install raucle-detect
 Optional extras:
 
 ```bash
-pip install raucle-detect[rules]    # YAML rule loading (PyYAML)
-pip install raucle-detect[server]   # REST API server (FastAPI + uvicorn)
-pip install raucle-detect[ml]       # Transformer-based classifier (torch + transformers)
-pip install raucle-detect[all]      # Everything
+pip install 'raucle-detect[rules]'        # YAML rule loading (PyYAML)
+pip install 'raucle-detect[server]'       # REST API server (FastAPI + uvicorn)
+pip install 'raucle-detect[ml]'           # Transformer-based classifier (torch + transformers)
+pip install 'raucle-detect[compliance]'   # Capability tokens, signed audit chain, receipts (cryptography)
+pip install 'raucle-detect[proof]'        # SMT prover for prove-a-policy (Z3)
+pip install 'raucle-detect[agent-framework]'  # Microsoft Agent Framework adapter
+pip install 'raucle-detect[all]'          # rules + ml + server + compliance + multimodal + proof
 ```
+
+> The `[all]` extra bundles the engine extras (`rules`, `ml`, `server`, `compliance`, `multimodal`, `proof`) but **not** the framework adapters — install `[agent-framework]` separately if you use the Microsoft Agent Framework integration.
 
 Requires Python 3.10+.
 
