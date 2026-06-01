@@ -583,3 +583,72 @@ def test_revocation_via_constructor():
         revoked_token_ids={tok.token_id},
     )
     assert not gate.check(tok, tool="lookup_customer").allowed
+
+
+# ── Security regressions (pre-launch audit 2026-06-01) ──────────────────
+
+
+def _issuer_gate():
+    from raucle_detect.capability import CapabilityGate, CapabilityIssuer
+
+    i = CapabilityIssuer.generate(issuer="acme.bank")
+    g = CapabilityGate(trusted_issuers={i.key_id: i.public_key_pem})
+    return i, g
+
+
+def test_sec_c1_agent_prefix_requires_delimiter():
+    """A token for agent:billing must NOT authorise agent:billing-evil."""
+    i, g = _issuer_gate()
+    t = i.mint(agent_id="agent:billing", tool="x", ttl_seconds=300)
+    assert not g.check(t, tool="x", agent_id="agent:billing-evil").allowed
+    assert not g.check(t, tool="x", agent_id="agent:billingsomething").allowed
+    assert g.check(t, tool="x", agent_id="agent:billing").allowed
+    assert g.check(t, tool="x", agent_id="agent:billing.invoice").allowed
+
+
+def test_sec_c1_attenuate_prefix_requires_delimiter():
+    import pytest
+
+    i, _ = _issuer_gate()
+    parent = i.mint(agent_id="agent:billing", tool="x", ttl_seconds=300)
+    # broadening / sibling is refused
+    with pytest.raises(ValueError):
+        i.attenuate(parent, narrower_agent_id="agent:billing-evil")
+    # genuine descendant is fine
+    child = i.attenuate(parent, narrower_agent_id="agent:billing.invoice")
+    assert child.agent_id == "agent:billing.invoice"
+
+
+def test_sec_c2_value_constraints_fail_closed_on_absent_field():
+    """allowed_values / starts_with / max/min deny when the field is omitted."""
+    i, g = _issuer_gate()
+    t = i.mint(
+        agent_id="agent:b",
+        tool="transfer",
+        constraints={"forbidden_values": {"to": ["attacker"]}, "max_value": {"amount": 100}},
+        ttl_seconds=300,
+    )
+    # renamed args must NOT bypass the bound
+    assert not g.check(t, tool="transfer", args={"recipient": "attacker", "value": 10**9}).allowed
+    # legitimate call still allowed
+    assert g.check(t, tool="transfer", args={"to": "alice", "amount": 50}).allowed
+    # whitelist + prefix also fail closed on absence
+    t2 = i.mint(
+        agent_id="agent:b", tool="r", constraints={"allowed_values": {"id": ["A"]}}, ttl_seconds=300
+    )
+    assert not g.check(t2, tool="r", args={}).allowed
+    t3 = i.mint(
+        agent_id="agent:b", tool="r", constraints={"starts_with": {"id": "C-"}}, ttl_seconds=300
+    )
+    assert not g.check(t3, tool="r", args={}).allowed
+
+
+def test_sec_c3_type_confusion_denies_not_raises():
+    """Non-numeric / bool args on a numeric bound DENY, never raise."""
+    i, g = _issuer_gate()
+    t = i.mint(
+        agent_id="agent:b", tool="t", constraints={"max_value": {"amount": 100}}, ttl_seconds=300
+    )
+    for bad in ["99999999", True, None, [1, 2], {"x": 1}]:
+        d = g.check(t, tool="t", args={"amount": bad})
+        assert not d.allowed  # no exception, explicit deny
