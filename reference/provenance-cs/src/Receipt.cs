@@ -134,8 +134,15 @@ public static class Receipt
         if (GetStr(header, "typ") != JwsTyp) throw new ProvException("unexpected typ");
         var critOk = header.TryGetProperty("crit", out var crit)
                      && crit.ValueKind == JsonValueKind.Array
-                     && crit.EnumerateArray().Any(x => x.ValueKind == JsonValueKind.String && x.GetString() == "raucle/v1");
-        if (!critOk) throw new ProvException("crit must include 'raucle/v1'");
+                     && crit.GetArrayLength() == 1
+                     && crit[0].ValueKind == JsonValueKind.String && crit[0].GetString() == "raucle/v1";
+        if (!critOk) throw new ProvException("crit must be exactly ['raucle/v1']");
+        if (GetStr(header, "raucle/v1") != "provenance")
+            throw new ProvException("header 'raucle/v1' must be 'provenance'");
+        var allowedHeaderKeys = new HashSet<string> { "alg", "typ", "kid", "crit", "raucle/v1" };
+        foreach (var prop in header.EnumerateObject())
+            if (!allowedHeaderKeys.Contains(prop.Name))
+                throw new ProvException($"unexpected JOSE header key: {prop.Name}");
 
         var signingInput = Encoding.ASCII.GetBytes(headerB + "." + payloadB);
         var verifier = new Ed25519Signer();

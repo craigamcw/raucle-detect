@@ -229,10 +229,20 @@ pub fn verify(jws: &str, verifying_key: &VerifyingKey) -> Result<Receipt, ProvEr
     let crit_ok = header
         .get("crit")
         .and_then(|v| v.as_array())
-        .map(|a| a.iter().any(|x| x.as_str() == Some("raucle/v1")))
+        .map(|a| a.len() == 1 && a[0].as_str() == Some("raucle/v1"))
         .unwrap_or(false);
     if !crit_ok {
-        return err("crit must include 'raucle/v1'");
+        return err("crit must be exactly ['raucle/v1']");
+    }
+    if header.get("raucle/v1").and_then(|v| v.as_str()) != Some("provenance") {
+        return err("header 'raucle/v1' must be 'provenance'");
+    }
+    if let Some(obj) = header.as_object() {
+        for k in obj.keys() {
+            if !matches!(k.as_str(), "alg" | "typ" | "kid" | "crit" | "raucle/v1") {
+                return err("unexpected JOSE header key");
+            }
+        }
     }
 
     let sig_bytes = b64u_decode(sig_b)?;
