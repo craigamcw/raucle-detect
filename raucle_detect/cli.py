@@ -209,6 +209,30 @@ def _build_parser() -> argparse.ArgumentParser:
     receipt_p.add_argument("--pubkey", required=True, help="Path to Ed25519 public key PEM")
     receipt_p.add_argument("--input", help="Expected original prompt (binds receipt to input)")
 
+    # -- audit-export -------------------------------------------------------
+    audit_exp = subparsers.add_parser(
+        "audit-export",
+        help="Build a signed, reproducible audit report (PDF/HTML + manifest) over a chain",
+    )
+    audit_exp.add_argument("chain", help="Provenance chain JSONL")
+    audit_exp.add_argument(
+        "--pubkeys",
+        nargs="+",
+        required=True,
+        help="Capability-statement JSON files OR public-key PEM files",
+    )
+    audit_exp.add_argument(
+        "--proofs", nargs="*", default=[], help="ProofResult JSON files (optional)"
+    )
+    audit_exp.add_argument(
+        "--sign-key",
+        required=True,
+        help="Ed25519 PEM private key that signs the manifest (audit key)",
+    )
+    audit_exp.add_argument(
+        "--out", required=True, help="Output HTML path (manifest written alongside)"
+    )
+
     # -- mcp ----------------------------------------------------------------
     mcp_p = subparsers.add_parser("mcp", help="Model Context Protocol operations")
     mcp_sub = mcp_p.add_subparsers(dest="mcp_command")
@@ -751,6 +775,52 @@ def _cmd_audit_keygen(args: argparse.Namespace) -> int:
     print(f"  Key ID:      {signer.key_id()}")
     print()
     print("Keep the private key secret. Distribute the public key to verifiers.")
+    return 0
+
+
+def _cmd_audit_export(args: argparse.Namespace) -> int:
+    import datetime as _dt
+    import hashlib
+
+    from raucle_detect.audit_export import build_report, render_html, sign_manifest
+    from raucle_detect.provenance import CapabilityStatement
+
+    # Same pubkey loader as `provenance verify`.
+    public_keys: dict[str, bytes] = {}
+    for src in args.pubkeys:
+        content = Path(src).read_bytes()
+        try:
+            stmt = CapabilityStatement.from_dict(json.loads(content))
+            public_keys[stmt.key_id] = stmt.public_key_pem.encode("ascii")
+        except (json.JSONDecodeError, KeyError):
+            public_keys[hashlib.sha256(content).hexdigest()[:16]] = content
+
+    proofs = [json.loads(Path(p).read_text()) for p in args.proofs]
+
+    try:
+        report = build_report(
+            args.chain,
+            public_keys,
+            proofs,
+            generated_at=int(_dt.datetime.now(_dt.timezone.utc).timestamp()),
+        )
+        manifest = sign_manifest(report, Path(args.sign_key).read_bytes())
+    except (ValueError, OSError) as exc:
+        print(f"audit-export failed: {exc}", file=sys.stderr)
+        return 1
+
+    out = Path(args.out)
+    out.write_text(render_html(manifest), encoding="utf-8")
+    manifest_path = out.with_suffix(out.suffix + ".manifest.json")
+    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+    s = manifest["body"]["summary"]
+    print(
+        f"audit export written: {out} (+ {manifest_path})\n"
+        f"  chain {'VALID' if s['chain_valid'] else 'INVALID'} · "
+        f"{s['green']} green / {s['amber']} amber / {s['red']} red · "
+        f"signed by {manifest['signer_key_id']}",
+        file=sys.stderr,
+    )
     return 0
 
 
@@ -1483,6 +1553,8 @@ def _dispatch(argv: list[str] | None = None) -> int:
         return _cmd_audit_keygen(args)
     elif args.command == "verify-receipt":
         return _cmd_verify_receipt(args)
+    elif args.command == "audit-export":
+        return _cmd_audit_export(args)
     elif args.command == "mcp" and args.mcp_command == "serve":
         return _cmd_mcp_serve(args)
     elif args.command == "mcp" and args.mcp_command == "scan":

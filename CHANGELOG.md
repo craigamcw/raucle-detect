@@ -391,7 +391,7 @@ This is Move #2 of the revolutionary roadmap. With v0.9.0 (proofs over the tool 
 
 ### Formal verification of bounded guardrails — proofs, not statistics
 
-Every other AI security product on the market ships with the same line: *"tested against 10,000 attacks."* That is statistics over a sample. For bounded sub-languages — tool-call JSON, URL allowlists, read-only SQL — we can do dramatically better: produce an actual **proof** that no string in the grammar bypasses a given policy. v0.9.0 is the first release of that machinery.
+Every other AI security product on the market ships with the same line: *"tested against 10,000 attacks."* That is statistics over a sample. For bounded sub-languages — tool-call JSON and URL allowlists — we can do dramatically better: produce an actual **proof** that no string in the grammar bypasses a given policy. (SQL is narrower: a finite-template checker over a *modelled subset* that returns `UNDECIDED` for constructs it does not model — not a general SQL proof. See the v0.17.0 "Scope & claims" note for the precise framing.) v0.9.0 is the first release of that machinery.
 
 - **`JSONSchemaProver`** — SMT-backed (Z3). Given a JSON Schema (type=object with primitive properties + enum + min/max) and a policy (`forbidden_values`, `max_value` / `min_value`, `required_present`, `forbidden_field_combinations`), returns `PROVEN` or a **concrete counterexample tool-call**. The right thing to point at every agent's tool-call interface.
 - **`URLPolicyProver`** — enumerative. `require_https`, `forbid_query_keys`, `host_allowlist` (with `*.example.com` wildcards), `max_path_depth`. Counterexamples are concrete URLs.
