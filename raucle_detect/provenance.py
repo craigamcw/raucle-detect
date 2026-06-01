@@ -422,7 +422,7 @@ class ProvenanceReceipt:
         """Return the canonical signed-payload dict for this receipt."""
         out: dict[str, Any] = {
             "iss": "raucle-detect/provenance",
-            "typ": "provenance-receipt/v1",
+            "typ": _EXPECTED_TYP,
             "iat": self.issued_at,
             "agent_id": self.agent_id,
             "agent_key_id": self.agent_key_id,
@@ -454,8 +454,8 @@ class ProvenanceReceipt:
         Returns the compact JWS string for convenience.
         """
         header = {
-            "alg": "EdDSA",
-            "typ": "provenance-receipt/v1",
+            "alg": _EXPECTED_ALG,
+            "typ": _EXPECTED_TYP,
             "kid": identity.key_id,
             "crit": ["raucle/v1"],
             "raucle/v1": "provenance",
@@ -565,20 +565,7 @@ class ProvenanceReceipt:
         if alg != _EXPECTED_ALG:
             raise ValueError(f"unexpected JWS alg {alg!r} — only {_EXPECTED_ALG!r} is accepted")
 
-        crit = header.get("crit")
-        if crit is None:
-            raise ValueError("JOSE header missing required 'crit' parameter")
-        if not isinstance(crit, list) or not all(isinstance(c, str) for c in crit):
-            raise ValueError("JOSE header 'crit' must be a list of strings")
-        unknown = set(crit) - _UNDERSTOOD_CRIT
-        if unknown:
-            raise ValueError(f"unknown critical header parameter(s): {sorted(unknown)}")
-        if not _UNDERSTOOD_CRIT.issubset(crit):
-            raise ValueError(f"JOSE header 'crit' must include {sorted(_UNDERSTOOD_CRIT)}")
-        # Each entry named in `crit` must actually be present in the header.
-        for param in crit:
-            if param not in header:
-                raise ValueError(f"critical header parameter {param!r} named in 'crit' but absent")
+        cls._enforce_crit(header)
 
         if expected_kid is not None:
             kid = header.get("kid")
@@ -601,6 +588,28 @@ class ProvenanceReceipt:
             raise ValueError(
                 f"JOSE header 'raucle/v1' must be 'provenance', got {header.get('raucle/v1')!r}"
             )
+
+    @staticmethod
+    def _enforce_crit(header: dict[str, Any]) -> None:
+        """Validate the JWS ``crit`` array (RFC 7515 §4.1.11).
+
+        ``crit`` must be exactly ``["raucle/v1"]``: present, a list of strings,
+        containing no parameter the verifier does not understand, including the
+        understood marker, and every named parameter actually present.
+        """
+        crit = header.get("crit")
+        if crit is None:
+            raise ValueError("JOSE header missing required 'crit' parameter")
+        if not isinstance(crit, list) or not all(isinstance(c, str) for c in crit):
+            raise ValueError("JOSE header 'crit' must be a list of strings")
+        unknown = set(crit) - _UNDERSTOOD_CRIT
+        if unknown:
+            raise ValueError(f"unknown critical header parameter(s): {sorted(unknown)}")
+        if not _UNDERSTOOD_CRIT.issubset(crit):
+            raise ValueError(f"JOSE header 'crit' must include {sorted(_UNDERSTOOD_CRIT)}")
+        for param in crit:
+            if param not in header:
+                raise ValueError(f"critical header parameter {param!r} named in 'crit' but absent")
 
     def to_dict(self) -> dict[str, Any]:
         d = self.payload()
