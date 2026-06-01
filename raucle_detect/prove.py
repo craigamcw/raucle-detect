@@ -191,6 +191,34 @@ class JSONSchemaProver:
             )
 
         notes: list[str] = []
+
+        # Keywords that change which objects are valid but that this prover does
+        # NOT model. If any are present we cannot soundly certify PROVEN —
+        # e.g. patternProperties / propertyNames can admit fields that
+        # `additionalProperties: false` otherwise appears to forbid, and
+        # allOf/anyOf/oneOf/$ref reshape the value space. We still run the solver
+        # (a REFUTED counterexample stays valid) but downgrade any would-be
+        # PROVEN to UNDECIDED. (Soundness fix: a `{"role":"admin"}` object is
+        # schema-valid under patternProperties `^role$` even with
+        # additionalProperties:false, so a blacklist on `role` is not provable.)
+        _SUPPORTED_OBJECT_KEYS = {
+            "type",
+            "properties",
+            "required",
+            "additionalProperties",
+            "title",
+            "description",
+            "$schema",
+            "$id",
+            "$defs",
+            "definitions",
+        }
+        unmodelled = sorted(set(schema) - _SUPPORTED_OBJECT_KEYS)
+        if unmodelled:
+            notes.append(
+                f"schema uses keyword(s) this prover does not model {unmodelled}; "
+                f"PROVEN downgraded to UNDECIDED (cannot certify completeness)"
+            )
         # Build Z3 variables per declared property.
         z3_vars: dict[str, Any] = {}
         presence: dict[str, Any] = {}
@@ -303,7 +331,9 @@ class JSONSchemaProver:
 
         check = solver.check()
         if str(check) == "unsat":
-            status = "PROVEN"
+            # Cannot certify completeness when the schema uses keywords we don't
+            # model (patternProperties/composition/$ref) — fail safe.
+            status = "UNDECIDED" if unmodelled else "PROVEN"
             counter = None
         elif str(check) == "sat":
             status = "REFUTED"
