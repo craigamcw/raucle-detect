@@ -169,14 +169,14 @@ class JSONSchemaProver:
       b present is a violation)
 
     .. note::
-       ``allowed_values`` (whitelists) is a **gate-time** capability
-       constraint (see :func:`raucle_detect.capability._check_constraints`)
-       and is intentionally **not** part of this prover's policy grammar.
-       This prover proves the *absence of violations* (forbidden values /
-       bounds / combinations); a positive whitelist is enforced at the gate,
-       not discharged as an SMT proof here. Whitelist keys passed in a
-       ``prove`` policy are ignored — express them as capability constraints.
-       The same applies to ``starts_with`` (string-prefix) constraints.
+       ``allowed_values`` (whitelists) and ``starts_with`` (string-prefix) are
+       **gate-time** capability constraints (see
+       :func:`raucle_detect.capability._check_constraints`) that this prover
+       does **not** model. They are NOT silently ignored: a policy carrying any
+       key outside the registry's ``PROVER_ENCODABLE_KEYS`` downgrades a
+       would-be PROVEN to **UNDECIDED** (§8.2 — never a proof that omitted part
+       of the policy). Express positive whitelists/prefixes as capability
+       constraints enforced at the gate.
     """
 
     timeout_ms: int = 5000
@@ -586,12 +586,9 @@ _STATEMENT_CHAIN_RE = re.compile(r";\s*\S")
 # (PROVEN-eligible) set. sqlglot is intentionally NOT adopted here: a parser
 # whose AST diverges from the target DB's own dialect is itself a soundness
 # risk (§8.4); the conservative-UNDECIDED net is sound without it.
-_UNMODELLED_SQL_RE = re.compile(
-    r"\"|`|"  # quoted / back-quoted identifiers
-    r"\bLATERAL\b|\bUNNEST\b|\bVALUES\b|\bTABLESAMPLE\b|\bPIVOT\b|\bUNPIVOT\b|"
-    r"\bWITH\s+RECURSIVE\b",
-    re.IGNORECASE,
-)
+# Built from the registry's SQL construct surface (§8.4) so the modelled set is
+# registry-owned and the drift test can pin it.
+_UNMODELLED_SQL_RE = re.compile("|".join(_registry.SQL_UNMODELLED_CONSTRUCTS), re.IGNORECASE)
 
 
 @dataclass
