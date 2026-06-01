@@ -675,7 +675,7 @@ def _cmd_rules_fuzz(args: argparse.Namespace) -> int:
                     print(f"    Example miss: {e.sample_misses[0][:80]!r}")
 
     # Exit 1 if any rule has 0% coverage
-    if any(e.coverage == 0.0 for e in report.results):
+    if any(e.coverage <= 0.0 for e in report.results):
         return 1
     return 0
 

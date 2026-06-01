@@ -9,6 +9,18 @@
  * is the one genuinely hard part of JCS.
  */
 
+/**
+ * Sort strings by UTF-16 code unit — the ordering RFC 8785 (JCS) mandates for
+ * object keys, and the ordering JavaScript's default `Array.prototype.sort()`
+ * already uses for strings. Provided EXPLICITLY (rather than a bare `.sort()`)
+ * so the cross-language byte-identity contract is visible and lint-clean.
+ *
+ * DO NOT replace with `localeCompare`: it is locale-aware, does not match
+ * code-unit ordering, and would silently break byte-identity with the Python /
+ * Go / Rust / C# reference implementations.
+ */
+export const byCodeUnit = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
+
 export function canonicalEncode(value: unknown): Uint8Array {
   check(value)
   return new TextEncoder().encode(canonicalString(value))
@@ -29,7 +41,7 @@ export function canonicalString(value: unknown): string {
   }
   if (typeof value === 'object') {
     const obj = value as Record<string, unknown>
-    const keys = Object.keys(obj).sort()
+    const keys = Object.keys(obj).sort(byCodeUnit)
     return (
       '{' +
       keys
