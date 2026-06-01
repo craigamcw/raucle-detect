@@ -203,19 +203,9 @@ class JSONSchemaProver:
         # PROVEN to UNDECIDED. (Soundness fix: a `{"role":"admin"}` object is
         # schema-valid under patternProperties `^role$` even with
         # additionalProperties:false, so a blacklist on `role` is not provable.)
-        _SUPPORTED_OBJECT_KEYS = {
-            "type",
-            "properties",
-            "required",
-            "additionalProperties",
-            "title",
-            "description",
-            "$schema",
-            "$id",
-            "$defs",
-            "definitions",
-        }
-        unmodelled = sorted(set(schema) - _SUPPORTED_OBJECT_KEYS)
+        # Modelled schema keywords come from the registry (§8.1) so the drift
+        # test pins them; an unmodelled keyword downgrades PROVEN → UNDECIDED.
+        unmodelled = sorted(set(schema) - _registry.JSON_SCHEMA_OBJECT_KEYS)
         if unmodelled:
             notes.append(
                 f"schema uses keyword(s) this prover does not model {unmodelled}; "
@@ -441,6 +431,13 @@ class URLPolicyProver:
         if not schemes or not hosts:
             raise UnsupportedGrammar("grammar must declare non-empty schemes and hosts")
 
+        # §8.1/§8.2 fail-closed: a grammar or policy key this prover does not
+        # model cannot be certified — it may impose an obligation or expand the
+        # URL space we never checked. Downgrade any would-be PROVEN to UNDECIDED
+        # (a REFUTED counterexample below stays valid). Registry-backed so the
+        # drift test pins the modelled surface.
+        unmodelled_url = sorted(_registry.unmodelled_url_keys(set(grammar), set(policy)))
+
         # require_https
         if policy.get("require_https"):
             for s in schemes:
@@ -453,7 +450,13 @@ class URLPolicyProver:
         # that is forbidden is a concrete REFUTED counterexample; but the absence
         # of one over an open key set cannot be PROVEN (a forbidden key remains
         # appendable). So forbid_query_keys over an open grammar is UNDECIDED.
-        undecidable = False
+        undecidable = bool(unmodelled_url)
+        if unmodelled_url:
+            notes.append(
+                f"URL grammar/policy uses key(s) this prover does not model "
+                f"{unmodelled_url}; PROVEN downgraded to UNDECIDED "
+                f"(cannot certify a dimension it does not check)"
+            )
         forbidden_q = set(policy.get("forbid_query_keys", []))
         for q in query_keys:
             if q in forbidden_q:
@@ -646,6 +649,15 @@ class SQLClauseProver:
         counter: dict[str, Any] | None = None
         undecidable = False
 
+        # §8.1 fail-closed: unknown SQL grammar/policy keys cannot be certified.
+        unmodelled_sql = sorted(_registry.unmodelled_sql_keys(set(grammar), set(policy)))
+        if unmodelled_sql:
+            undecidable = True
+            notes.append(
+                f"SQL grammar/policy uses key(s) this prover does not model "
+                f"{unmodelled_sql}; PROVEN downgraded to UNDECIDED"
+            )
+
         for tmpl in templates:
             upper = tmpl.upper()
             tokens = re.findall(r"[A-Z_][A-Z_0-9]*", upper)
@@ -659,6 +671,20 @@ class SQLClauseProver:
             if not allow_chain and _STATEMENT_CHAIN_RE.search(tmpl):
                 counter = {"template": tmpl, "violation": "statement chaining via ';'"}
                 break
+
+            # §8.4: SQL constructs the regex extractor cannot model soundly →
+            # UNDECIDED, UNCONDITIONALLY (not only when allowed_tables is set).
+            # Without this guard a query like `SELECT * FROM UNNEST(xs)` or one
+            # using quoted identifiers / recursive CTEs would return PROVEN even
+            # though the prover does not actually understand it.
+            if _UNMODELLED_SQL_RE.search(tmpl):
+                undecidable = True
+                notes.append(
+                    f"unmodelled SQL construct in {tmpl!r} (quoted identifier / "
+                    f"LATERAL / UNNEST / VALUES / recursive CTE / dialect form); "
+                    f"completeness not verifiable (UNDECIDED)"
+                )
+                continue
 
             if allowed_tables:
                 # The FROM/JOIN extractor is only SOUND for plain SELECT queries.
@@ -675,16 +701,6 @@ class SQLClauseProver:
                     notes.append(
                         f"table-bearing statement form in {tmpl!r} not covered by the "
                         f"FROM/JOIN extractor; table isolation not verifiable (UNDECIDED)"
-                    )
-                    continue
-                # §8.4: SQL constructs the extractor cannot model soundly →
-                # UNDECIDED rather than a possibly-false PROVEN.
-                if _UNMODELLED_SQL_RE.search(tmpl):
-                    undecidable = True
-                    notes.append(
-                        f"unmodelled SQL construct in {tmpl!r} (quoted identifier / "
-                        f"LATERAL / UNNEST / VALUES / recursive CTE / dialect form); "
-                        f"table isolation not verifiable (UNDECIDED)"
                     )
                     continue
                 # Extract every table referenced after a FROM/JOIN, including

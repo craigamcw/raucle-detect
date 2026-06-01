@@ -32,6 +32,20 @@ func canonicalEncode(v any) ([]byte, error) {
 	return []byte(sb.String()), nil
 }
 
+// Portable safe-integer range (§8.10 #6): the TS port stores numbers as
+// IEEE-754 doubles, exact only to ±(2^53-1). Bounding every integer here keeps
+// the canonical bytes byte-identical across all five implementations.
+const (
+	maxSafeInt int64 = 1<<53 - 1
+	minSafeInt int64 = -(1<<53 - 1)
+)
+
+var errSafeInt = errors.New(
+	"canonical-JSON: integer outside the portable safe range [-(2^53-1), 2^53-1]",
+)
+
+func safeInt(n int64) bool { return n >= minSafeInt && n <= maxSafeInt }
+
 func canonicalWrite(sb *strings.Builder, v any) error {
 	switch t := v.(type) {
 	case nil:
@@ -43,14 +57,23 @@ func canonicalWrite(sb *strings.Builder, v any) error {
 			sb.WriteString("false")
 		}
 	case int:
+		if !safeInt(int64(t)) {
+			return errSafeInt
+		}
 		sb.WriteString(strconv.Itoa(t))
 	case int64:
+		if !safeInt(t) {
+			return errSafeInt
+		}
 		sb.WriteString(strconv.FormatInt(t, 10))
 	case float64:
 		// JSON unmarshalling yields float64 even for integers, so accept
 		// a float64 only when it is integral.
 		if t != float64(int64(t)) {
 			return errors.New("canonical-JSON: non-integer numbers are not supported in v1")
+		}
+		if !safeInt(int64(t)) {
+			return errSafeInt
 		}
 		sb.WriteString(strconv.FormatInt(int64(t), 10))
 	case string:

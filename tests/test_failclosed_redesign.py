@@ -161,8 +161,8 @@ def test_mint_rejects_bool_and_float_numeric_bounds():
 
     iss = CapabilityIssuer.generate(issuer="platform.example")
     for bad in (True, 1.5, "100", None):
-        with pytest.raises(ValueError):
-            iss.mint(agent_id="a", tool="t", constraints={"max_value": {"amount": bad}})
+        with pytest.raises(ValueError, match="bound must be an integer"):
+            iss.mint(agent_id="agent:a", tool="t", constraints={"max_value": {"amount": bad}})
 
 
 def test_mint_rejects_non_string_starts_with_prefix():
@@ -171,8 +171,8 @@ def test_mint_rejects_non_string_starts_with_prefix():
 
     iss = CapabilityIssuer.generate(issuer="platform.example")
     for bad in (123, ["/x"], None):
-        with pytest.raises(ValueError):
-            iss.mint(agent_id="a", tool="t", constraints={"starts_with": {"path": bad}})
+        with pytest.raises(ValueError, match="prefix must be a string"):
+            iss.mint(agent_id="agent:a", tool="t", constraints={"starts_with": {"path": bad}})
 
 
 def test_child_allowed_when_resolver_present():
@@ -192,3 +192,41 @@ def test_child_allowed_when_resolver_present():
     )
     decision = gate.check(child, tool="transfer_funds", args={"to": "a", "amount": 10})
     assert decision.allowed, decision.reason
+
+
+def test_mint_rejects_non_list_value_collections():
+    """§8.5: forbidden_values/allowed_values members must be a JSON list — a
+    set/tuple/frozenset (non-JSON / unordered) is rejected at mint."""
+    import pytest
+
+    iss = CapabilityIssuer.generate(issuer="platform.example")
+    for bad in ({"admin"}, ("admin",), frozenset({"admin"})):
+        with pytest.raises(ValueError, match="list"):
+            iss.mint(agent_id="agent:a", tool="t", constraints={"forbidden_values": {"role": bad}})
+
+
+def test_mint_rejects_non_scalar_value_members():
+    """§8.5: value-list members must be JSON scalars (str/int/bool)."""
+    import pytest
+
+    iss = CapabilityIssuer.generate(issuer="platform.example")
+    for bad in (1.5, None, b"x", ["nested"]):
+        with pytest.raises(ValueError, match="scalar|float|None|bytes|container"):
+            iss.mint(agent_id="agent:a", tool="t", constraints={"allowed_values": {"r": [bad]}})
+
+
+def test_mint_rejects_unicode_colliding_field_names():
+    """§8.5: field names that collide under Unicode NFC are rejected at mint."""
+    import pytest
+
+    iss = CapabilityIssuer.generate(issuer="platform.example")
+    # U+00C5 (Å precomposed) vs U+0041 U+030A (A + combining ring) — NFC-equal.
+    precomposed = "Åfield"
+    decomposed = "Åfield"
+    assert precomposed != decomposed
+    with pytest.raises(ValueError, match="NFC"):
+        iss.mint(
+            agent_id="agent:a",
+            tool="t",
+            constraints={"forbidden_values": {precomposed: ["x"], decomposed: ["y"]}},
+        )

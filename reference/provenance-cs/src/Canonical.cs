@@ -41,6 +41,14 @@ public static class Canonical
                 sb.Append(b.Value ? "true" : "false");
                 break;
             case JInt i:
+                // Portable safe-integer range (§8.10 #6): the TS port stores
+                // numbers as IEEE-754 doubles, exact only to ±(2^53-1). Bound
+                // every integer so the canonical bytes match across all five
+                // implementations.
+                const long maxSafe = (1L << 53) - 1;
+                if (i.Value < -maxSafe || i.Value > maxSafe)
+                    throw new InvalidOperationException(
+                        "canonical-JSON: integer outside the portable safe range [-(2^53-1), 2^53-1]");
                 sb.Append(i.Value.ToString(CultureInfo.InvariantCulture));
                 break;
             case JStr s:
