@@ -21,6 +21,17 @@
 | `tighter_implies_satisfies` | `VCD/Composition.lean` | **✓ proved** |
 | **`policy_proof_composition` (Theorem 3)** | `VCD/Composition.lean` | **✓ PROVED** |
 
+**Theorem 3 — exact claim.** Given (a) a proof PROVEN for a tool's
+`(schema, P)`, (b) a call in that tool's modelled call language
+`SchemaLang schema`, and (c) a gate that accepts the call under token `t`, the
+theorem concludes both that the call satisfies `P` (via the `prover_soundness`
+axiom — which is load-bearing) **and** that it satisfies `t.constraints` (via
+`gate_soundness`). It does **not** mechanise the binding that the *cited* proof
+pertains to this tool's `(schema, P)`: operationally the gate's strict proof
+mode binds `policy_proof_hash` to the proof's grammar/policy hashes
+(`capability.py::_check_proof_binding`); the Lean model takes "the proof is for
+this `(schema, P)`" as a hypothesis rather than re-deriving it from hashes.
+
 ## Trust assumptions
 
 The mechanisation establishes correctness of the **data model and algorithms**. It does not mechanise:

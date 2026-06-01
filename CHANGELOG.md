@@ -55,6 +55,25 @@ release.
 - **Unresolved attenuation chain DENY** (§8.7) and **mint value-domain
   rejection** (§8.5), as above.
 
+### Scope & claims (read before citing)
+
+- **SQL:** the SQL component is a **finite SQL-template checker over a modelled
+  subset**, not a general "SQL prover". It proves properties over an enumerated
+  set of statement templates; anything outside the modelled construct surface
+  (quoted identifiers, `LATERAL`/`UNNEST`/`VALUES`, recursive CTEs, table
+  functions, …) returns UNDECIDED.
+- **`forbidden_values` is a best-effort denylist.** The gate enforces it on the
+  argument *names* the policy declares; it cannot see a tool's full parameter
+  schema, so a forbidden value supplied under a different parameter name is not
+  caught. For security-critical fields prefer the fail-closed positive
+  constraints — `allowed_values`, `required_present`, `max_value`/`min_value`.
+- **Strict proof mode is opt-in.** `CapabilityGate(proof_enforcement_mode=...)`
+  defaults to `"off"` for backward compatibility, so a token's
+  `policy_proof_hash` is *informational* unless an operator enables
+  `"lenient"`/`"strict"`. **Offline, proof-backed authorisation claims require
+  strict proof mode** — without it the gate does not consult or enforce the
+  cited proof.
+
 ### Internal
 
 - **Modelled Language Registry** (`registry.py`): the executable source of truth

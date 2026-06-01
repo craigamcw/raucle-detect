@@ -593,11 +593,19 @@ _UNMODELLED_SQL_RE = re.compile("|".join(_registry.SQL_UNMODELLED_CONSTRUCTS), r
 
 @dataclass
 class SQLClauseProver:
-    """Prove a bounded SQL policy over an enumerable set of candidate queries.
+    """A **finite SQL-template checker over a modelled subset** — not a general
+    SQL prover.
 
-    Unlike the JSON prover this is *enumeration with SMT-style reasoning*,
-    not full grammar inference -- modelling an arbitrary SQL grammar in SMT
-    is well outside this scope.  The honest claim is: given a finite set
+    It checks a bounded policy across an enumerated set of statement *templates*
+    using a regex extractor; it does **not** parse arbitrary SQL. Templates that
+    use constructs outside the modelled subset (quoted identifiers,
+    ``LATERAL``/``UNNEST``/``VALUES``, recursive CTEs, table functions, and
+    other dialect forms — see ``registry.SQL_UNMODELLED_CONSTRUCTS``) yield
+    UNDECIDED, never a false PROVEN. Highest assurance for table isolation comes
+    from validating against the target DB's own parser under a no-execute role;
+    this checker is a portable, dependency-light approximation that fails closed.
+
+    The honest claim is: given a finite set
     of statement *templates* and the columns/tables they touch, prove the
     policy holds for every template.
 
