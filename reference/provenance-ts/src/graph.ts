@@ -7,6 +7,7 @@
  * invariant the spec requires.
  */
 
+import { byCodeUnit } from './canonical.js'
 import type { Receipt } from './receipt.js'
 
 export class ChainError extends Error {}
@@ -63,7 +64,7 @@ export function buildChain(receipts: Receipt[]): Chain {
       if (missing.length > 0) {
         throw new ChainError(
           `sanitisation receipt ${r.id} dropped tags without declaring ` +
-            `them in corpus removed-set: ${missing.sort().join(', ')}`,
+            `them in corpus removed-set: ${missing.sort(byCodeUnit).join(', ')}`,
         )
       }
     } else {
@@ -71,7 +72,7 @@ export function buildChain(receipts: Receipt[]): Chain {
       if (missing.length > 0) {
         throw new ChainError(
           `taint monotonicity violation at ${r.id}: missing ${missing
-            .sort()
+            .sort(byCodeUnit)
             .join(', ')}`,
         )
       }

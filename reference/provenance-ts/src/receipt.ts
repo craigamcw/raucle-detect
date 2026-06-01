@@ -15,7 +15,7 @@
  */
 
 import { webcrypto } from 'node:crypto'
-import { canonicalEncode } from './canonical.js'
+import { byCodeUnit, canonicalEncode } from './canonical.js'
 
 const subtle = webcrypto.subtle
 
@@ -157,8 +157,8 @@ function payloadToObject(p: ReceiptPayload): Record<string, unknown> {
     agent_id: p.agent_id,
     agent_key_id: p.agent_key_id,
     operation: p.operation,
-    parents: [...p.parents].sort(),
-    taint: [...p.taint].sort(),
+    parents: [...p.parents].sort(byCodeUnit),
+    taint: [...p.taint].sort(byCodeUnit),
   }
   const optional: (keyof ReceiptPayload)[] = [
     'input_hash', 'output_hash', 'model', 'tool', 'corpus',
