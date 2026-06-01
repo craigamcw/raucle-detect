@@ -214,8 +214,15 @@ export async function verify(
 
   if (header.alg !== 'EdDSA') throw new Error(`unsupported alg: ${header.alg}`)
   if (header.typ !== JWS_TYP) throw new Error(`unexpected typ: ${header.typ}`)
-  if (!Array.isArray(header.crit) || !header.crit.includes('raucle/v1')) {
-    throw new Error("crit must include 'raucle/v1'")
+  if (!Array.isArray(header.crit) || header.crit.length !== 1 || header.crit[0] !== 'raucle/v1') {
+    throw new Error("crit must be exactly ['raucle/v1']")
+  }
+  if (header['raucle/v1'] !== 'provenance') {
+    throw new Error("header 'raucle/v1' must be 'provenance'")
+  }
+  const allowedHeaderKeys = new Set(['alg', 'typ', 'kid', 'crit', 'raucle/v1'])
+  for (const k of Object.keys(header)) {
+    if (!allowedHeaderKeys.has(k)) throw new Error(`unexpected JOSE header key: ${k}`)
   }
 
   const signingInput = enc(headerB + '.' + payloadB)

@@ -277,9 +277,18 @@ func Verify(jws string, pub ed25519.PublicKey) (Receipt, error) {
 	if header["typ"] != jwsTyp {
 		return Receipt{}, fmt.Errorf("unexpected typ: %v", header["typ"])
 	}
-	crit, _ := header["crit"].([]any)
-	if !containsAny(crit, "raucle/v1") {
-		return Receipt{}, fmt.Errorf("crit must include 'raucle/v1'")
+	crit, ok := header["crit"].([]any)
+	if !ok || len(crit) != 1 || crit[0] != "raucle/v1" {
+		return Receipt{}, fmt.Errorf("crit must be exactly ['raucle/v1']")
+	}
+	if header["raucle/v1"] != "provenance" {
+		return Receipt{}, fmt.Errorf("header 'raucle/v1' must be 'provenance'")
+	}
+	allowedHeaderKeys := map[string]bool{"alg": true, "typ": true, "kid": true, "crit": true, "raucle/v1": true}
+	for k := range header {
+		if !allowedHeaderKeys[k] {
+			return Receipt{}, fmt.Errorf("unexpected JOSE header key: %s", k)
+		}
 	}
 
 	sig, err := b64uDecode(sigB)
