@@ -607,6 +607,10 @@ def fetch_feed(url: str, *, timeout: float = 10.0) -> Feed:
     # Connect to the pinned IP, but validate the certificate / send SNI for the
     # real hostname.
     ctx = ssl.create_default_context()
+    # Pin a TLS 1.2 floor explicitly rather than relying on the interpreter's
+    # default (which is only guaranteed >= 1.2 on Python 3.10+). Defence in
+    # depth against a downgrade to a deprecated protocol (Sonar S4423).
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
 
     class _PinnedHTTPSConnection(http.client.HTTPSConnection):
         def connect(self) -> None:  # type: ignore[override]
