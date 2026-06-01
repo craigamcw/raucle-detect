@@ -516,6 +516,7 @@ class SQLClauseProver:
 
         notes: list[str] = []
         counter: dict[str, Any] | None = None
+        undecidable = False
 
         for tmpl in templates:
             upper = tmpl.upper()
@@ -532,9 +533,34 @@ class SQLClauseProver:
                 break
 
             if allowed_tables:
-                # crude FROM/JOIN extractor
-                refs = re.findall(r"(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_]*)", upper)
-                for ref in refs:
+                # Extract every table referenced after a FROM/JOIN, including
+                # comma-separated lists (a bare `FROM a, b` join). Capture the
+                # whole clause up to the next SQL keyword, split on commas, and
+                # take the leading identifier of each piece (dropping aliases).
+                clause_re = re.compile(
+                    r"(?:FROM|JOIN)\s+(.+?)"
+                    r"(?=\s+(?:WHERE|GROUP|ORDER|HAVING|LIMIT|UNION|JOIN|ON|FOR)\b|;|$)",
+                    re.DOTALL,
+                )
+                table_refs: list[str] = []
+                for clause in clause_re.findall(upper):
+                    for piece in clause.split(","):
+                        piece = piece.strip()
+                        if not piece:
+                            continue
+                        if piece.startswith("("):
+                            # subquery / derived table — the crude extractor
+                            # cannot statically resolve it; refuse to claim PROVEN.
+                            undecidable = True
+                            notes.append(f"unparsable table reference in {tmpl!r} (UNDECIDED)")
+                            continue
+                        m = re.match(r"([A-Z_][A-Z0-9_]*)", piece)
+                        if m:
+                            table_refs.append(m.group(1))
+                        else:
+                            undecidable = True
+                            notes.append(f"unparsable table reference in {tmpl!r} (UNDECIDED)")
+                for ref in table_refs:
                     if ref.lower() not in allowed_tables:
                         counter = {
                             "template": tmpl,
@@ -544,7 +570,12 @@ class SQLClauseProver:
                 if counter:
                     break
 
-        status = "PROVEN" if counter is None else "REFUTED"
+        if counter is not None:
+            status = "REFUTED"
+        elif undecidable:
+            status = "UNDECIDED"
+        else:
+            status = "PROVEN"
         return ProofResult(
             status=status,
             prover="SQLClauseProver",

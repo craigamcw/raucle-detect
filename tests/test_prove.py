@@ -254,3 +254,24 @@ def test_url_max_path_depth_is_undecidable_not_proven():
         {"max_path_depth": 1},
     )
     assert r2.status == "REFUTED"
+
+
+def test_sql_comma_join_not_falsely_proven():
+    """A forbidden table reached via a comma-join must not yield PROVEN (soundness)."""
+    from raucle_detect.prove import SQLClauseProver
+
+    p = SQLClauseProver()
+    r = p.prove(
+        {"templates": ["SELECT * FROM customers, secrets"]}, {"allowed_tables": ["customers"]}
+    )
+    assert r.status == "REFUTED"  # secrets is read but not allowed
+    ok = p.prove(
+        {"templates": ["SELECT * FROM customers WHERE id = 1"]}, {"allowed_tables": ["customers"]}
+    )
+    assert ok.status == "PROVEN"
+    # a subquery the crude extractor can't decompose must be UNDECIDED, never PROVEN
+    sub = p.prove(
+        {"templates": ["SELECT * FROM (SELECT * FROM secrets) x"]},
+        {"allowed_tables": ["customers"]},
+    )
+    assert sub.status in ("UNDECIDED", "REFUTED")
