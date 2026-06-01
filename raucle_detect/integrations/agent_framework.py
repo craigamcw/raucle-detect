@@ -264,13 +264,17 @@ class RaucleFunctionMiddleware(FunctionMiddleware):
         token = self._token_resolver(context)
         tool_name = self._extract_tool_name(context)
         call_args = self._extract_args(context)
-        # Authoritative agent_id is the one bound to the in-force token.
-        # The framework's context does not currently surface an agent id;
-        # we fall back to looking at context.metadata or session state if
-        # the deployer populates them, then to a stable sentinel.
-        agent_id = (token.agent_id if token is not None else None) or self._extract_agent_id(
-            context
-        )
+        # Caller identity must come from the framework context, NOT the token —
+        # otherwise the gate's agent_id scope check is tautological (it would
+        # compare the token's own agent_id against itself and always pass,
+        # letting a token minted for agent A be used by a different caller B).
+        # Prefer the independent context identity; only when the framework does
+        # not surface one do we fall back to the token's agent_id, which
+        # degrades to a bearer-token model (the caller is trusted to hold the
+        # right token). Deployers who can surface a caller id (via
+        # context.metadata / session state) get real agent_id scope enforcement.
+        caller_id = self._extract_agent_id(context)
+        agent_id = caller_id or (token.agent_id if token is not None else None)
 
         # No token bound? Fail-closed.
         if token is None:
@@ -373,14 +377,17 @@ class RaucleFunctionMiddleware(FunctionMiddleware):
 
     @staticmethod
     def _extract_agent_id(context: Any) -> str | None:
-        """Fallback agent-id resolution when the token isn't bound.
+        """Resolve the independent caller identity from the framework context.
 
-        FunctionInvocationContext does not expose an agent id directly.
-        We look at ``context.metadata["agent_id"]`` (deployer-populated)
-        and ``context.session.state["agent_id"]`` (session-state-populated)
-        before giving up. The token's agent_id is the authoritative source
-        when a token is in force; this method only matters for the
-        no-token DENY path.
+        FunctionInvocationContext does not expose an agent id directly, so we
+        look at ``context.metadata["agent_id"]`` (deployer-populated) and
+        ``context.session.state["agent_id"]`` (session-state-populated).
+
+        This is the PREFERRED source for the gate's agent_id scope check: when
+        present, the gate enforces that the in-force token's agent_id covers the
+        actual caller. Only when the context surfaces no identity does the
+        caller fall back to the token's own agent_id (a bearer-token model where
+        the holder is trusted). Returns None when no caller identity is known.
         """
         try:
             md = getattr(context, "metadata", None) or {}

@@ -231,6 +231,59 @@ def test_feed_fetch_rejects_url_whose_host_resolves_to_blocked_ip():
         fetch_feed("https://internal.example/feed.json")
 
 
+# --- Codex F1: JSONSchemaProver + additionalProperties soundness -------------
+def test_jsonschema_forbidden_value_on_undeclared_field_not_proven():
+    pytest.importorskip("z3")  # JSONSchemaProver needs the [proof] extra
+    from raucle_detect.prove import JSONSchemaProver
+
+    # additionalProperties default-true: an attacker can supply 'role', so a
+    # blacklist on it cannot be PROVEN — {"x":"ok","role":"admin"} is valid.
+    schema = {
+        "type": "object",
+        "properties": {"x": {"type": "string"}},
+        "additionalProperties": True,
+    }
+    r = JSONSchemaProver().prove(schema, {"forbidden_values": {"role": ["admin"]}})
+    assert r.status == "REFUTED"
+
+
+def test_jsonschema_closed_schema_makes_undeclared_blacklist_vacuous():
+    pytest.importorskip("z3")  # JSONSchemaProver needs the [proof] extra
+    from raucle_detect.prove import JSONSchemaProver
+
+    schema = {
+        "type": "object",
+        "properties": {"x": {"type": "string"}},
+        "additionalProperties": False,
+    }
+    r = JSONSchemaProver().prove(schema, {"forbidden_values": {"role": ["admin"]}})
+    assert r.status == "PROVEN"
+
+
+# --- Codex F4: strict verify enforces JOSE typ + raucle/v1 marker ------------
+def _tamper_header(jws, **overrides):
+    import base64
+
+    h, p, s = jws.split(".")
+    hdr = json.loads(base64.urlsafe_b64decode(h + "==" * (-len(h) % 4)))
+    hdr.update(overrides)
+    nh = (
+        base64.urlsafe_b64encode(json.dumps(hdr, separators=(",", ":")).encode())
+        .rstrip(b"=")
+        .decode()
+    )
+    return f"{nh}.{p}.{s}"
+
+
+def test_strict_from_jws_rejects_bad_typ_and_marker(tmp_path):
+    idn, c = _chain(tmp_path)
+    jws = json.loads(c.read_text().strip().splitlines()[0])["jws"]
+    with pytest.raises(ValueError, match="typ"):
+        ProvenanceReceipt.from_jws(_tamper_header(jws, typ="not-provenance"), strict=True)
+    with pytest.raises(ValueError, match="raucle/v1"):
+        ProvenanceReceipt.from_jws(_tamper_header(jws, **{"raucle/v1": "nope"}), strict=True)
+
+
 # --- LangChain blacklist-on-opaque-string guard (#3b/#5) ---------------------
 def test_langchain_blacklist_helper():
     lc = pytest.importorskip("raucle_detect.integrations.langchain")
