@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.14.0 (2026-06-01)
+
+### Capability constraints
+
+- **`starts_with` prefix constraint** is now a first-class capability
+  constraint, enforced at the gate (`{"starts_with": {"field": "prefix"}}`)
+  and supported in attenuation (a child may extend a prefix, never broaden
+  it). This was referenced in the docs/examples but previously unsupported;
+  the headline quickstart now mints **and enforces** as written.
+- **Unknown constraint keys now raise** instead of being silently dropped,
+  so a mis-cased key (e.g. `allowedValues` vs `allowed_values`) can no
+  longer produce a token that enforces less than intended.
+
+### Capability gate — revocation
+
+- `CapabilityGate` now accepts `revoked_token_ids` and exposes a
+  `revoke(token_id)` method. A revoked token, or any child citing it as
+  `parent_id`, is DENY'd before expiry — the early-revocation path that
+  complements short TTLs.
+
+### Fixes & docs
+
+- `__version__` now tracks the package version (was stale at `0.7.0`).
+- Spec: added non-normative appendices — related work (vs Biscuit /
+  Macaroons / in-toto / SLSA / C2PA / VCs), canonical-form rationale, and
+  the token lifetime/revocation model.
+- Legal/governance docs name the registered entity, **epic28 Ltd (trading
+  as Raucle)**, so the dual-licence relicensing grant is unambiguous.
+- CI: bumped `actions/checkout`→v5, `setup-python`→v6 (Node-20 retires
+  2026-06-16).
+
 ## 0.13.0 (2026-05-28)
 
 ### Security — fail-loud cryptographic configuration (HOLD SCOPE FIX 1)
