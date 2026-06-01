@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from functools import lru_cache
 from typing import Any
 
@@ -31,14 +32,22 @@ def _compile_pattern(pattern: str) -> re.Pattern[str] | None:
 
 MAX_INPUT_LENGTH = 100_000  # characters -- inputs longer than this are truncated
 
-# Patterns that can cause exponential backtracking on long inputs.
-# These get a tighter per-pattern input length limit.
-_REDOS_RISKY_PATTERNS: set[str] = {
-    r"(.)\1{50,}",
-    r"(\b\w+\b)\s+\1(\s+\1){10,}",
-}
+# Defensive per-pattern length cap.
+#
+# *Every* individual regex is matched against at most this many characters,
+# regardless of which pattern it is. Catastrophic-backtracking blowups are a
+# function of input length, so bounding the slice each pattern sees turns a
+# potential super-linear hang into a bounded, sub-second operation while still
+# covering any realistic attack payload (real injections are short and appear
+# early in the text). This replaces the old design, which only capped two
+# hard-coded patterns and let ~178 others run unguarded against the full input.
+_PER_PATTERN_MAX_LENGTH = 10_000
 
-_REDOS_PATTERN_MAX_LENGTH = 10_000
+# Hard per-scan wall-clock budget (seconds). A scan touches ~190 patterns; if
+# the cumulative time crosses this deadline we stop evaluating further patterns
+# and return what we have. This is a belt-and-braces guard so that no single
+# scan can monopolise a worker even if a future pattern slips past review.
+_SCAN_TIME_BUDGET_S = 0.75
 
 # ---------------------------------------------------------------------------
 # Built-in pattern library
@@ -357,9 +366,15 @@ class PatternLayer:
 
     @staticmethod
     def _safe_match(pattern: re.Pattern[str], raw_pattern: str, text: str) -> re.Match[str] | None:
-        """Match with a length pre-check for ReDoS-risky patterns."""
-        if raw_pattern in _REDOS_RISKY_PATTERNS and len(text) > _REDOS_PATTERN_MAX_LENGTH:
-            text = text[:_REDOS_PATTERN_MAX_LENGTH]
+        """Match *pattern* against a length-bounded slice of *text*.
+
+        The slice cap is applied to **every** pattern (not a hard-coded subset),
+        so no single regex can be driven into catastrophic backtracking by an
+        oversized input. ``raw_pattern`` is retained for signature compatibility
+        and future per-pattern tuning.
+        """
+        if len(text) > _PER_PATTERN_MAX_LENGTH:
+            text = text[:_PER_PATTERN_MAX_LENGTH]
         return pattern.search(text)
 
     # ------------------------------------------------------------------
@@ -381,7 +396,13 @@ class PatternLayer:
         matched_technique = ""
         matched_rules: list[str] = []
 
+        deadline = time.monotonic() + _SCAN_TIME_BUDGET_S
+        budget_exceeded = False
+
         for rule, patterns in self._compiled:
+            if time.monotonic() > deadline:
+                budget_exceeded = True
+                break
             for pattern, raw_pattern in patterns:
                 if self._safe_match(pattern, raw_pattern, text):
                     score = rule.get("score", 0.5)
@@ -391,6 +412,13 @@ class PatternLayer:
                     matched_categories.append(rule["category"])
                     matched_rules.append(rule["id"])
                     break  # One match per rule is sufficient
+
+        if budget_exceeded:
+            logger.warning(
+                "Pattern scan exceeded %.2fs budget; stopped early after %d rule(s)",
+                _SCAN_TIME_BUDGET_S,
+                len(matched_rules),
+            )
 
         return {
             "score": best_score,
@@ -413,8 +441,20 @@ class PatternLayer:
         matched_technique = ""
         matched_rules: list[str] = []
 
+        deadline = time.monotonic() + _SCAN_TIME_BUDGET_S
+
         for rule_list in rule_lists:
             for rule in rule_list:
+                if time.monotonic() > deadline:
+                    logger.warning(
+                        "Pattern scan (scan_with_rules) exceeded time budget; stopped early"
+                    )
+                    return {
+                        "score": best_score,
+                        "categories": list(set(matched_categories)),
+                        "technique": matched_technique,
+                        "matched_rules": matched_rules,
+                    }
                 for p in rule.get("patterns", []):
                     compiled = _compile_pattern(p)
                     if compiled is None:

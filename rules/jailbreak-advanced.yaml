@@ -39,7 +39,7 @@ rules:
       - '(?i)(give|provide|generate|produce)\s+(me\s+)?(two|2|dual|both)\s+(responses?|answers?|outputs?|versions?)'
       - '(?i)(one\s+)?(filtered|censored|safe|normal)\s+(and|&)\s+(one\s+)?(unfiltered|uncensored|raw|real|true|honest)'
       - '(?i)(normal|standard)\s+(response|answer)\s+(and|&|then)\s+(the\s+)?(real|actual|true|unfiltered|honest)\s+(response|answer)'
-      - '(?i)response\s+(as|from)\s+\w+\s*:.*response\s+(as|from)\s+\w+\s*:'
+      - '(?i)response\s+(as|from)\s+\w+\s*:.{0,200}?response\s+(as|from)\s+\w+\s*:'
     score: 0.80
 
   # Token manipulation — asking model to process text in unusual ways
@@ -77,7 +77,7 @@ rules:
     severity: HIGH
     patterns:
       - '(?i)step\s+1.*step\s+2.*step\s+3.*ignore'
-      - '(?i)(first|1st)\s*[,:].*?(then|2nd|second)\s*[,:].*?(finally|3rd|third)\s*[,:].*?(ignore|override|bypass|forget)'
+      - '(?i)(first|1st)\s*[,:].{0,200}?(then|2nd|second)\s*[,:].{0,200}?(finally|3rd|third)\s*[,:].{0,200}?(ignore|override|bypass|forget)'
       - '(?i)if\s+(the\s+)?(user|I|someone)\s+(asks?|says?|types?)\s+.{0,40}\s+(then|respond\s+with|output|say)'
     score: 0.60
 
@@ -88,7 +88,7 @@ rules:
     technique: few_shot_poisoning
     severity: HIGH
     patterns:
-      - '(?i)example\s+\d+\s*:.*example\s+\d+\s*:.*now\s+(your|the)\s+turn'
-      - '(?i)(here\s+are|see\s+these)\s+(some\s+)?examples?\s*:.*now\s+(do|generate|produce|write)\s+(the\s+same|similar|likewise)'
-      - '(?i)input\s*:.*output\s*:.*input\s*:.*output\s*:'
+      - '(?i)example\s+\d+\s*:.{0,300}?example\s+\d+\s*:.{0,300}?now\s+(your|the)\s+turn'
+      - '(?i)(here\s+are|see\s+these)\s+(some\s+)?examples?\s*:.{0,300}?now\s+(do|generate|produce|write)\s+(the\s+same|similar|likewise)'
+      - '(?i)input\s*:.{0,200}?output\s*:.{0,200}?input\s*:.{0,200}?output\s*:'
     score: 0.55

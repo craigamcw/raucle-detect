@@ -150,6 +150,28 @@ def _sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+#: The single JOSE ``alg`` value accepted for provenance receipts.
+_EXPECTED_ALG = "EdDSA"
+#: The critical-header marker every genuine receipt carries. Verifiers must
+#: understand every entry in ``crit``; this is the only one we understand.
+_UNDERSTOOD_CRIT = {"raucle/v1"}
+
+
+def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """``object_pairs_hook`` that rejects JSON objects with duplicate keys.
+
+    Duplicate keys are valid per the JSON grammar but their handling is
+    implementation-defined, which lets an attacker craft a payload that one
+    parser reads differently from another. We refuse them outright.
+    """
+    seen: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in seen:
+            raise ValueError(f"duplicate key {key!r} in JSON object")
+        seen[key] = value
+    return seen
+
+
 def hash_text(text: str) -> str:
     """Hash an input or output string for receipt inclusion."""
     return "sha256:" + _sha256_hex(text.encode("utf-8"))
@@ -195,14 +217,27 @@ class CapabilityStatement:
     allowed_models: list[str] = field(default_factory=list)
     allowed_tools: list[str] = field(default_factory=list)
     data_classifications: list[str] = field(default_factory=list)
+    sanitisation_authority: list[str] = field(default_factory=list)
+    """Taint tags this key is authorised to clear via a SANITISATION receipt.
+
+    Empty (the default) means the key may not clear ANY tag. A literal
+    ``"*"`` entry authorises clearing any tag (use sparingly). This field is
+    NOT part of the receipt wire format; it lives only in the capability
+    statement and is enforced verifier-side.
+    """
     issuer: str = "raucle-detect"
     issued_at: int = 0
     expires_at: int | None = None
     signature: str = ""  # base64 over the body
 
     def body(self) -> dict[str, Any]:
-        """Return the canonical body that gets signed (excludes ``signature``)."""
-        return {
+        """Return the canonical body that gets signed (excludes ``signature``).
+
+        ``sanitisation_authority`` is included only when non-empty so that
+        statements signed before this field existed continue to verify
+        byte-for-byte (backward-compatible serialisation).
+        """
+        body: dict[str, Any] = {
             "agent_id": self.agent_id,
             "key_id": self.key_id,
             "public_key_pem": self.public_key_pem,
@@ -213,6 +248,9 @@ class CapabilityStatement:
             "issued_at": self.issued_at,
             "expires_at": self.expires_at,
         }
+        if self.sanitisation_authority:
+            body["sanitisation_authority"] = sorted(self.sanitisation_authority)
+        return body
 
     def to_dict(self) -> dict[str, Any]:
         d = self.body()
@@ -232,6 +270,18 @@ class CapabilityStatement:
         if not self.allowed_tools:
             return True
         return tool in self.allowed_tools
+
+    def permits_sanitising(self, tag: str) -> bool:
+        """Whether this key is authorised to clear taint *tag*.
+
+        Unlike :meth:`permits_model` / :meth:`permits_tool`, an empty
+        ``sanitisation_authority`` is *deny-all*, not allow-all: clearing a
+        taint tag is a privileged act and must be explicitly granted. A
+        literal ``"*"`` entry authorises clearing any tag.
+        """
+        if "*" in self.sanitisation_authority:
+            return True
+        return tag in self.sanitisation_authority
 
 
 class AgentIdentity:
@@ -420,18 +470,49 @@ class ProvenanceReceipt:
             raise ValueError("receipt has not been signed yet — call sign() first")
         return self.jws
 
+    #: Hard caps on untrusted JWS input. Real receipts are well under 8 KiB;
+    #: these bounds simply stop a hostile producer from forcing the parser to
+    #: allocate unbounded memory (decompression-bomb-style) before any
+    #: signature has been checked.
+    MAX_JWS_BYTES = 64 * 1024
+    MAX_PAYLOAD_BYTES = 32 * 1024
+
     @classmethod
-    def from_jws(cls, jws: str) -> ProvenanceReceipt:
+    def from_jws(cls, jws: str, *, strict: bool = False) -> ProvenanceReceipt:
         """Parse a compact JWS string back into a receipt.
 
         Does NOT verify the signature — use :class:`ProvenanceVerifier`
         for verification.
+
+        Parse hardening (always on): the raw JWS and decoded payload are
+        length-capped, and payloads containing duplicate object keys are
+        rejected (a JSON ambiguity attackers can exploit to smuggle a value
+        past one parser that a differently-behaving parser would see).
+
+        When *strict* is True the JOSE header is additionally enforced:
+        ``alg`` must be the expected ``EdDSA`` value, and ``crit`` must be
+        exactly ``["raucle/v1"]`` with that critical parameter understood —
+        any unknown ``crit`` entry is rejected. :class:`ProvenanceVerifier`
+        always parses in strict mode. The non-strict default preserves the
+        published test vectors and the cross-language conformance path
+        (which reconstructs receipts from a payload-only stub header).
         """
+        if len(jws) > cls.MAX_JWS_BYTES:
+            raise ValueError(f"JWS too large: {len(jws)} bytes > {cls.MAX_JWS_BYTES} cap")
         try:
             header_b64, payload_b64, _sig_b64 = jws.split(".")
         except ValueError as exc:
             raise ValueError("malformed JWS — expected three dot-separated segments") from exc
-        payload = json.loads(_b64url_decode(payload_b64))
+
+        payload_bytes = _b64url_decode(payload_b64)
+        if len(payload_bytes) > cls.MAX_PAYLOAD_BYTES:
+            raise ValueError(
+                f"JWS payload too large: {len(payload_bytes)} bytes > {cls.MAX_PAYLOAD_BYTES} cap"
+            )
+        payload = json.loads(payload_bytes, object_pairs_hook=_reject_duplicate_keys)
+
+        if strict:
+            cls._enforce_header(header_b64)
 
         receipt = cls(
             agent_id=payload["agent_id"],
@@ -452,6 +533,43 @@ class ProvenanceReceipt:
         receipt.jws = jws
         receipt.receipt_hash = "sha256:" + _sha256_hex(jws.encode("ascii"))
         return receipt
+
+    @classmethod
+    def _enforce_header(cls, header_b64: str) -> None:
+        """Validate the JOSE header of an untrusted receipt.
+
+        Enforces ``alg == "EdDSA"`` and ``crit == ["raucle/v1"]`` with the
+        sole critical parameter understood. Rejects unknown ``crit`` entries
+        (RFC 7515 §4.1.11: a recipient that does not understand a listed
+        critical header MUST reject the JWS).
+        """
+        try:
+            header = json.loads(
+                _b64url_decode(header_b64), object_pairs_hook=_reject_duplicate_keys
+            )
+        except (ValueError, json.JSONDecodeError) as exc:
+            raise ValueError(f"malformed JOSE header: {exc}") from exc
+        if not isinstance(header, dict):
+            raise ValueError("JOSE header must be a JSON object")
+
+        alg = header.get("alg")
+        if alg != _EXPECTED_ALG:
+            raise ValueError(f"unexpected JWS alg {alg!r} — only {_EXPECTED_ALG!r} is accepted")
+
+        crit = header.get("crit")
+        if crit is None:
+            raise ValueError("JOSE header missing required 'crit' parameter")
+        if not isinstance(crit, list) or not all(isinstance(c, str) for c in crit):
+            raise ValueError("JOSE header 'crit' must be a list of strings")
+        unknown = set(crit) - _UNDERSTOOD_CRIT
+        if unknown:
+            raise ValueError(f"unknown critical header parameter(s): {sorted(unknown)}")
+        if not _UNDERSTOOD_CRIT.issubset(crit):
+            raise ValueError(f"JOSE header 'crit' must include {sorted(_UNDERSTOOD_CRIT)}")
+        # Each entry named in `crit` must actually be present in the header.
+        for param in crit:
+            if param not in header:
+                raise ValueError(f"critical header parameter {param!r} named in 'crit' but absent")
 
     def to_dict(self) -> dict[str, Any]:
         d = self.payload()
@@ -810,6 +928,7 @@ class VerificationReport:
     parent_link_failures: int = 0
     taint_monotonicity_failures: int = 0
     capability_violations: int = 0
+    unauthorised_sanitisations: int = 0
     tampered_receipts: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
@@ -821,6 +940,7 @@ class VerificationReport:
             "parent_link_failures": self.parent_link_failures,
             "taint_monotonicity_failures": self.taint_monotonicity_failures,
             "capability_violations": self.capability_violations,
+            "unauthorised_sanitisations": self.unauthorised_sanitisations,
             "tampered_receipts": self.tampered_receipts,
             "errors": self.errors,
         }
@@ -882,7 +1002,7 @@ class ProvenanceVerifier:
                     continue
                 try:
                     raw = json.loads(line)
-                    receipt = ProvenanceReceipt.from_jws(raw["jws"])
+                    receipt = ProvenanceReceipt.from_jws(raw["jws"], strict=True)
                 except (json.JSONDecodeError, ValueError, KeyError) as exc:
                     report.errors.append(f"line {line_no}: malformed record: {exc}")
                     report.valid = False
@@ -906,7 +1026,18 @@ class ProvenanceVerifier:
                 # Capability conformance (verifier-side, when statements supplied)
                 if self._caps:
                     stmt = self._caps.get(receipt.agent_key_id)
-                    if stmt is not None:
+                    if stmt is None:
+                        # PROV-CAP-OPEN: a receipt signed by a key with no
+                        # capability statement in the supplied map is NOT
+                        # silently trusted. Once the caller opts into
+                        # capability enforcement, every key must be known.
+                        report.capability_violations += 1
+                        report.errors.append(
+                            f"line {line_no}: no capability statement supplied for "
+                            f"agent_key_id={receipt.agent_key_id} — unknown key rejected"
+                        )
+                        report.valid = False
+                    else:
                         if receipt.model and not stmt.permits_model(receipt.model):
                             report.capability_violations += 1
                             report.errors.append(
@@ -1019,6 +1150,30 @@ class ProvenanceVerifier:
             removed = set()
             if receipt.corpus.startswith("removed:"):
                 removed = set(filter(None, receipt.corpus[len("removed:") :].split(",")))
+
+            # TAINT-LAUNDER: a SANITISATION receipt is only as trustworthy as
+            # the authority granted to the signing key. When capability
+            # statements are supplied, the issuing agent may only clear tags
+            # named in its `sanitisation_authority`; anything else is an
+            # unauthorised taint-laundering attempt. Without a capabilities
+            # map we cannot check this (the `corpus="removed:..."` claim is
+            # self-asserted and trusted — documented trust assumption).
+            if self._caps:
+                stmt = self._caps.get(receipt.agent_key_id)
+                # A missing statement is already flagged as a capability
+                # violation in the first pass; treat it as authorising nothing.
+                unauthorised = {
+                    tag for tag in removed if stmt is None or not stmt.permits_sanitising(tag)
+                }
+                if unauthorised:
+                    report.unauthorised_sanitisations += 1
+                    report.errors.append(
+                        f"receipt {receipt.receipt_hash}: agent {receipt.agent_key_id} "
+                        f"cleared taint tag(s) {sorted(unauthorised)} without "
+                        f"sanitisation_authority — unauthorised taint laundering"
+                    )
+                    report.valid = False
+
             expected = inherited - removed
             if my_taint != expected:
                 report.taint_monotonicity_failures += 1

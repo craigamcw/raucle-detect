@@ -1103,7 +1103,9 @@ def _cmd_feed_keygen(args: argparse.Namespace) -> int:
     from raucle_detect.feed import IOCSigner
 
     signer = IOCSigner.generate(issuer=args.issuer)
-    Path(f"{args.out}.key.pem").write_bytes(_dump_priv_pem(signer))
+    from raucle_detect.feed import _write_private_bytes
+
+    _write_private_bytes(Path(f"{args.out}.key.pem"), _dump_priv_pem(signer))
     Path(f"{args.out}.pub.pem").write_text(signer.public_key_pem)
     print(f"Issuer:   {args.issuer}")
     print(f"Key ID:   {signer.key_id}")

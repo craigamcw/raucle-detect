@@ -306,7 +306,7 @@ Raucle Detect enforces input size limits to prevent denial-of-service via oversi
 
 - **`MAX_INPUT_BYTES`** (1 MB) -- CLI file inputs larger than this are truncated before processing.
 - **`MAX_INPUT_LENGTH`** (100,000 characters) -- Prompts exceeding this length are truncated at the scanner level. A note is added to the `ScanResult.notes` field when truncation occurs.
-- **ReDoS protection** -- Patterns that could cause exponential backtracking (e.g. repetition rules) apply a tighter 10,000-character limit per pattern match.
+- **ReDoS protection** -- *Every* pattern is matched against at most the first 10,000 characters of the input (not just a hand-picked subset), so no single regex can be driven into catastrophic backtracking by an oversized payload. Patterns that span arbitrary text additionally bound their wildcard spans (e.g. `.{0,200}?`). As a final backstop, each scan has a hard wall-clock budget: if pattern evaluation exceeds it, the scan stops early and returns its current verdict rather than hanging.
 
 These limits ensure predictable latency regardless of input size.
 

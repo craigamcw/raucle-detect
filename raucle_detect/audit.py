@@ -429,8 +429,53 @@ class AuditVerifier:
 
             self._public_key = serialization.load_pem_public_key(public_key_pem)
 
-    def verify_chain(self, path: str | Path) -> VerificationReport:
-        """Verify the chain at *path*.  Returns a :class:`VerificationReport`."""
+    def verify_chain(
+        self,
+        path: str | Path,
+        expected_head: dict[str, Any] | None = None,
+    ) -> VerificationReport:
+        """Verify the chain at *path*.  Returns a :class:`VerificationReport`.
+
+        Parameters
+        ----------
+        expected_head : dict | None
+            Optional externally-anchored high-water mark used to detect
+            trailing-record truncation. Recognised keys:
+
+            * ``"index"`` — the expected final event index. The chain's last
+              event index must equal this (so dropping the final N events is
+              detected as ``index`` falling short).
+            * ``"hash"`` — the expected hash (``sha256`` hex) of the final
+              event record.
+            * ``"merkle_root"`` — the expected Merkle root over all leaf
+              hashes 0..N.
+
+            When supplied, verification fails if the actual head does not
+            match. This is the **only** way to detect truncation that drops
+            records past the last signed checkpoint: a hash chain or a signed
+            checkpoint can only attest to records it has seen, so a verifier
+            with no external anchor cannot distinguish a truncated-but-valid
+            prefix from a complete chain. Anchor this value out-of-band
+            (e.g. emit it from the writer, store it in a separate trust store).
+
+        Downgrade / truncation protection
+        ----------------------------------
+        When this verifier was constructed *with* a ``public_key_pem``:
+
+        * a chain that is not ``signed_mode == "signed"`` (unsigned or a
+          legacy header-less chain) is rejected — a verifier holding a key
+          must not silently accept a signature-stripped chain
+          (``AUDIT-DOWNGRADE``); and
+        * the chain MUST carry a valid signed checkpoint covering the FINAL
+          event index. Any event records appearing after the last signed
+          checkpoint are an unverifiable tail and the chain is rejected
+          (``AUDIT-TRUNC``). A cleanly-closed chain always has such a head
+          checkpoint because :meth:`HashChainSink.close` emits one.
+
+        When NO key is supplied, behaviour is unchanged: a best-effort
+        hash-chain integrity check (still detects in-place tampering, but
+        cannot detect trailing truncation without ``expected_head``).
+        """
         report = VerificationReport(
             valid=True,
             event_count=0,
@@ -442,6 +487,11 @@ class AuditVerifier:
         prev_hash = HashChainSink._GENESIS_HASH
         expected_index = 0
         leaf_hashes: list[str] = []
+        # Highest event index covered by a valid signed checkpoint, plus
+        # the index of the last event record seen. Used for AUDIT-TRUNC.
+        last_signed_checkpoint_index = -1
+        last_event_index = -1
+        last_event_hash: str | None = None
 
         with open(path, encoding="utf-8") as fh:
             for line_no, line in enumerate(fh, start=1):
@@ -460,7 +510,13 @@ class AuditVerifier:
                     continue
 
                 if rec.get("checkpoint"):
+                    sigs_before = report.valid_signatures
                     self._verify_checkpoint(rec, leaf_hashes, expected_index, report)
+                    # A checkpoint that produced a verified signature (only
+                    # possible when a public key is supplied) advances the
+                    # high-water mark of cryptographically-attested records.
+                    if report.valid_signatures > sigs_before:
+                        last_signed_checkpoint_index = rec.get("index", -1)
                     continue
 
                 # Verify event record
@@ -497,10 +553,84 @@ class AuditVerifier:
 
                 leaf_hashes.append(stored_hash or "")
                 prev_hash = stored_hash or prev_hash
+                last_event_index = expected_index
+                last_event_hash = stored_hash
                 expected_index += 1
                 report.event_count += 1
 
+        # ---- AUDIT-DOWNGRADE: a verifier holding a key must not accept a
+        # signature-stripped chain. Anything not provably "signed" is invalid.
+        if self._public_key is not None and report.signed_mode != "signed":
+            report.errors.append(
+                "public key supplied but chain is not signed "
+                f"(signed_mode={report.signed_mode!r}) — refusing to accept a "
+                "signature-stripped / unattributed chain (AUDIT-DOWNGRADE)"
+            )
+            report.valid = False
+
+        # ---- AUDIT-TRUNC (a): with a key, require a signed checkpoint that
+        # covers the final event index. Any event past the last signed
+        # checkpoint is an unverifiable tail (could be a truncation point —
+        # or, symmetrically, the dropped records are simply gone). A cleanly
+        # closed chain has a head checkpoint at the final index.
+        if (
+            self._public_key is not None
+            and report.signed_mode == "signed"
+            and last_event_index >= 0
+            and last_signed_checkpoint_index < last_event_index + 1
+        ):
+            report.errors.append(
+                f"unverifiable tail beyond last signed checkpoint: last signed "
+                f"checkpoint covers index {last_signed_checkpoint_index}, but chain "
+                f"has events through index {last_event_index} (AUDIT-TRUNC)"
+            )
+            report.valid = False
+
+        # ---- AUDIT-TRUNC (b): externally-anchored high-water mark. The only
+        # way to detect truncation that drops records past the last checkpoint.
+        if expected_head is not None:
+            self._verify_expected_head(
+                expected_head, last_event_index, last_event_hash, leaf_hashes, report
+            )
+
         return report
+
+    @staticmethod
+    def _verify_expected_head(
+        expected_head: dict[str, Any],
+        last_event_index: int,
+        last_event_hash: str | None,
+        leaf_hashes: list[str],
+        report: VerificationReport,
+    ) -> None:
+        """Compare the actual chain head against an externally-supplied anchor."""
+        exp_index = expected_head.get("index")
+        if exp_index is not None and exp_index != last_event_index:
+            report.errors.append(
+                f"head index mismatch: expected final index {exp_index}, "
+                f"actual {last_event_index} — chain truncated or extended "
+                f"(AUDIT-TRUNC)"
+            )
+            report.valid = False
+
+        exp_hash = expected_head.get("hash")
+        if exp_hash is not None and exp_hash != last_event_hash:
+            report.errors.append(
+                f"head hash mismatch: expected final record hash {exp_hash!r}, "
+                f"actual {last_event_hash!r} — chain truncated or tampered "
+                f"(AUDIT-TRUNC)"
+            )
+            report.valid = False
+
+        exp_root = expected_head.get("merkle_root")
+        if exp_root is not None:
+            actual_root = _merkle_root(leaf_hashes)
+            if exp_root != actual_root:
+                report.errors.append(
+                    f"head merkle_root mismatch: expected {exp_root!r}, actual "
+                    f"{actual_root!r} — chain truncated or tampered (AUDIT-TRUNC)"
+                )
+                report.valid = False
 
     def _verify_chain_header(
         self,
