@@ -26,7 +26,9 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
+from .prove import ProofResult
 from .provenance import (
+    CapabilityStatement,
     ProvenanceReceipt,
     ProvenanceVerifier,
     _canonical_json,
@@ -43,6 +45,43 @@ _PROOF_STATUS = {
     "REFUTED": (RED, "policy REFUTED — a counterexample exists"),
     "UNDECIDED": (AMBER, "UNDECIDED — prover could not certify; not a failure, not a proof"),
 }
+
+
+def _proof_hash_ok(p: dict[str, Any]) -> bool:
+    """A supplied proof dict is trusted only if its claimed ``hash`` equals the
+    hash recomputed from its own body (the content-address binding). Without this
+    a caller could assert ``status: PROVEN`` under a chosen hash and never run the
+    prover. Recomputed via the real ProofResult so the canonical form matches."""
+    claimed = p.get("hash")
+    if not claimed:
+        return False
+    try:
+        recomputed = ProofResult(
+            status=str(p.get("status", "")),
+            prover=p.get("prover", ""),
+            prover_version=p.get("prover_version", ""),
+            grammar_hash=p.get("grammar_hash", ""),
+            policy_hash=p.get("policy_hash", ""),
+            counterexample=p.get("counterexample"),
+            notes=list(p.get("notes", [])),
+            timeout_ms=int(p.get("timeout_ms", 0)),
+        ).hash
+    except (TypeError, ValueError):
+        return False
+    return recomputed == claimed
+
+
+def _proof_verdict(p: dict[str, Any]) -> tuple[str, str]:
+    """Colour + detail for a supplied proof, after content-address verification.
+    A hash that does not match the recomputed body is untrusted → AMBER, never
+    GREEN — even if it claims PROVEN."""
+    if not _proof_hash_ok(p):
+        return AMBER, "untrusted: claimed hash does not match the recomputed ProofResult hash"
+    status_str = str(p.get("status", "")).upper()
+    colour, detail = _PROOF_STATUS.get(status_str, (AMBER, f"unknown proof status {status_str!r}"))
+    if status_str == "REFUTED" and p.get("counterexample"):
+        detail += f"; counterexample: {json.dumps(p['counterexample'], sort_keys=True)}"
+    return colour, detail
 
 
 @dataclass
@@ -161,17 +200,23 @@ def build_report(
     generated_at: int,
     tool_version: str = __version__,
     capabilities: list[dict[str, Any]] | None = None,
+    capability_statements: dict[str, CapabilityStatement] | None = None,
 ) -> AuditReport:
     """Compute the audit report. ``generated_at`` is injected (not read from the
     clock) so the manifest is deterministic and testable.
 
-    ``capabilities`` (optional) is a list of capability tokens — each carrying at
-    least ``tool`` and ``policy_proof_hash`` — used to join a tool node to the
-    proof it cites, so a node can show a discharged proof obligation inline.
+    ``capability_statements`` ({key_id: CapabilityStatement}) are passed to the
+    verifier so it ENFORCES each agent's allowed-tools/models — without them a
+    chain calling a forbidden tool would verify clean and the node would show
+    GREEN. ``capabilities`` (optional) is a list of capability tokens — each
+    carrying ``tool`` and ``policy_proof_hash`` — used only to join a tool node
+    to the proof it cites.
     """
     proofs = proofs or []
     capabilities = capabilities or []
-    verifier = ProvenanceVerifier(public_keys=public_keys)
+    verifier = ProvenanceVerifier(
+        public_keys=public_keys, capabilities=capability_statements or None
+    )
     verdict = verifier.verify_chain(chain_path)
     numbered = _load_receipts(chain_path)
     tampered = set(verdict.tampered_receipts)
@@ -229,14 +274,9 @@ def build_report(
 
     # Proof obligations from supplied ProofResult dicts.
     obligations: list[ProofObligation] = []
-    proof_by_hash: dict[str, dict[str, Any]] = {}
+    proof_verdict_by_hash: dict[str, tuple[str, str]] = {}
     for p in proofs:
-        status_str = str(p.get("status", "")).upper()
-        colour, detail = _PROOF_STATUS.get(
-            status_str, (AMBER, f"unknown proof status {status_str!r}")
-        )
-        if status_str == "REFUTED" and p.get("counterexample"):
-            detail += f"; counterexample: {json.dumps(p['counterexample'], sort_keys=True)}"
+        colour, detail = _proof_verdict(p)
         obligations.append(
             ProofObligation(
                 name=p.get("prover", "policy completeness"),
@@ -248,8 +288,10 @@ def build_report(
                 detail=detail,
             )
         )
-        if p.get("hash"):
-            proof_by_hash[p["hash"]] = p
+        # Only index trusted (hash-verified) proofs for the node join, so a
+        # forged hash cannot be matched by a citing capability.
+        if p.get("hash") and _proof_hash_ok(p):
+            proof_verdict_by_hash[p["hash"]] = (colour, detail)
 
     # Join: a tool node → the capability for that tool → the proof it cites.
     cap_by_tool = {c.get("tool"): c for c in capabilities if c.get("tool")}
@@ -261,15 +303,16 @@ def build_report(
             continue
         node.proof_certificate = cited
         node.lean_theorem = "Theorem 3 (policy-proof composition)"
-        proof = proof_by_hash.get(cited)
-        if proof is None:
+        verdict_pair = proof_verdict_by_hash.get(cited)
+        if verdict_pair is None:
             node.proof_status = AMBER
             node.status = _worse(node.status, AMBER)
-            node.evidence.append(f"capability cites proof {cited} but the proof was not supplied")
+            node.evidence.append(
+                f"capability cites proof {cited} but no trusted (hash-verified) "
+                f"proof with that hash was supplied"
+            )
             continue
-        pstatus, pdetail = _PROOF_STATUS.get(
-            str(proof.get("status", "")).upper(), (AMBER, "unknown")
-        )
+        pstatus, pdetail = verdict_pair
         node.proof_status = pstatus
         node.status = _worse(node.status, pstatus)
         node.evidence.append(f"cited proof {cited}: {pdetail}")
@@ -292,6 +335,12 @@ def build_report(
         "chain_sha256": "sha256:" + _sha256_hex(Path(chain_path).read_bytes()),
         "public_keys": {
             kid: "sha256:" + _sha256_hex(pem) for kid, pem in sorted(public_keys.items())
+        },
+        # The enforced capability statements are an input that changes verdicts
+        # (allowed-tools/models), so bind their content into the manifest too.
+        "capability_statements": {
+            kid: "sha256:" + _sha256_hex(_canonical_json(stmt.to_dict()))
+            for kid, stmt in sorted((capability_statements or {}).items())
         },
         "proofs": [p.get("hash", "") for p in proofs],
     }
@@ -347,17 +396,31 @@ def sign_manifest(report: AuditReport, audit_key_pem: bytes) -> dict[str, Any]:
     }
 
 
+def signer_key_id(manifest: dict[str, Any]) -> str:
+    """The signer identity DERIVED from the embedded public key — never the
+    free-text ``signer_key_id`` field, which is unsigned and display-only."""
+    pem = manifest["signer_public_key_pem"].encode("ascii")
+    return _sha256_hex(pem)[:16]
+
+
 def verify_manifest(manifest: dict[str, Any]) -> bool:
-    """Re-verify a signed manifest offline: the signature checks out under the
-    embedded public key, over the canonical bytes of ``body``."""
+    """Re-verify a signed manifest offline. Two checks: (1) the signature is
+    valid under the embedded public key over the canonical ``body`` bytes; and
+    (2) the displayed ``signer_key_id`` actually equals the id derived from that
+    public key — so a mutated identity label is rejected, not silently trusted.
+
+    Note: this confirms internal consistency. WHICH key to trust is the caller's
+    out-of-band pinning step (as with the provenance trusted-issuer set)."""
     serialization, _, _ = _require_crypto()
     try:
-        pub = serialization.load_pem_public_key(manifest["signer_public_key_pem"].encode("ascii"))
+        pem = manifest["signer_public_key_pem"].encode("ascii")
+        pub = serialization.load_pem_public_key(pem)
         sig_hex = manifest["signature"].split(":", 1)[1]
         pub.verify(bytes.fromhex(sig_hex), _canonical_json(manifest["body"]))
-        return True
     except Exception:
         return False
+    # The displayed key id must match the key that actually verified.
+    return manifest.get("signer_key_id") == _sha256_hex(pem)[:16]
 
 
 # ---------------------------------------------------------------------------
@@ -373,6 +436,12 @@ def _esc(s: str) -> str:
     return html.escape(str(s))
 
 
+def _badge(status: str) -> str:
+    """A fixed badge for a known status, else the escaped raw value — never raw
+    HTML (a hand-crafted manifest with status '<script>...' must not inject)."""
+    return _BADGE.get(status, _esc(status))
+
+
 def render_html(manifest: dict[str, Any]) -> str:
     """Render the signed manifest as a self-contained HTML report (print → PDF)."""
     body = manifest["body"]
@@ -386,13 +455,13 @@ def render_html(manifest: dict[str, Any]) -> str:
                 f" · {_esc(n.get('lean_theorem', ''))}</small>"
             )
         rows.append(
-            f"<tr><td>{_esc(n['label'])}{cert}</td><td>{_BADGE.get(n['status'], n['status'])}</td>"
+            f"<tr><td>{_esc(n['label'])}{cert}</td><td>{_badge(n['status'])}</td>"
             f"<td>{_esc('; '.join(n['evidence']))}</td></tr>"
         )
     obls = []
     for o in body["obligations"]:
         obls.append(
-            f"<tr><td>{_esc(o['name'])}</td><td>{_BADGE.get(o['status'], o['status'])}</td>"
+            f"<tr><td>{_esc(o['name'])}</td><td>{_badge(o['status'])}</td>"
             f"<td><code>{_esc(o['certificate'])}</code></td><td>{_esc(o['detail'])}</td></tr>"
         )
     pk = "".join(
@@ -411,6 +480,7 @@ def render_html(manifest: dict[str, Any]) -> str:
     obl_rows = "".join(obls) or "<tr><td colspan=4>none supplied</td></tr>"
     g, a, rd = s["green"], s["amber"], s["red"]
     chain_state = "VALID" if s["chain_valid"] else "INVALID"
+    signer = signer_key_id(manifest)  # derived from the embedded key, not the label
     return f"""<!doctype html>
 <html><head><meta charset="utf-8"><title>raucle audit export</title>
 <style>
@@ -425,7 +495,7 @@ def render_html(manifest: dict[str, Any]) -> str:
 <p class="sum">Chain: <strong>{chain_state}</strong> ·
  {s["receipt_count"]} receipts · ✅ {g} green · ⚠️ {a} amber · ⛔ {rd} red</p>
 <p>Generated at {body["generated_at"]} · tool v{_esc(body["tool_version"])} ·
- signed by <code>{_esc(manifest["signer_key_id"])}</code></p>
+ signed by <code>{_esc(signer)}</code></p>
 
 <h2>Agents &amp; tools</h2>
 <table><tr><th>Node</th><th>Status</th><th>Evidence</th></tr>{node_rows}</table>
