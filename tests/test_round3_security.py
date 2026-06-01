@@ -184,6 +184,53 @@ def test_feed_assert_safe_url_blocks_metadata_ip():
         _assert_safe_url("https://evil.example/x")
 
 
+# --- #21 live DNS-rebind pin: connection dials the validated IP, resolves once ---
+class _StopDial(Exception):
+    """Sentinel raised from the mocked dial so we don't need a full TLS/HTTP fake."""
+
+
+def test_feed_fetch_pins_validated_ip_and_resolves_once():
+    """fetch_feed must dial the IP that _assert_safe_url validated, and must NOT
+    perform a second DNS lookup at connect time (the DNS-rebind defense). Before
+    the #21 fix this path was dead code (TypeError) and never exercised at all.
+    """
+    import socket as _socket
+
+    from raucle_detect.feed import fetch_feed
+
+    safe_ip = "93.184.216.34"
+    getaddr = mock.Mock(return_value=[(2, 1, 6, "", (safe_ip, 443))])
+    dialed: list = []
+
+    def _fake_create_connection(addr, *a, **k):
+        dialed.append(addr)
+        raise _StopDial  # stop before TLS/HTTP — we only assert the dial target
+
+    with (
+        mock.patch.object(_socket, "getaddrinfo", getaddr),
+        mock.patch.object(_socket, "create_connection", _fake_create_connection),
+        pytest.raises(_StopDial),
+    ):
+        fetch_feed("https://example.com/feed.json")
+
+    # Dialed exactly the pinned, pre-validated IP — not a re-resolved address.
+    assert dialed == [(safe_ip, 443)]
+    # Resolved exactly once: the pin means no second lookup a rebind could poison.
+    assert getaddr.call_count == 1
+
+
+def test_feed_fetch_rejects_url_whose_host_resolves_to_blocked_ip():
+    import socket as _socket
+
+    from raucle_detect.feed import fetch_feed
+
+    with (
+        mock.patch.object(_socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("10.0.0.5", 443))]),
+        pytest.raises(ValueError),
+    ):
+        fetch_feed("https://internal.example/feed.json")
+
+
 # --- LangChain blacklist-on-opaque-string guard (#3b/#5) ---------------------
 def test_langchain_blacklist_helper():
     lc = pytest.importorskip("raucle_detect.integrations.langchain")
