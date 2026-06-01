@@ -702,3 +702,26 @@ def test_canonical_json_rejects_nan_infinity():
     for bad in [float("nan"), float("inf"), float("-inf")]:
         with pytest.raises(ValueError):
             _canonical_json({"x": bad})
+
+
+def test_cli_errors_are_clean_not_tracebacks(capsys):
+    """CLI prints 'error: ...' for expected user errors, never a raw traceback."""
+    from raucle_detect.cli import main
+
+    rc = main(
+        [
+            "cap",
+            "check",
+            "/no/such.json",
+            "--pubkey",
+            "/no/such.pem",
+            "--tool",
+            "x",
+            "--args",
+            "/no/such.json",
+        ]
+    )
+    out = capsys.readouterr()
+    assert rc == 1
+    assert "Traceback" not in (out.out + out.err)
+    assert "error:" in out.err.lower()
