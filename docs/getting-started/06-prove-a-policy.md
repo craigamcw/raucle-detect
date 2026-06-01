@@ -27,16 +27,16 @@ The difference is what an auditor needs.
 ## Step 1 — install with the proof extra
 
 ```bash
-pip install 'raucle-detect[proof]'
+pip install 'raucle-detect[proof,compliance]'
 ```
 
-This pulls in `z3-solver` (Microsoft Research's SMT solver). Add `[proof]` to your existing extras — it composes with `[agent-framework]`, `[compliance]`, etc.
+`[proof]` pulls in `z3-solver` (Microsoft Research's SMT solver) for the prover. `[compliance]` pulls in `cryptography`, which Step 6 needs to mint a capability token citing the proof. Both compose with `[agent-framework]` and the other extras.
 
 ---
 
 ## Step 2 — define the tool's JSON Schema
 
-A `lookup_customer` tool that takes a customer ID and an optional fields list:
+A `lookup_customer` tool that takes a customer ID, a service tier, and an optional amount:
 
 ```python
 schema = {
@@ -46,51 +46,56 @@ schema = {
             "type": "string",
             "pattern": "^C-[0-9]+$",  # must start C- followed by digits
         },
-        "fields": {
-            "type": "array",
-            "items": {
-                "type": "string",
-                "enum": ["name", "address", "phone", "ssn"],
-            },
+        "tier": {
+            "type": "string",
+            "enum": ["bronze", "silver"],
+        },
+        "amount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000,
         },
     },
     "required": ["customer_id"],
 }
 ```
 
-The prover reads this. It understands `type`, `enum`, `pattern` (a bounded subset), `minimum`/`maximum` for numbers, `required`, `properties`, and a few more — see the spec at `docs/spec/json-schema-proof-v1.md` for the exact decidable subset.
+The prover reads this. It understands top-level `type: object` with `properties`, plus per-property `string` (with `enum`), `integer` / `number` (with `minimum` / `maximum`), `boolean`, and `required`. Properties of unsupported types (e.g. `array`) raise `UnsupportedGrammar` — the prover refuses to silently over-approximate.
 
 ---
 
 ## Step 3 — write the policy
 
-We don't want the `ssn` field exposed without elevated trust:
+We never want the `platinum` tier reachable, and `amount` must never exceed 10000:
 
 ```python
 policy = {
-    # No field-list ever includes "ssn".
+    # The "platinum" tier must never appear.
     "forbidden_values": {
-        "fields": ["ssn"],
+        "tier": ["platinum"],
+    },
+    # amount can never exceed 10000.
+    "max_value": {
+        "amount": 10000,
     },
 }
 ```
 
-`forbidden_values` is the simplest policy form. Others (full list in `docs/spec/policy-v1.md`):
+`forbidden_values` and `max_value` are two of the supported policy forms. Others:
 
-- `allowed_values`: complement — only listed values are permitted.
-- `max_value` / `min_value`: numeric bounds.
-- `required_present`: tuples of fields that must coexist when one does.
-- `forbidden_field_combinations`: tuples that must not coexist.
+- `min_value`: numeric lower bounds.
+- `required_present`: fields that must be present.
+- `forbidden_field_combinations`: field tuples that must not co-occur.
 
 ---
 
 ## Step 4 — prove it
 
 ```python
-from raucle_detect.proof import JSONSchemaProver
+from raucle_detect.prove import JSONSchemaProver
 
-prover = JSONSchemaProver()
-result = prover.prove(schema=schema, policy=policy, timeout_ms=5000)
+prover = JSONSchemaProver(timeout_ms=5000)
+result = prover.prove(schema=schema, policy=policy)
 
 print(f"status            : {result.status}")  # PROVEN | REFUTED | UNDECIDED
 print(f"prover            : {result.prover} {result.prover_version}")
@@ -99,14 +104,14 @@ print(f"policy hash       : {result.policy_hash}")
 print(f"content-address   : {result.hash}")
 ```
 
-Expected output:
+Expected output (hashes will match exactly for this schema + policy):
 
 ```
 status            : PROVEN
-prover            : raucle.json-schema 0.9.0
-grammar hash      : sha256:abc123...
-policy hash       : sha256:def456...
-content-address   : sha256:9f8a...
+prover            : JSONSchemaProver jsonschema-prover/v1
+grammar hash      : sha256:9b67b33866ee5ce44bbf7e44db83a21038f81b6d0aaf9792e321b77b227742a0
+policy hash       : sha256:3861bf6b6deccdd364d9ff25b14ec08c385abbc14003fcf768b432ab071503f2
+content-address   : sha256:cf33127dfc032a7dba26ae7736a0e40152580baa38f3f3f4647360030012cca1
 ```
 
 That `content-address` is what your tokens cite. It's a hash over the (status, prover, grammar_hash, policy_hash, counterexample, notes) tuple — content-addressed, deterministic, citeable in receipts.
@@ -115,12 +120,12 @@ That `content-address` is what your tokens cite. It's a hash over the (status, p
 
 ## Step 5 — break it on purpose
 
-Drop the `enum` constraint on `fields` so the schema admits arbitrary strings, but keep the policy forbidding `"ssn"`:
+Drop the `enum` constraint on `tier` so the schema admits arbitrary strings, but keep the policy forbidding `"platinum"`:
 
 ```python
-schema["properties"]["fields"]["items"].pop("enum")
+schema["properties"]["tier"].pop("enum")
 
-result = prover.prove(schema=schema, policy=policy, timeout_ms=5000)
+result = prover.prove(schema=schema, policy=policy)
 print(f"status            : {result.status}")
 if result.status == "REFUTED":
     print("counterexample    :")
@@ -132,12 +137,12 @@ Output:
 ```
 status            : REFUTED
 counterexample    :
-   {'customer_id': 'C-0', 'fields': ['ssn']}
+   {'customer_id': '', 'tier': 'platinum', 'amount': 0}
 ```
 
 The prover **constructed a concrete call** that satisfies the schema but violates the policy. This is the counterexample you'd hand to whoever wrote the schema — it's actionable, not abstract.
 
-(With the `enum` constraint back in place, no string in the schema admits `"ssn"` in `fields`, so the policy is provably watertight.)
+(With the `enum` constraint back in place, `tier` can only be `"bronze"` or `"silver"`, so no schema-valid call admits `"platinum"` and the policy is provably watertight.)
 
 ---
 
@@ -151,14 +156,14 @@ from raucle_detect.capability import CapabilityIssuer
 issuer = CapabilityIssuer.generate(issuer="acme.bank.kyc")
 
 # Re-prove with the enum in place
-schema["properties"]["fields"]["items"]["enum"] = ["name", "address", "phone", "ssn"]
+schema["properties"]["tier"]["enum"] = ["bronze", "silver"]
 result = prover.prove(schema=schema, policy=policy)
 
 token = issuer.mint(
     agent_id="agent:kyc-prod",
     tool="lookup_customer",
     constraints={
-        "forbidden_values": {"fields": ["ssn"]},
+        "forbidden_values": {"tier": ["platinum"]},
     },
     ttl_seconds=300,
     policy_proof_hash=result.hash,   # <— cites the proof
@@ -179,23 +184,31 @@ That's the full chain. The receipt is provable, not merely declared.
 
 ## Step 7 — publish the proof
 
-For an auditor to step 2 above, the proof has to be reachable. The simplest publication is a file under your issuer's `.well-known`:
+For an auditor to do step 2 above, the proof has to be reachable. Dump the full `ProofResult` to a file (the auditor re-proves from the same `schema` + `policy` and confirms the hash matches):
 
-```bash
-mkdir -p /var/www/.well-known/raucle-policies
-# Re-run the prove + dump:
-python3 -c "
-from raucle_detect.proof import JSONSchemaProver
-import json, sys
-prover = JSONSchemaProver()
-schema = $schema_python
-policy = $policy_python
-result = prover.prove(schema=schema, policy=policy)
-sys.stdout.write(result.to_canonical_json())
-" > /var/www/.well-known/raucle-policies/$(python3 -c '...hash...').json
+```python
+import json
+
+artefact = result.to_dict()          # status, prover, hashes, counterexample, content-address
+with open(f"{result.hash.replace(':', '_')}.json", "w") as f:
+    json.dump(artefact, f, indent=2)
+
+print("published proof artefact:", result.hash)
 ```
 
-Now any receipt citing that hash points at a reachable artefact. (We're skipping the issuer-signature on the proof file for tutorial brevity; the production-grade pattern is in `docs/operations/publish-policy-registry.md`.)
+You can also drive the whole prove step from the command line, which is the form most CI pipelines use. Put the schema and policy in files and run:
+
+```bash
+raucle-detect prove json --schema schema.json --policy policy.json
+```
+
+```
+PROVEN  prover=JSONSchemaProver  hash=sha256:cf33127dfc032a7dba26ae7736a0e40152580baa38f3f3f4647360030012cca1
+```
+
+Exit code is `0` for PROVEN, `2` for REFUTED (the counterexample prints to stderr), `1` for UNDECIDED — so a CI gate can simply check the exit status.
+
+Now any receipt citing that hash points at a reachable artefact. (We're skipping the issuer-signature on the proof file for tutorial brevity.)
 
 If you're using [Raucle Cloud](https://cloud.raucle.com), the registry is hosted for you and the URL is auto-populated into every receipt's `verification_pointers.policy_registry`.
 
@@ -209,9 +222,8 @@ A policy that is **structurally enforced**, not configured. The auditor can re-p
 
 ## Where next
 
-- **[Policy recipes](../guides/policy-recipes.md)** — patterns: amount caps, regex allowlists, required-field-combination rules, "no SSN unless elevated capability".
-- **[URLPolicyProver](../guides/url-policy.md)** — same idea, for URL allowlists (require_https, host_allowlist with wildcards, max_path_depth).
-- **[SQLClauseProver](../guides/sql-policy.md)** — same idea, for bounded SQL templates (forbidden_tokens, allowed_tables).
-- **[Lean development](../../paper/README.md)** — the soundness theorems backing the prover (`VCD.GateAllowImpliesPolicy`, `VCD.TokenCitingProofConforms`).
+- **`URLPolicyProver`** — same idea, for URL allowlists (`raucle-detect prove url`): require_https, host_allowlist with wildcards, max_path_depth.
+- **`SQLClauseProver`** — same idea, for bounded read-only SQL templates (`raucle-detect prove sql`): forbidden_tokens, allowed_tables.
+- **[Paper draft](../../paper/DRAFT.md)** — the soundness theorems backing the prover (`VCD.GateAllowImpliesPolicy`, `VCD.TokenCitingProofConforms`).
 
 If you'd rather author policies in a UI with a live "Prove" button and a counterexample browser, that's [Raucle Cloud's](https://cloud.raucle.com) Policies workspace (phase 5b — shipping shortly).

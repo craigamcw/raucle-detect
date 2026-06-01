@@ -10,7 +10,7 @@ readme = "README.md"
 license = "AGPL-3.0-or-later"
 requires-python = ">=3.10"
 authors = [
-    { name = "Raucle", email = "oss@raucle.io" },
+    { name = "Raucle", email = "oss@raucle.com" },
 ]
 keywords = [
     "ai-agents",
@@ -71,10 +71,10 @@ all = ["raucle-detect[rules,ml,server,compliance,multimodal,proof]"]
 raucle-detect = "raucle_detect.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/raucle/raucle-detect"
-Documentation = "https://docs.raucle.io/raucle-detect"
-Repository = "https://github.com/raucle/raucle-detect"
-Issues = "https://github.com/raucle/raucle-detect/issues"
+Homepage = "https://raucle.com"
+Documentation = "https://github.com/craigamcw/raucle-detect/tree/main/docs"
+Repository = "https://github.com/craigamcw/raucle-detect"
+Issues = "https://github.com/craigamcw/raucle-detect/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["raucle_detect"]

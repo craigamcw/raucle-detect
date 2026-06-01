@@ -17,8 +17,10 @@ No agent framework. No LLM. No network. Just the gate and the primitives.
 ## Step 1 — install
 
 ```bash
-pip install raucle-detect
+pip install 'raucle-detect[compliance]'
 ```
+
+The `[compliance]` extra pulls in `cryptography`, which the capability tokens, signed audit chain, and receipts all depend on.
 
 (If `pip` complains about Python version, ensure you're on 3.10 or newer.)
 
@@ -127,48 +129,74 @@ print(f"reason  : {bad_decision.reason}")
 
 ## Step 6 — emit a signed receipt
 
-Receipts are the audit artefact. They're content-addressed JSON + an Ed25519 signature, written to a hash-chained log.
+Receipts are the audit artefact. Each decision is appended to a hash-chained, append-only log: every record links to the previous record's hash, and the chain is anchored by periodic Ed25519-signed checkpoints (written every `checkpoint_every` records and on close). Tampering with any past record breaks the chain.
 
 ```python
+import hashlib, json
 from raucle_detect.audit import HashChainSink, Ed25519Signer
 
 signer = Ed25519Signer.generate()
 sink = HashChainSink("./receipts.log", signer=signer)
 
+# Hash the call args locally so the receipt records *what* was inspected
+# without leaking the argument values themselves.
+args = {"customer_id": "C-1042"}
+args_hash = "sha256:" + hashlib.sha256(
+    json.dumps(args, sort_keys=True, separators=(",", ":")).encode()
+).hexdigest()
+
 # Append a receipt for the ALLOW above:
-receipt = sink.append({
-    "agent_id":         "agent:kyc-prod",
-    "tool":             "lookup_customer",
-    "decision":         "ALLOW" if decision.allowed else "DENY",
-    "reason":           decision.reason,
-    "args_hash":        sink.hash_args({"customer_id": "C-1042"}),
+record = sink.append({
+    "agent_id":          "agent:kyc-prod",
+    "tool":              "lookup_customer",
+    "decision":          "ALLOW" if decision.allowed else "DENY",
+    "reason":            decision.reason,
+    "args_hash":         args_hash,
     "policy_proof_hash": token.policy_proof_hash,
-    "issuer":           issuer.issuer,
-    "key_id":           issuer.key_id,
+    "issuer":            issuer.issuer,
+    "key_id":            issuer.key_id,
 })
 
-print(f"\nreceipt hash: {receipt['hash']}")
-print(f"signature   : {receipt['signature'][:32]}...")
+print(f"\nrecord index: {record['index']}")
+print(f"record hash : {record['hash']}")
+print(f"prev hash   : {record['prev_hash']}")
+
+# Flush a signed checkpoint and close the file.
+sink.close()
 ```
 
-A new file `receipts.log` exists in your directory. Each line is one signed receipt. The file is **append-only and hash-chained**: each row's hash includes the previous row's hash, so tampering anywhere shows up immediately.
+A new file `receipts.log` exists in your directory. Each line is one hash-chained record (with `index`, `timestamp`, `prev_hash`, `event`, and `hash`). The file is **append-only and hash-chained**: each row's hash includes the previous row's hash, so tampering anywhere shows up immediately. The Ed25519 signature lives in the periodic *checkpoint* records — signing is per-checkpoint, not per-record.
 
 ---
 
 ## Step 7 — verify offline
 
-This is the bit that matters: anyone with the receipt + the signer's public key can verify it, without contacting raucle or your platform.
+This is the bit that matters: anyone with the chain + the signer's public key can verify it, without contacting raucle or your platform.
 
-```bash
-raucle-detect receipt verify \
-    --log receipts.log \
-    --pubkey "$(python3 -c 'from raucle_detect.audit import Ed25519Signer; print(Ed25519Signer.generate().public_key_pem)')" \
-    --strict
+First, write the signer's public key to a PEM file (add this to your script, before `sink.close()`):
+
+```python
+with open("audit_pub.pem", "wb") as f:
+    f.write(signer.public_key_pem())
 ```
 
-(In a real flow, you'd publish the signer's public key alongside the receipts and the verifier loads it once. The one-liner above generates a fresh key, which won't match — use the actual `signer.public_key_pem` from your script. The intent is to show you the command shape.)
+Then verify the chain from the command line:
 
-A correct invocation returns exit code 0 and prints `OK · n receipts verified · chain intact`.
+```bash
+raucle-detect audit verify receipts.log --pubkey audit_pub.pem
+```
+
+(In a real flow, you'd publish the signer's public key alongside the chain and the verifier loads it once. The verifier never needs the private key or any network access.)
+
+A valid chain returns exit code 0 and prints a report:
+
+```
+Audit chain: VALID
+  Events:               1
+  Checkpoints:          1
+  Valid signatures:     1
+  Invalid signatures:   0
+```
 
 ---
 
@@ -187,8 +215,7 @@ The receipt is your audit artefact. Whatever you build on top — Microsoft Agen
 ## Where next
 
 - **[2. Agent Framework integration](02-agent-framework.md)** — wire the gate into Microsoft Agent Framework's middleware chain.
-- **[3. LangChain integration](03-langchain.md)** — same for LangChain / LangGraph.
-- **[5. Prove a policy](06-prove-a-policy.md)** — turn `constraints={...}` into a *proof* that no string in the tool's schema can violate the policy.
-- **[Receipt format spec](../../spec/receipt-v1.md)** — the on-wire format, in detail.
+- **[3. Prove a policy](06-prove-a-policy.md)** — turn `constraints={...}` into a *proof* that no string in the tool's schema can violate the policy.
+- **[Spec index](../spec/README.md)** — the receipt and provenance formats, in detail.
 
 If you want a system-of-record for the receipts you just produced — search, share with auditors, audit-pack export — [Raucle Cloud](https://cloud.raucle.com) hosts that.
