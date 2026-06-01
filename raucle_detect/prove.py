@@ -234,11 +234,36 @@ class JSONSchemaProver:
         # violation?  If unsat, the policy is proven complete.
         violations: list[Any] = []
 
+        # JSON Schema permits undeclared fields unless additionalProperties is
+        # explicitly false. A blacklist over a field the schema does not declare
+        # is therefore NOT vacuous: an attacker can supply that field with the
+        # forbidden value and still satisfy the schema. (Soundness fix — a bare
+        # `continue` here previously discarded the constraint and returned PROVEN
+        # for e.g. {"properties":{"x":...},"additionalProperties":true} +
+        # forbidden_values:{"role":["admin"]}, which {"x":"ok","role":"admin"}
+        # violates.)
+        additional_allowed = schema.get("additionalProperties", True) is not False
+
         for fld, bads in policy.get("forbidden_values", {}).items():
             if fld not in z3_vars:
-                notes.append(f"forbidden_values references unknown field {fld!r}")
-                continue
-            if prop_types.get(fld) != "string":
+                if not additional_allowed:
+                    # Field can never appear (additionalProperties:false), so the
+                    # blacklist is vacuously satisfied — safe to skip.
+                    notes.append(
+                        f"forbidden_values field {fld!r} not in schema; "
+                        f"additionalProperties:false makes it unreachable"
+                    )
+                    continue
+                # Model the attacker-suppliable additional property as a free
+                # string var so the solver can exhibit the violating instance.
+                z3_vars[fld] = z3.String(fld)
+                presence[fld] = z3.Bool(f"__present__{fld}")
+                prop_types[fld] = "string"
+                notes.append(
+                    f"forbidden_values field {fld!r} not declared but "
+                    f"additionalProperties allows it; modelled as a free field"
+                )
+            elif prop_types.get(fld) != "string":
                 raise UnsupportedGrammar(
                     f"forbidden_values on non-string field {fld!r} not supported"
                 )

@@ -152,6 +152,8 @@ def _sha256_hex(data: bytes) -> str:
 
 #: The single JOSE ``alg`` value accepted for provenance receipts.
 _EXPECTED_ALG = "EdDSA"
+#: Fixed JOSE/payload ``typ`` for v1 receipts (spec v1 §4.1).
+_EXPECTED_TYP = "provenance-receipt/v1"
 #: The critical-header marker every genuine receipt carries. Verifiers must
 #: understand every entry in ``crit``; this is the only one we understand.
 _UNDERSTOOD_CRIT = {"raucle/v1"}
@@ -585,6 +587,20 @@ class ProvenanceReceipt:
                     f"JOSE header kid {kid!r} does not match payload agent_key_id "
                     f"{expected_kid!r} (spec v1 §3)"
                 )
+
+        # Spec v1 §4.1: typ and the raucle/v1 profile marker are fixed literals.
+        # alg/kid/signature are the security-critical checks; these add
+        # defence-in-depth + spec conformance (a JWT lib can't be tricked into
+        # treating this as some other token type). Checked last so crit/kid
+        # violations surface with their specific diagnostics first.
+        if header.get("typ") != _EXPECTED_TYP:
+            raise ValueError(
+                f"unexpected JOSE typ {header.get('typ')!r} — must be {_EXPECTED_TYP!r}"
+            )
+        if header.get("raucle/v1") != "provenance":
+            raise ValueError(
+                f"JOSE header 'raucle/v1' must be 'provenance', got {header.get('raucle/v1')!r}"
+            )
 
     def to_dict(self) -> dict[str, Any]:
         d = self.payload()
