@@ -590,11 +590,18 @@ class SQLClauseProver:
 
         forbidden = {t.upper() for t in policy.get("forbidden_tokens", _DEFAULT_FORBIDDEN_TOKENS)}
         allow_chain = policy.get("allow_statement_chaining", False)
-        # Honour allowed_tables from EITHER policy or grammar. The docstring's
-        # grammar example lists it, so a caller following that example must not
-        # silently get an unrestricted (no-table-check) PROVEN (round-4 F3).
+        # allowed_tables is a POLICY constraint and the policy allowlist must
+        # DOMINATE. Earlier this unioned in grammar.allowed_tables, letting
+        # attacker-controlled grammar BROADEN the policy allowlist (round-6 F1).
+        # Now the grammar's copy is ignored entirely. But if it appears ONLY in
+        # the grammar (and not the policy), that is a caller mistake that would
+        # otherwise yield an unrestricted PROVEN — reject it loudly (round-4 F3).
+        if "allowed_tables" in grammar and "allowed_tables" not in policy:
+            raise UnsupportedGrammar(
+                "allowed_tables is a policy constraint, not grammar metadata — "
+                "pass it in the policy argument, not the grammar"
+            )
         allowed_tables = {t.lower() for t in policy.get("allowed_tables", [])}
-        allowed_tables |= {t.lower() for t in grammar.get("allowed_tables", [])}
 
         notes: list[str] = []
         counter: dict[str, Any] | None = None
@@ -615,6 +622,22 @@ class SQLClauseProver:
                 break
 
             if allowed_tables:
+                # The FROM/JOIN extractor is only SOUND for plain SELECT queries.
+                # Other table-bearing forms reference tables without a FROM/JOIN
+                # (COPY ... TO, SELECT ... INTO, MERGE INTO), so we cannot verify
+                # table isolation by scanning FROM/JOIN — mark UNDECIDED rather
+                # than emit a false PROVEN (round-6 F2). (These are also forbidden
+                # under the default token list; this guard holds even when a
+                # caller overrides forbidden_tokens to be permissive.)
+                if not re.match(r"\s*(WITH\b|SELECT\b)", upper) or re.search(
+                    r"\b(COPY|INTO|MERGE)\b", upper
+                ):
+                    undecidable = True
+                    notes.append(
+                        f"table-bearing statement form in {tmpl!r} not covered by the "
+                        f"FROM/JOIN extractor; table isolation not verifiable (UNDECIDED)"
+                    )
+                    continue
                 # Extract every table referenced after a FROM/JOIN, including
                 # comma-separated lists (a bare `FROM a, b` join). Capture the
                 # whole clause up to the next SQL keyword, split on commas, and

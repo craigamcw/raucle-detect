@@ -685,6 +685,13 @@ class ProvenanceReceipt:
             raise ValueError(
                 f"JOSE header 'raucle/v1' must be 'provenance', got {header.get('raucle/v1')!r}"
             )
+        # Spec v1 §4.1: reject any header key not in the fixed set. A vendor
+        # extension is only permitted if it is ALSO listed in crit (and crit must
+        # be exactly ['raucle/v1'] here, so in practice no extras are allowed).
+        allowed_header_keys = {"alg", "typ", "kid", "crit"} | set(header.get("crit") or [])
+        extra = set(header) - allowed_header_keys
+        if extra:
+            raise ValueError(f"unexpected JOSE header key(s): {sorted(extra)}")
 
     @staticmethod
     def _enforce_crit(header: dict[str, Any]) -> None:
