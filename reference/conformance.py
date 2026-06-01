@@ -176,10 +176,13 @@ def main() -> int:
         for v in vf["vectors"]
     }
 
+    all_langs = [lang for lang, _fn, _avail in LANGS]
     results: dict[str, list[dict]] = {}
+    skipped: list[str] = []
     for lang, fn, avail in LANGS:
         if not avail():
             print(f"SKIP {lang} (toolchain not found)")
+            skipped.append(lang)
             continue
         try:
             results[lang] = fn(reqs)
@@ -219,8 +222,24 @@ def main() -> int:
         print("  all languages verify in Python with matching ids")
 
     print()
-    print("RESULT:", "PASS — five-language byte-identity proven" if ok else "FAIL")
-    return 0 if ok else 1
+    ran = list(results)
+    n_ran, n_total = len(ran), len(all_langs)
+    if not ok:
+        print("RESULT: FAIL — byte-identity mismatch")
+        return 1
+    if n_ran < n_total:
+        # Only claim what was actually exercised. A green run on a subset (e.g.
+        # Python-only in CI without Go/Rust/npx/dotnet) must NOT print the
+        # five-language claim (round-3 #16). Exit non-zero so a CI that intends
+        # to prove full parity fails loudly when a toolchain is missing.
+        print(
+            f"RESULT: PASS ({n_ran}/{n_total} languages: {', '.join(ran)}) — "
+            f"byte-identity holds for the languages that ran; "
+            f"SKIPPED: {', '.join(skipped)}. Full five-language parity NOT proven."
+        )
+        return 3
+    print(f"RESULT: PASS — {n_total}-language byte-identity proven ({', '.join(ran)})")
+    return 0
 
 
 if __name__ == "__main__":

@@ -156,14 +156,27 @@ _scanner = Scanner(
 # ---------------------------------------------------------------------------
 
 
+# Per-field caps bound the memory a single request can pin even before the
+# body-size middleware (below) rejects oversized bodies (round-3 #3).
+_MAX_PROMPT_CHARS = 100_000
+_MAX_BATCH_PROMPTS = 1000
+
+
 class ScanRequest(BaseModel):
-    prompt: str = Field(..., min_length=1, description="Prompt text to scan")
+    prompt: str = Field(
+        ..., min_length=1, max_length=_MAX_PROMPT_CHARS, description="Prompt text to scan"
+    )
     context: dict[str, Any] | None = Field(default=None, description="Optional context metadata")
     mode: str | None = Field(default=None, description="Override scanner mode for this request")
 
 
 class BatchScanRequest(BaseModel):
-    prompts: list[str] = Field(..., min_length=1, description="List of prompts to scan")
+    prompts: list[str] = Field(
+        ...,
+        min_length=1,
+        max_length=_MAX_BATCH_PROMPTS,
+        description="List of prompts to scan",
+    )
     mode: str | None = Field(default=None, description="Override scanner mode")
     workers: int = Field(default=4, ge=1, le=32, description="Concurrency level")
 
@@ -283,6 +296,18 @@ _rate_buckets: dict[str, _TokenBucket] = {}
 _rate_buckets_lock = threading.Lock()
 _RATE_CAPACITY = float(_burst_limit)
 _RATE_REFILL = _rate_limit_rpm / 60.0  # tokens per second
+# Cap the bucket map so a flood of distinct client keys (e.g. rotating IPv6
+# source addresses) cannot grow it without bound -> OOM (round-3 #11). When
+# full we evict the oldest insertions (dicts preserve insertion order).
+_MAX_RATE_BUCKETS = 100_000
+# Largest request body we accept, pre-parse (round-3 #3). 16 MiB comfortably
+# covers a full 1000-prompt batch of reasonable prompts.
+_MAX_BODY_BYTES = 16 * 1024 * 1024
+# Per-client rate limiting only works if request.client.host is the real
+# client. Behind a TLS-terminating proxy it is the proxy IP (all clients share
+# one bucket). Opt in to trusting the left-most X-Forwarded-For entry ONLY when
+# the deployment sits behind a trusted proxy that sets it.
+_trust_proxy = os.environ.get("RAUCLE_TRUST_PROXY", "").lower() in ("1", "true", "yes")
 
 
 def _check_rate_limit(client_ip: str) -> bool:
@@ -291,8 +316,20 @@ def _check_rate_limit(client_ip: str) -> bool:
         return True
     with _rate_buckets_lock:
         if client_ip not in _rate_buckets:
+            while len(_rate_buckets) >= _MAX_RATE_BUCKETS:
+                # Evict the oldest-inserted bucket to bound memory.
+                _rate_buckets.pop(next(iter(_rate_buckets)))
             _rate_buckets[client_ip] = _TokenBucket(_RATE_CAPACITY)
         return _rate_buckets[client_ip].consume(_RATE_CAPACITY, _RATE_REFILL)
+
+
+def _client_key(request: Request) -> str:
+    """Best-effort per-client key for rate limiting (see _trust_proxy)."""
+    if _trust_proxy:
+        xff = request.headers.get("x-forwarded-for")
+        if xff:
+            return xff.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -313,12 +350,31 @@ app = FastAPI(
 
 @app.middleware("http")
 async def _auth_and_rate_limit(request: Request, call_next):  # type: ignore[no-untyped-def]
-    # Skip auth + rate limiting for health and metrics (allow monitoring without creds)
-    if request.url.path in ("/health", "/metrics"):
+    from fastapi.responses import JSONResponse
+
+    # /health is always open (liveness probe). /metrics is open only when no
+    # API key is configured; once auth is enabled it must not leak counters to
+    # unauthenticated callers (round-3 #18).
+    if request.url.path == "/health":
+        return await call_next(request)
+    if request.url.path == "/metrics" and not _api_key:
         return await call_next(request)
 
+    # Reject oversized bodies before reading/parsing them (round-3 #3).
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            declared = int(content_length)
+        except ValueError:
+            return JSONResponse(status_code=400, content={"detail": "Invalid Content-Length."})
+        if declared > _MAX_BODY_BYTES:
+            return JSONResponse(
+                status_code=413,
+                content={"detail": f"Request body too large (max {_MAX_BODY_BYTES} bytes)."},
+            )
+
     # Rate limiting
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = _client_key(request)
     if not _check_rate_limit(client_ip):
         from fastapi.responses import JSONResponse
 

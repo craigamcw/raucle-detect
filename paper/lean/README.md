@@ -2,7 +2,10 @@
 
 Skeleton for the three soundness theorems referenced in `paper/DRAFT.md` §4.
 
-**Status:** structural skeleton with proof obligations marked `sorry`. Compiles under Lean 4 + Mathlib once filled in; nothing here has been machine-checked yet.
+**Status:** all three theorems are proved — `lake build` completes with zero
+errors, zero warnings, and zero `sorry`s (see `STATUS.md`). The proofs cover the
+data model and algorithms within the modelled scope (below), not the full runtime
+gate.
 
 ## Files
 
@@ -19,14 +22,32 @@ lake update
 lake build
 ```
 
-## Outstanding proof obligations
+## Proof boundary (what the Lean model covers — and does not)
 
-Each `sorry` in the files corresponds to a paragraph in the paper's Section 4. The proofs are straightforward case analyses; the work is mechanical lattice reasoning. Estimated effort: 2-3 days of focused work for someone fluent in Lean 4 + Mathlib's order-theory library.
+The mechanisation is intentionally a model of the gate, narrower than the
+runtime implementation. Stating this precisely so the claim is not overread:
+
+**Gate soundness (`Gate.lean`) models these constraint kinds:** `allowed_values`,
+`forbidden_values`, `max_value`/`min_value`, `required_present`. The theorem
+`gate_soundness` shows that an ALLOW implies these are satisfied over the
+caller-supplied relevant-field list.
+
+**NOT in the Lean model (enforced by the Python runtime gate + tests, not yet
+mechanised):** `starts_with`, `forbidden_field_combinations`, dot-delimited
+`agent_id` scope, the revocation denylist, expiry/`not_before`, signature and
+issuer verification, and strict-mode proof binding. Extending the Lean `Policy`
+and `Gate.check` to cover these is tracked future work.
+
+**Composition (`Composition.lean`)** assumes prover soundness as an explicit
+`axiom prover_soundness` — the Z3 provers in `prove.py` are NOT themselves
+verified in Lean. Theorem 3 therefore establishes that attenuation preserves a
+cited proof's policy *given* that axiom; it does not prove the prover correct.
 
 ## Trust assumptions
 
-The mechanisation establishes correctness of the **data model and algorithms**. It does not mechanise:
+The mechanisation establishes correctness of the **data model and algorithms**
+within the scope above. It does not mechanise:
 
-- Ed25519 bit-level correctness (treated as a trusted oracle; see [BHB22] for an independently verified specification).
-- Z3 solver soundness for the supported fragment (treated as a trusted oracle; cross-validation against CVC5 recommended for production).
-- The bridge from the Python implementation to the Lean model (we maintain it by structural correspondence; a future paper could mechanise this via PyLean or equivalent).
+- Ed25519 bit-level correctness (trusted oracle; see [BHB22] for an independently verified specification).
+- Z3 solver soundness for the supported fragment (trusted oracle / explicit axiom; cross-validation against CVC5 recommended for production).
+- The bridge from the Python implementation to the Lean model (maintained by structural correspondence; a future paper could mechanise this via PyLean or equivalent).

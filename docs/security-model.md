@@ -19,6 +19,12 @@ reason about residual trust. It reflects the hardening from the 2026-06 security
 - **Revocation:** per-token denylist; a revoked token (and, when a `parent_resolver` is
   configured, any revoked ancestor) is denied. Without a resolver, revoke each descendant or
   rely on short TTLs.
+- **Runtime vs mechanised:** the guarantees above describe what the **runtime gate**
+  enforces (and what the test suite covers). The Lean 4 mechanisation proves a **narrower
+  model** — `allowed_values`, `forbidden_values`, `max_value`/`min_value`, `required_present`
+  only. `starts_with`, `forbidden_field_combinations`, `agent_id` scope, revocation, expiry,
+  signature, issuer pinning and strict-proof binding are runtime-and-test-enforced but not yet
+  in the Lean model. See `paper/lean/README.md` for the exact proof boundary.
 
 ## Provenance verification
 - **Capability conformance** is enforced **verifier-side only when you supply the

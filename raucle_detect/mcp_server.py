@@ -280,9 +280,11 @@ class MCPServer:
 
         try:
             result = handler(params)
-        except Exception as exc:
+        except Exception:
+            # Log the detail server-side; do not echo raw exception text to the
+            # client (round-3 #19 — internal info leak).
             logger.exception("handler %s failed", method)
-            return self._error_response(msg_id, -32603, f"Internal error: {exc}")
+            return self._error_response(msg_id, -32603, "Internal error")
 
         if msg_id is None:
             # Notification — no response
@@ -326,9 +328,11 @@ class MCPServer:
             }
         try:
             payload = dispatch(arguments)
-        except Exception as exc:
+        except Exception:
+            # Log detail server-side; return a generic message (round-3 #19).
+            logger.exception("tool %s execution failed", name)
             return {
-                "content": [{"type": "text", "text": f"Tool execution failed: {exc}"}],
+                "content": [{"type": "text", "text": "Tool execution failed"}],
                 "isError": True,
             }
 

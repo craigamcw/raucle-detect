@@ -143,6 +143,26 @@ def _default_resolver(_serialized: dict[str, Any]) -> Capability | None:
 # --- Internal helpers (mirror agent_framework.py) --------------------------
 
 
+def _blacklist_on_named_field(token: Capability) -> bool:
+    """True if the token carries a blacklist constraint keyed on a field other
+    than ``input``.
+
+    Blacklist kinds (``forbidden_values``, ``forbidden_field_combinations``)
+    fail OPEN when the named field is absent from the call. When a LangChain
+    tool passes an opaque string we can only present it as ``{"input": ...}``,
+    so such a blacklist would pass vacuously. The caller fails closed in that
+    case. Positive constraints (allowed_values/starts_with/bounds) fail closed
+    on the wrapped args already, so they are not consulted here.
+    """
+    c = getattr(token, "constraints", None) or {}
+    if any(fld != "input" for fld in (c.get("forbidden_values") or {})):
+        return True
+    for combo in c.get("forbidden_field_combinations") or []:
+        if any(fld != "input" for fld in combo):
+            return True
+    return False
+
+
 def _hash_args(args: Any) -> str:
     if isinstance(args, str):
         # LangChain often hands tool input as a string; canonicalise to
@@ -232,6 +252,21 @@ class RaucleCallbackHandler(BaseCallbackHandler):
 
         if token is None:
             decision = GateDecision(allowed=False, reason="no in-force capability token")
+        elif not isinstance(call_args, dict) and _blacklist_on_named_field(token):
+            # Opaque string tool input: we cannot map it to the constrained
+            # field names, so wrapping it as {"input": ...} would make a
+            # forbidden_values / forbidden_field_combinations blacklist pass
+            # vacuously (round-3b #5 — blacklists fail OPEN here). Fail closed
+            # instead. Positive constraints (allowed_values/starts_with/bounds)
+            # already fail closed on the wrapped args, so they need no guard.
+            decision = GateDecision(
+                allowed=False,
+                reason=(
+                    "cannot enforce a blacklist constraint on an opaque string "
+                    "tool input via this adapter; use a structured-args tool or "
+                    "an allowed_values whitelist for the security-critical field"
+                ),
+            )
         else:
             check_args = call_args if isinstance(call_args, dict) else {"input": call_args}
             # Pass the caller's agent_id so the gate enforces the token's agent

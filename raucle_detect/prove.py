@@ -373,7 +373,13 @@ class URLPolicyProver:
                 if s != "https":
                     violations.append({"scheme": s, "host": hosts[0], "path": path_prefixes[0]})
 
-        # forbid_query_keys
+        # forbid_query_keys — like max_path_depth, an agent can *append* query
+        # keys to any constructible URL unless the grammar declares its query-key
+        # set is closed/exhaustive (``"query_keys_closed": true``). A declared key
+        # that is forbidden is a concrete REFUTED counterexample; but the absence
+        # of one over an open key set cannot be PROVEN (a forbidden key remains
+        # appendable). So forbid_query_keys over an open grammar is UNDECIDED.
+        undecidable = False
         forbidden_q = set(policy.get("forbid_query_keys", []))
         for q in query_keys:
             if q in forbidden_q:
@@ -385,6 +391,13 @@ class URLPolicyProver:
                         "query_key": q,
                     }
                 )
+        if forbidden_q and not grammar.get("query_keys_closed"):
+            undecidable = True
+            notes.append(
+                "forbid_query_keys cannot be PROVEN over an open query-key grammar: "
+                "an agent may append a forbidden key to any URL. Declare "
+                "'query_keys_closed': true to assert the key set is exhaustive (UNDECIDED)"
+            )
 
         # host_allowlist: every grammar host must be permitted by some allowlist entry
         allowlist = policy.get("host_allowlist")
@@ -400,7 +413,6 @@ class URLPolicyProver:
         # cannot be PROVEN (deeper paths are still constructible). So a
         # max_path_depth obligation with no in-prefix violation is UNDECIDED,
         # never PROVEN.
-        undecidable = False
         max_depth = policy.get("max_path_depth")
         if max_depth is not None:
             depth_violation = False
@@ -462,6 +474,10 @@ _DEFAULT_FORBIDDEN_TOKENS = (
     "ALTER",
     "UPDATE",
     "INSERT",
+    "INTO",  # SELECT ... INTO writes a new table under a read-only default
+    "MERGE",
+    "CREATE",
+    "REPLACE",
     "GRANT",
     "REVOKE",
     "EXEC",
@@ -539,7 +555,8 @@ class SQLClauseProver:
                 # take the leading identifier of each piece (dropping aliases).
                 clause_re = re.compile(
                     r"(?:FROM|JOIN)\s+(.+?)"
-                    r"(?=\s+(?:WHERE|GROUP|ORDER|HAVING|LIMIT|UNION|JOIN|ON|FOR)\b|;|$)",
+                    r"(?=\s+(?:WHERE|GROUP|ORDER|HAVING|LIMIT|UNION|EXCEPT"
+                    r"|INTERSECT|MINUS|JOIN|ON|USING|FOR)\b|;|$)",
                     re.DOTALL,
                 )
                 table_refs: list[str] = []

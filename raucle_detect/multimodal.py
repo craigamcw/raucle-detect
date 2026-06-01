@@ -54,6 +54,12 @@ from raucle_detect.scanner import Scanner, ScanResult
 
 logger = logging.getLogger(__name__)
 
+# Resource caps for untrusted media (round-3 #12). Defend against
+# decompression / page bombs before decoding.
+_MAX_MEDIA_BYTES = 64 * 1024 * 1024  # 64 MiB on-disk file size
+_MAX_IMAGE_PIXELS = 64_000_000  # ~64 MP (width*height) before raster decode
+_MAX_PDF_PAGES = 5_000
+
 
 # ---------------------------------------------------------------------------
 # Invisible-Unicode scrubbing
@@ -467,7 +473,20 @@ class MultimodalScanner:
             ) from exc
 
         path = Path(path)
+        # Resource caps (round-3 #12): reject oversized files and pixel bombs
+        # before decoding. Image dimensions come from the header, so this is
+        # checked before any full-raster decode/OCR.
+        if path.stat().st_size > _MAX_MEDIA_BYTES:
+            raise ValueError(
+                f"refusing to scan image: {path.stat().st_size} bytes exceeds "
+                f"{_MAX_MEDIA_BYTES}-byte cap"
+            )
         image = Image.open(path)
+        if image.width * image.height > _MAX_IMAGE_PIXELS:
+            raise ValueError(
+                f"refusing to scan image: {image.width}x{image.height} exceeds "
+                f"{_MAX_IMAGE_PIXELS}-pixel cap (decompression-bomb guard)"
+            )
 
         # ---- EXIF -------------------------------------------------------
         exif_text_parts: list[str] = []
@@ -553,7 +572,18 @@ class MultimodalScanner:
             ) from exc
 
         path = Path(path)
+        # Resource caps (round-3 #12): bound file size and page count before
+        # iterating, so a million-page / huge PDF can't exhaust memory or CPU.
+        if path.stat().st_size > _MAX_MEDIA_BYTES:
+            raise ValueError(
+                f"refusing to scan PDF: {path.stat().st_size} bytes exceeds "
+                f"{_MAX_MEDIA_BYTES}-byte cap"
+            )
         reader = pypdf.PdfReader(str(path))
+        if len(reader.pages) > _MAX_PDF_PAGES:
+            raise ValueError(
+                f"refusing to scan PDF: {len(reader.pages)} pages exceeds {_MAX_PDF_PAGES}-page cap"
+            )
         pages_text: list[str] = []
         for page in reader.pages:
             try:

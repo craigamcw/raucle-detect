@@ -130,10 +130,16 @@ class Ed25519Signer:
 
 
 def _canonical_json(obj: Any) -> bytes:
-    """Serialise *obj* as canonical JSON for hashing (sorted keys, no spaces, UTF-8)."""
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
-        "utf-8"
-    )
+    """Serialise *obj* as canonical JSON for hashing (sorted keys, no spaces, UTF-8).
+
+    ``allow_nan=False`` rejects non-finite floats (NaN/Infinity): they are not
+    valid JSON (RFC 8259) and the Go/Rust/TS/C# verifiers reject them, so
+    permitting them here would let caller-controlled event data produce signed
+    bytes that the sibling implementations cannot verify (round-3 #13).
+    """
+    return json.dumps(
+        obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    ).encode("utf-8")
 
 
 def _sha256_hex(data: bytes) -> str:
@@ -353,7 +359,12 @@ def _merkle_root(leaf_hashes: list[str]) -> str:
     """Compute the Merkle root over a list of hex-encoded leaf hashes."""
     if not leaf_hashes:
         return _sha256_hex(b"")
-    level = [bytes.fromhex(h) for h in leaf_hashes]
+    try:
+        level = [bytes.fromhex(h) for h in leaf_hashes]
+    except (ValueError, TypeError) as exc:
+        # A tampered record can carry a non-hex 'hash'. A verifier must report
+        # this as invalid, not crash out of verify_chain (round-3 #22).
+        raise ValueError(f"non-hex leaf hash in chain: {exc}") from exc
     while len(level) > 1:
         next_level: list[bytes] = []
         for i in range(0, len(level), 2):
@@ -624,8 +635,13 @@ class AuditVerifier:
 
         exp_root = expected_head.get("merkle_root")
         if exp_root is not None:
-            actual_root = _merkle_root(leaf_hashes)
-            if exp_root != actual_root:
+            try:
+                actual_root = _merkle_root(leaf_hashes)
+            except ValueError as exc:
+                report.errors.append(f"head merkle_root: {exc} — chain tampered")
+                report.valid = False
+                actual_root = None
+            if actual_root is not None and exp_root != actual_root:
                 report.errors.append(
                     f"head merkle_root mismatch: expected {exp_root!r}, actual "
                     f"{actual_root!r} — chain truncated or tampered (AUDIT-TRUNC)"
@@ -659,11 +675,17 @@ class AuditVerifier:
                 report.valid = False
                 return
             if not self._public_key:
-                # We can't verify the header signature without a pubkey;
-                # surface as a soft failure so callers know.
+                # We cannot verify a signed chain without a public key, so we
+                # must not report it as valid: a consumer trusting
+                # (valid=True, signed_mode="signed") would be deceived by a
+                # fully forged chain (round-3 #9). Fail closed and stop
+                # claiming the chain is "signed" — it is unverifiable here.
+                report.signed_mode = "unverifiable"
                 report.errors.append(
-                    f"line {line_no}: chain_meta signature present but no public key supplied"
+                    f"line {line_no}: chain_meta declares signed=true but no public key "
+                    f"was supplied — cannot verify; chain is not trusted"
                 )
+                report.valid = False
                 return
             body = {k: v for k, v in rec.items() if k != "signature"}
             try:
@@ -702,7 +724,12 @@ class AuditVerifier:
             report.valid = False
             return
 
-        expected_root = _merkle_root(leaf_hashes)
+        try:
+            expected_root = _merkle_root(leaf_hashes)
+        except ValueError as exc:
+            report.errors.append(f"checkpoint at index {ckpt_index}: {exc} — chain tampered")
+            report.valid = False
+            return
         if rec.get("merkle_root") != expected_root:
             report.errors.append(
                 f"checkpoint at index {ckpt_index}: merkle_root mismatch — chain tampered"
