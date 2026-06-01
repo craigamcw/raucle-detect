@@ -270,6 +270,23 @@ _KNOWN_CONSTRAINT_KEYS = frozenset(
 )
 
 
+def _as_value_list(kind: str, field: str, v: Any) -> list[Any]:
+    """Validate that a value-set constraint is a real list/tuple, not a scalar.
+
+    A bare string would otherwise be ``sorted()`` into its characters — e.g.
+    ``forbidden_values={'role': 'admin'}`` becomes ``['a','d','i','m','n']`` and
+    the intended value ``'admin'`` is no longer blacklisted. Reject the malformed
+    shape at mint/normalise rather than silently weakening (and signing) the
+    policy.
+    """
+    if isinstance(v, (str, bytes)) or not isinstance(v, (list, tuple, set, frozenset)):
+        raise ValueError(
+            f"{kind}[{field!r}] must be a list of values, got {type(v).__name__} "
+            f"{v!r} — wrap a single value in a list, e.g. [{v!r}]"
+        )
+    return list(v)
+
+
 def _normalise_constraints(c: dict[str, Any]) -> dict[str, Any]:
     """Canonical form so attenuation comparisons are exact.
 
@@ -291,9 +308,15 @@ def _normalise_constraints(c: dict[str, Any]) -> dict[str, Any]:
         )
     out: dict[str, Any] = {}
     if "forbidden_values" in c:
-        out["forbidden_values"] = {k: sorted(v) for k, v in c["forbidden_values"].items()}
+        out["forbidden_values"] = {
+            k: sorted(_as_value_list("forbidden_values", k, v))
+            for k, v in c["forbidden_values"].items()
+        }
     if "allowed_values" in c:
-        out["allowed_values"] = {k: sorted(v) for k, v in c["allowed_values"].items()}
+        out["allowed_values"] = {
+            k: sorted(_as_value_list("allowed_values", k, v))
+            for k, v in c["allowed_values"].items()
+        }
     if "starts_with" in c:
         out["starts_with"] = dict(c["starts_with"])
     if "max_value" in c:
