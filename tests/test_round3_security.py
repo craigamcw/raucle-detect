@@ -551,3 +551,79 @@ def test_verifier_rejects_forged_capability_statement(tmp_path):
     ).verify_chain(c)
     assert rep.valid is False
     assert any("signature/key-binding" in e for e in rep.errors)
+
+
+# === Codex run-5 (current-main) regressions =================================
+
+
+def test_scalar_forbidden_values_rejected_at_mint():
+    """A scalar (string) forbidden_values value must be rejected, not sorted
+    into characters (which silently disables the blacklist) — round-5 F1."""
+    pytest.importorskip("cryptography")
+    from raucle_detect.capability import CapabilityIssuer
+
+    iss = CapabilityIssuer.generate("issuer")
+    with pytest.raises(ValueError, match="must be a list"):
+        iss.mint(
+            agent_id="agent:a", tool="send", constraints={"forbidden_values": {"role": "admin"}}
+        )
+    with pytest.raises(ValueError, match="must be a list"):
+        iss.mint(agent_id="agent:a", tool="send", constraints={"allowed_values": {"role": "admin"}})
+
+
+def test_audit_loads_strict_rejects_duplicate_keys():
+    """Audit chain records with duplicate keys are a JSON ambiguity (last-key
+    wins here, first-key elsewhere) and must be rejected — round-5 F2."""
+    from raucle_detect.audit import _loads_strict
+
+    with pytest.raises(ValueError, match="duplicate key"):
+        _loads_strict('{"event":{"a":1},"index":0,"event":{"b":2}}')
+    # well-formed record still parses
+    assert _loads_strict('{"index":0,"event":{"a":1}}')["index"] == 0
+
+
+def test_strict_verify_rejects_non_canonical_jws(tmp_path):
+    """A JWS whose payload bytes are valid-but-non-canonical (whitespace /
+    unsorted keys) must not verify — the receipt contract is JCS-canonical
+    (round-5 F3)."""
+    pytest.importorskip("cryptography")
+    import hashlib
+
+    from raucle_detect.provenance import (
+        _EXPECTED_TYP,
+        AgentIdentity,
+        ProvenanceVerifier,
+        _b64url_encode,
+        _canonical_json,
+    )
+
+    idn = AgentIdentity.generate(agent_id="agent:x")
+    hdr = {
+        "alg": "EdDSA",
+        "typ": _EXPECTED_TYP,
+        "kid": idn.key_id,
+        "crit": ["raucle/v1"],
+        "raucle/v1": "provenance",
+    }
+    payload = {
+        "iss": "raucle-detect/provenance",
+        "typ": _EXPECTED_TYP,
+        "iat": 1,
+        "agent_id": "agent:x",
+        "agent_key_id": idn.key_id,
+        "operation": "user_input",
+        "parents": [],
+        "taint": [],
+        "input_hash": "sha256:" + "0" * 64,
+    }
+    hb = _b64url_encode(_canonical_json(hdr))
+    pb = _b64url_encode(
+        json.dumps(payload, separators=(", ", ": ")).encode()
+    )  # non-canonical spaces
+    sig = idn.sign((hb + "." + pb).encode("ascii"))
+    jws = hb + "." + pb + "." + _b64url_encode(sig)
+    rh = "sha256:" + hashlib.sha256(jws.encode()).hexdigest()
+    c = tmp_path / "c.jsonl"
+    c.write_text(json.dumps({"receipt_hash": rh, "jws": jws}) + "\n")
+    rep = ProvenanceVerifier(public_keys={idn.key_id: idn.public_key_pem()}).verify_chain(c)
+    assert rep.valid is False

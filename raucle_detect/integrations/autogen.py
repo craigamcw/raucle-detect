@@ -208,6 +208,7 @@ def gated_tools(
                 resolver=resolver,
                 raise_on_deny=raise_on_deny,
                 lean_theorem_id=lean_theorem_id,
+                allow_ungated=allow_ungated,
             )
         )
     return out
@@ -222,6 +223,7 @@ def _wrap_function_tool(
     resolver: TokenResolver,
     raise_on_deny: bool,
     lean_theorem_id: str,
+    allow_ungated: bool = False,
 ) -> Any:
     """Return a FunctionTool whose handler runs the gate first.
 
@@ -230,8 +232,16 @@ def _wrap_function_tool(
     releases of autogen-core.
     """
     original_func = getattr(inner, "_func", None) or getattr(inner, "func", None)
-    if original_func is None:  # pragma: no cover - defensive
-        logger.warning("raucle: cannot find inner callable on %r; passing through ungated", inner)
+    if original_func is None:
+        # A FunctionTool-typed object whose inner callable we cannot find is a
+        # tool we cannot gate — fail closed by default (round-5 F4). Passing it
+        # through ungated would be a hole in "every tool call passes the gate".
+        if not allow_ungated:
+            raise ValueError(
+                f"raucle: cannot find inner callable on {inner!r}; refusing to pass it "
+                f"through ungated. Pass allow_ungated=True to override (NOT recommended)."
+            )
+        logger.warning("raucle: cannot find inner callable on %r; passing through UNGATED", inner)
         return inner
 
     tool_name = getattr(inner, "name", None) or original_func.__name__

@@ -129,6 +129,27 @@ class Ed25519Signer:
 # ---------------------------------------------------------------------------
 
 
+def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """``object_pairs_hook`` that rejects duplicate object keys.
+
+    A record like ``{"event":{"evil":1},...,"event":{"safe":1}}`` is a JSON
+    ambiguity: Python keeps the last value, but a first-key parser (another
+    language / tool) sees the other — so a signed chain could verify here while
+    presenting different content elsewhere (encoding malleability). Reject it.
+    """
+    seen: set[str] = set()
+    for k, _v in pairs:
+        if k in seen:
+            raise ValueError(f"duplicate key {k!r} in audit record (JSON ambiguity)")
+        seen.add(k)
+    return dict(pairs)
+
+
+def _loads_strict(line: str) -> Any:
+    """json.loads with duplicate-key rejection — use everywhere a chain record is parsed."""
+    return json.loads(line, object_pairs_hook=_reject_duplicate_keys)
+
+
 def _canonical_json(obj: Any) -> bytes:
     """Serialise *obj* as canonical JSON for hashing (sorted keys, no spaces, UTF-8).
 
@@ -251,7 +272,7 @@ class HashChainSink:
                 if not line:
                     continue
                 try:
-                    rec = json.loads(line)
+                    rec = _loads_strict(line)
                 except json.JSONDecodeError:
                     continue
                 if rec.get("checkpoint") or rec.get("chain_meta"):
@@ -510,7 +531,7 @@ class AuditVerifier:
                 if not line:
                     continue
                 try:
-                    rec = json.loads(line)
+                    rec = _loads_strict(line)
                 except json.JSONDecodeError as exc:
                     report.errors.append(f"line {line_no}: invalid JSON: {exc}")
                     report.valid = False

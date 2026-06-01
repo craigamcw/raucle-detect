@@ -601,6 +601,20 @@ class ProvenanceReceipt:
                 raise ValueError(f"payload typ {payload.get('typ')!r} must be {_EXPECTED_TYP!r}")
             if not isinstance(payload.get("iss"), str) or not payload.get("iss"):
                 raise ValueError("payload missing required non-empty 'iss'")
+            # Spec v1 §4.3: header and payload are JCS-canonical (sorted keys, no
+            # insignificant whitespace). The signature binds the on-wire bytes,
+            # but without this a non-canonical encoding (spaces / unsorted keys)
+            # would still verify, breaking the canonical contract and admitting
+            # byte-different receipts for the same logical content (round-5 F3).
+            header_bytes = _b64url_decode(header_b64)
+            try:
+                header_obj = json.loads(header_bytes, object_pairs_hook=_reject_duplicate_keys)
+            except (ValueError, json.JSONDecodeError) as exc:
+                raise ValueError(f"malformed JOSE header: {exc}") from exc
+            if _canonical_json(header_obj) != header_bytes:
+                raise ValueError("JOSE header is not canonical JSON (JCS)")
+            if _canonical_json(payload) != payload_bytes:
+                raise ValueError("JWS payload is not canonical JSON (JCS)")
 
         receipt = cls(
             agent_id=payload["agent_id"],
