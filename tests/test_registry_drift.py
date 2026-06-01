@@ -14,8 +14,20 @@ sync.
 from __future__ import annotations
 
 import inspect
+import re
 
 from raucle_detect import capability, prove, registry
+
+
+def _all_get_keys(src: str, accessor: str) -> set:
+    """ALL string-literal keys read via `<accessor>.get("...")` in a source body.
+
+    Unlike a candidate-scan, this extracts EVERY literal — so a NEW unregistered
+    read (e.g. policy.get("foo")) shows up and trips the equality assertions
+    below, instead of being silently ignored. (Covers .get with or without a
+    default arg; matches both quote styles.)
+    """
+    return set(re.findall(rf"{accessor}\.get\(\s*[\"']([^\"']+)[\"']", src))
 
 
 def test_registry_rows_are_complete():
@@ -50,14 +62,8 @@ def test_prover_models_exactly_the_encodable_keys():
     reading fewer than declared while still claiming the rest is encodable).
     """
     src = inspect.getsource(prove.JSONSchemaProver)
-    # The prover accesses each modelled policy key as policy.get("<key>"...) or
-    # policy.get("<key>", ...). Detect which registry keys actually appear in a
-    # policy.get(...) call within the prover body.
-    read_keys = {
-        key
-        for key in registry.KNOWN_CONSTRAINT_KEYS
-        if f'policy.get("{key}"' in src or f"policy.get('{key}'" in src
-    }
+    # EVERY policy.get(...) literal — so an unregistered read trips this too.
+    read_keys = _all_get_keys(src, "policy")
     assert read_keys == set(registry.PROVER_ENCODABLE_KEYS), (
         "prover's modelled policy keys drifted from registry.PROVER_ENCODABLE_KEYS: "
         f"prover reads {sorted(read_keys)}, registry says "
@@ -65,41 +71,45 @@ def test_prover_models_exactly_the_encodable_keys():
     )
 
 
-def _keys_read(src: str, accessor: str, candidates) -> set:
-    """Keys a source body reads via `<accessor>.get("<key>"` / .get('<key>'."""
-    return {
-        k for k in candidates if f'{accessor}.get("{k}"' in src or f"{accessor}.get('{k}'" in src
-    }
-
-
 def test_url_prover_keys_match_registry():
-    """Every URL grammar/policy key the prover reads must be in the registry,
-    and every registry URL key must be read by the prover (no drift)."""
+    """EVERY URL grammar/policy key the prover reads must equal the registry —
+    a new unregistered grammar.get/policy.get literal fails this test."""
     src = inspect.getsource(prove.URLPolicyProver)
-    # The prover reads grammar keys via grammar.get(...) and policy keys via
-    # policy.get(...). query_keys_closed is read via grammar.get too.
-    grammar_read = _keys_read(src, "grammar", registry.URL_GRAMMAR_KEYS)
-    policy_read = _keys_read(src, "policy", registry.URL_POLICY_KEYS)
-    assert grammar_read == set(registry.URL_GRAMMAR_KEYS), (
-        f"URL grammar keys drifted: prover reads {sorted(grammar_read)}, "
+    assert _all_get_keys(src, "grammar") == set(registry.URL_GRAMMAR_KEYS), (
+        f"URL grammar keys drifted: prover reads {sorted(_all_get_keys(src, 'grammar'))}, "
         f"registry {sorted(registry.URL_GRAMMAR_KEYS)}"
     )
-    assert policy_read == set(registry.URL_POLICY_KEYS), (
-        f"URL policy keys drifted: prover reads {sorted(policy_read)}, "
+    assert _all_get_keys(src, "policy") == set(registry.URL_POLICY_KEYS), (
+        f"URL policy keys drifted: prover reads {sorted(_all_get_keys(src, 'policy'))}, "
         f"registry {sorted(registry.URL_POLICY_KEYS)}"
     )
 
 
 def test_sql_prover_keys_match_registry():
-    """SQL policy keys the prover reads must match the registry. (templates is
-    read via grammar.get; allowed_tables is a policy key mirrored in grammar.)"""
+    """EVERY SQL policy.get/grammar.get literal must be registered. policy keys
+    equal the registry set; grammar reads (templates) are a subset of
+    SQL_GRAMMAR_KEYS (allowed_tables is read via membership, not .get)."""
     src = inspect.getsource(prove.SQLClauseProver)
-    policy_read = _keys_read(src, "policy", registry.SQL_POLICY_KEYS)
-    assert policy_read == set(registry.SQL_POLICY_KEYS), (
-        f"SQL policy keys drifted: prover reads {sorted(policy_read)}, "
+    assert _all_get_keys(src, "policy") == set(registry.SQL_POLICY_KEYS), (
+        f"SQL policy keys drifted: prover reads {sorted(_all_get_keys(src, 'policy'))}, "
         f"registry {sorted(registry.SQL_POLICY_KEYS)}"
     )
+    grammar_read = _all_get_keys(src, "grammar")
+    assert grammar_read <= set(registry.SQL_GRAMMAR_KEYS), (
+        f"SQL grammar read {sorted(grammar_read)} not all registered "
+        f"{sorted(registry.SQL_GRAMMAR_KEYS)}"
+    )
     assert "templates" in registry.SQL_GRAMMAR_KEYS
+
+
+def test_sql_unmodelled_construct_surface_sourced_from_registry():
+    """The SQL construct net must be built from registry data, and the compiled
+    regex must match exactly the registry's construct list (no hard-coded
+    divergence in prove.py)."""
+    src = inspect.getsource(prove)
+    assert "SQL_UNMODELLED_CONSTRUCTS" in src
+    expected = re.compile("|".join(registry.SQL_UNMODELLED_CONSTRUCTS), re.IGNORECASE)
+    assert prove._UNMODELLED_SQL_RE.pattern == expected.pattern
 
 
 def test_schema_keywords_sourced_from_registry():
@@ -110,11 +120,16 @@ def test_schema_keywords_sourced_from_registry():
 
 
 def test_envelope_field_helper():
-    """The envelope helper flags exactly unknown non-extension fields."""
+    """The envelope helper flags every field outside the registry sets. There is
+    no wildcard prefix: v1 has no registered extensions, so any extra field
+    (including an x-raucle- one) is rejected."""
     assert registry.unknown_envelope_fields({"receipt_hash", "jws"}) == set()
     assert registry.unknown_envelope_fields({"receipt_hash", "jws", "evil"}) == {"evil"}
-    # A registered versioned extension is tolerated.
-    assert registry.unknown_envelope_fields({"receipt_hash", "jws", "x-raucle-trace"}) == set()
+    # No blanket x- pass-through in v1 — it is rejected, not tolerated.
+    assert registry.unknown_envelope_fields({"receipt_hash", "jws", "x-raucle-trace"}) == {
+        "x-raucle-trace"
+    }
+    assert frozenset() == registry.ENVELOPE_EXTENSION_FIELDS
 
 
 def test_unmodelled_policy_keys_helper():

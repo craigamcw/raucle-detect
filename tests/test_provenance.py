@@ -519,7 +519,9 @@ class TestEnvelopeAndIntegerDomain:
         assert report.valid is False
         assert any("unknown envelope field" in e for e in report.errors)
 
-    def test_versioned_extension_envelope_field_tolerated(self, tmp_path):
+    def test_extension_envelope_field_rejected_in_v1(self, tmp_path):
+        """v1 registers no envelope extensions, so even an x-raucle- field is
+        rejected — there is no blanket prefix pass-through (§8.1)."""
         identity = AgentIdentity.generate(agent_id="agent:e")
         chain_path = tmp_path / "chain.jsonl"
         with ProvenanceLogger(agent=identity, sink_path=chain_path) as log:
@@ -529,7 +531,8 @@ class TestEnvelopeAndIntegerDomain:
         chain_path.write_text(json.dumps(rec) + "\n")
         verifier = ProvenanceVerifier(public_keys={identity.key_id: identity.public_key_pem()})
         report = verifier.verify_chain(chain_path)
-        assert report.valid is True
+        assert report.valid is False
+        assert any("unknown envelope field" in e for e in report.errors)
 
     def test_oversized_integer_rejected_in_canonical(self):
         """B6/§8.10: integers outside the portable safe range are rejected so
