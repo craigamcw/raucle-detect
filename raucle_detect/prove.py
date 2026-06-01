@@ -476,12 +476,19 @@ class URLPolicyProver:
 
 
 def _host_matches(host: str, pattern: str) -> bool:
-    """Match a host against an optionally wildcarded pattern (``*.example.com``)."""
+    """Match a host against an optionally wildcarded pattern.
+
+    ``*.example.com`` matches a strict subdomain (``api.example.com``) but NOT
+    the apex (``example.com``) — consistent with RFC 6125 / TLS / cookie wildcard
+    semantics. Matching the apex would let the prover return PROVEN for apex
+    access under a subdomain-only allowlist (overbroad). To permit the apex,
+    list it explicitly alongside the wildcard.
+    """
     if pattern == host:
         return True
     if pattern.startswith("*."):
-        suffix = pattern[1:]  # ".example.com"
-        return host.endswith(suffix) or host == pattern[2:]
+        suffix = pattern[1:]  # ".example.com" — requires at least one label before it
+        return host.endswith(suffix) and host != suffix[1:]
     return False
 
 
@@ -596,7 +603,12 @@ class SQLClauseProver:
                             undecidable = True
                             notes.append(f"unparsable table reference in {tmpl!r} (UNDECIDED)")
                             continue
-                        m = re.match(r"([A-Z_][A-Z0-9_]*)", piece)
+                        # Capture the FULL dotted/qualified name (e.g.
+                        # schema.table), not just the leading identifier — else
+                        # `FROM public.secret` would be checked as table
+                        # `public` and pass an allowlist of ['public'] while
+                        # actually reading `public.secret` (soundness bug).
+                        m = re.match(r"([A-Z_][A-Z0-9_]*(?:\.[A-Z_][A-Z0-9_]*)*)", piece)
                         if m:
                             table_refs.append(m.group(1))
                         else:

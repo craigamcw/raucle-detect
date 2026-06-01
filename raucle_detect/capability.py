@@ -813,16 +813,21 @@ class CapabilityGate:
         # token's, or be a *dot-delimited descendant* of it. The delimiter is
         # required so that 'agent:billing' does NOT authorise 'agent:billing-evil'
         # (a bare prefix check would — CVE-class privilege escalation).
-        if (
-            agent_id is not None
-            and agent_id != token.agent_id
-            and not agent_id.startswith(token.agent_id + ".")
-        ):
-            return GateDecision(
-                False,
-                f"agent_id {agent_id!r} does not match token's {token.agent_id!r}",
-                token.token_id,
-            )
+        if agent_id is not None:
+            # Validate the caller-supplied agent_id BEFORE the prefix check. A
+            # malformed id (trailing dot, '..', illegal chars) must not slip
+            # through: 'agent:a..evil' and 'agent:a.' both startswith 'agent:a.'
+            # yet are not valid dot-delimited descendants of 'agent:a'.
+            if not _AGENT_ID_RE.match(agent_id):
+                return GateDecision(
+                    False, f"malformed caller agent_id {agent_id!r}", token.token_id
+                )
+            if agent_id != token.agent_id and not agent_id.startswith(token.agent_id + "."):
+                return GateDecision(
+                    False,
+                    f"agent_id {agent_id!r} does not match token's {token.agent_id!r}",
+                    token.token_id,
+                )
 
         # 7) Argument constraints. Fail closed: any unexpected error while
         # evaluating constraints is a DENY, never a propagated exception — the

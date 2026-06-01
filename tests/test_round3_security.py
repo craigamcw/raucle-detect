@@ -297,3 +297,89 @@ def test_langchain_blacklist_helper():
     assert lc._blacklist_on_named_field(T({"forbidden_field_combinations": [["a", "b"]]})) is True
     assert lc._blacklist_on_named_field(T({"allowed_values": {"to": ["ok"]}})) is False
     assert lc._blacklist_on_named_field(T({})) is False
+
+
+# === Codex run-2 (current-main cross-model) regressions ======================
+
+
+# --- F1: malformed caller agent_id must not pass the descendant prefix check --
+def test_gate_rejects_malformed_caller_agent_id():
+    pytest.importorskip("cryptography")
+    from raucle_detect.capability import CapabilityGate, CapabilityIssuer
+
+    iss = CapabilityIssuer.generate("issuer")
+    tok = iss.mint(agent_id="agent:a", tool="t")
+    g = CapabilityGate(trusted_issuers={iss.key_id: iss.public_key_pem})
+    assert g.check(tok, tool="t", agent_id="agent:a..evil").allowed is False
+    assert g.check(tok, tool="t", agent_id="agent:a.").allowed is False
+    assert g.check(tok, tool="t", agent_id="agent:a.good").allowed is True  # real descendant
+    assert g.check(tok, tool="t", agent_id="agent:a").allowed is True  # self
+
+
+# --- F2: SQL prover must check the FULL qualified table name -----------------
+def test_sql_schema_qualified_table_not_proven_when_only_schema_allowed():
+    from raucle_detect.prove import SQLClauseProver
+
+    p = SQLClauseProver()
+    assert (
+        p.prove(
+            {"templates": ["SELECT * FROM public.secret"]}, {"allowed_tables": ["public"]}
+        ).status
+        == "REFUTED"
+    )
+    assert (
+        p.prove(
+            {"templates": ["SELECT * FROM public.secret"]}, {"allowed_tables": ["public.secret"]}
+        ).status
+        == "PROVEN"
+    )
+
+
+# --- F3: verifier rejects structurally invalid receipts ----------------------
+def test_verifier_rejects_tool_call_without_parents_or_output_hash(tmp_path):
+    from raucle_detect.provenance import (
+        AgentIdentity,
+        Operation,
+        ProvenanceReceipt,
+        ProvenanceVerifier,
+    )
+
+    idn = AgentIdentity.generate(agent_id="agent:x")
+    r = ProvenanceReceipt(
+        agent_id="agent:x",
+        agent_key_id=idn.key_id,
+        operation=Operation.TOOL_CALL,
+        parents=[],
+        tool="send_email",
+    )
+    r.sign(idn)
+    c = tmp_path / "c.jsonl"
+    c.write_text(json.dumps({"receipt_hash": r.receipt_hash, "jws": r.jws}) + "\n")
+    rep = ProvenanceVerifier(public_keys={idn.key_id: idn.public_key_pem()}).verify_chain(c)
+    assert rep.valid is False
+
+
+# --- F4: canonical JSON rejects floats (cross-impl parity with TS/Go/Rust/C#) -
+def test_provenance_canonical_json_rejects_floats():
+    from raucle_detect.provenance import _canonical_json
+
+    with pytest.raises(ValueError, match="float"):
+        _canonical_json({"x": 1.0})
+    # integers / bools / strings still serialise
+    assert _canonical_json({"a": 1, "b": True}) == b'{"a":1,"b":true}'
+
+
+# --- F6: wildcard host pattern does not match the apex -----------------------
+def test_url_wildcard_does_not_match_apex():
+    from raucle_detect.prove import URLPolicyProver
+
+    u = URLPolicyProver()
+    g = {"schemes": ["https"], "path_prefixes": ["/"], "query_keys_closed": True}
+    assert (
+        u.prove({**g, "hosts": ["example.com"]}, {"host_allowlist": ["*.example.com"]}).status
+        == "REFUTED"
+    )
+    assert (
+        u.prove({**g, "hosts": ["api.example.com"]}, {"host_allowlist": ["*.example.com"]}).status
+        == "PROVEN"
+    )
