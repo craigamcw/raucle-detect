@@ -84,9 +84,32 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+def _reject_floats(obj: Any) -> None:
+    """Raise on any float in signed token material.
+
+    cap:v1 numeric constraints are integers (see the standards doc). Floats are
+    rejected — not serialised — so token canonicalisation stays deterministic and
+    integer-only, consistent with the provenance receipt encoder. ``bool`` is an
+    ``int`` subclass and is allowed. (Only used on the token body, never on call
+    arguments, so float call-arg values still compare against integer bounds.)
+    """
+    if isinstance(obj, float):
+        raise ValueError(
+            "capability token: float numeric values are not permitted (cap:v1 "
+            "constraints are integer-only)"
+        )
+    if isinstance(obj, dict):
+        for v in obj.values():
+            _reject_floats(v)
+    elif isinstance(obj, (list, tuple)):
+        for v in obj:
+            _reject_floats(v)
+
+
 def _canonical_json(obj: Any) -> bytes:
-    # allow_nan=False: NaN/Infinity are not valid JSON and would break
-    # cross-implementation parsing/verification — reject rather than emit them.
+    # allow_nan rejects NaN/Infinity; _reject_floats rejects ALL floats so signed
+    # token material is integer-only and deterministic (parity with provenance).
+    _reject_floats(obj)
     return json.dumps(
         obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
     ).encode("utf-8")

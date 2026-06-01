@@ -161,6 +161,15 @@ def _structural_errors(receipt: ProvenanceReceipt) -> list[str]:
     for fld in _REQUIRED_FIELDS_BY_OP.get(op, ()):
         if not getattr(receipt, fld, ""):
             errs.append(f"{op} receipt missing required field {fld!r}")
+    # Spec v1 §4.2: parents and taint MUST be sorted (lexicographic) and unique —
+    # part of the canonical contract; unsorted/duplicate entries indicate a
+    # non-conformant emitter.
+    for name in ("parents", "taint"):
+        seq = list(getattr(receipt, name, []) or [])
+        if seq != sorted(seq):
+            errs.append(f"{name} must be sorted lexicographically")
+        if len(seq) != len(set(seq)):
+            errs.append(f"{name} must not contain duplicates")
     return errs
 
 
@@ -585,6 +594,13 @@ class ProvenanceReceipt:
 
         if strict:
             cls._enforce_header(header_b64, expected_kid=payload.get("agent_key_id"))
+            # Spec v1 §4.2: the payload typ is a fixed literal and iss must be a
+            # non-empty issuer identifier. (The header typ is enforced in
+            # _enforce_header; the payload carries its own typ that MUST agree.)
+            if payload.get("typ") != _EXPECTED_TYP:
+                raise ValueError(f"payload typ {payload.get('typ')!r} must be {_EXPECTED_TYP!r}")
+            if not isinstance(payload.get("iss"), str) or not payload.get("iss"):
+                raise ValueError("payload missing required non-empty 'iss'")
 
         receipt = cls(
             agent_id=payload["agent_id"],

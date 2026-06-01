@@ -383,3 +383,85 @@ def test_url_wildcard_does_not_match_apex():
         u.prove({**g, "hosts": ["api.example.com"]}, {"host_allowlist": ["*.example.com"]}).status
         == "PROVEN"
     )
+
+
+# === Codex run-3 (current-main) regressions =================================
+
+
+def test_jsonschema_patternproperties_not_proven():
+    """patternProperties can admit a field additionalProperties:false appears to
+    forbid, so the prover must NOT certify PROVEN (round-3 run-3 F1)."""
+    pytest.importorskip("z3")
+    from raucle_detect.prove import JSONSchemaProver
+
+    s = {
+        "type": "object",
+        "properties": {},
+        "patternProperties": {"^role$": {"type": "string"}},
+        "additionalProperties": False,
+    }
+    assert (
+        JSONSchemaProver().prove(s, {"forbidden_values": {"role": ["admin"]}}).status == "UNDECIDED"
+    )
+
+
+def test_capability_token_rejects_float_bounds():
+    """cap:v1 numeric constraints are integer-only (run-3 F5)."""
+    pytest.importorskip("cryptography")
+    from raucle_detect.capability import CapabilityIssuer
+
+    iss = CapabilityIssuer.generate("issuer")
+    with pytest.raises(ValueError, match="float"):
+        iss.mint(agent_id="agent:a", tool="pay", constraints={"max_value": {"amount": 1.5}})
+    # integer bound still mints
+    iss.mint(agent_id="agent:a", tool="pay", constraints={"max_value": {"amount": 100}})
+
+
+def test_verifier_rejects_unsorted_taint_and_bad_payload_typ(tmp_path):
+    """Manually-crafted JWS with unsorted taint (bypassing sign()'s sort) and a
+    tampered payload typ must be rejected (run-3 F3)."""
+    pytest.importorskip("cryptography")
+    import hashlib
+
+    from raucle_detect.provenance import (
+        _EXPECTED_TYP,
+        AgentIdentity,
+        ProvenanceVerifier,
+        _b64url_encode,
+        _canonical_json,
+    )
+
+    idn = AgentIdentity.generate(agent_id="agent:x")
+    header = {
+        "alg": "EdDSA",
+        "typ": _EXPECTED_TYP,
+        "kid": idn.key_id,
+        "crit": ["raucle/v1"],
+        "raucle/v1": "provenance",
+    }
+
+    def _make(payload):
+        hb = _b64url_encode(_canonical_json(header))
+        pb = _b64url_encode(_canonical_json(payload))
+        sig = idn.sign((hb + "." + pb).encode("ascii"))
+        jws = hb + "." + pb + "." + _b64url_encode(sig)
+        rh = "sha256:" + hashlib.sha256(jws.encode()).hexdigest()
+        p = tmp_path / "c.jsonl"
+        p.write_text(json.dumps({"receipt_hash": rh, "jws": jws}) + "\n")
+        return p
+
+    base = {
+        "iss": "raucle-detect/provenance",
+        "typ": _EXPECTED_TYP,
+        "iat": 1,
+        "agent_id": "agent:x",
+        "agent_key_id": idn.key_id,
+        "operation": "user_input",
+        "parents": [],
+        "input_hash": "sha256:" + "0" * 64,
+    }
+    v = ProvenanceVerifier(public_keys={idn.key_id: idn.public_key_pem()})
+    # unsorted taint
+    assert v.verify_chain(_make({**base, "taint": ["z", "a"]})).valid is False
+    # bad payload typ (strict from_jws rejects → malformed record)
+    assert v.verify_chain(_make({**base, "taint": [], "typ": "evil"})).valid is False

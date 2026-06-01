@@ -166,6 +166,7 @@ def gated_tools(
     token_resolver: TokenResolver | None = None,
     raise_on_deny: bool = True,
     lean_theorem_id: str = "vcd.gate_soundness",
+    allow_ungated: bool = False,
 ) -> list[Any]:
     """Wrap a list of AutoGen tools with capability-gating + receipts.
 
@@ -186,7 +187,16 @@ def gated_tools(
     out: list[Any] = []
     for t in tools:
         if not isinstance(t, FunctionTool):
-            logger.warning("raucle: %r is not a FunctionTool; passing through ungated", t)
+            # Fail closed by default: an ungated tool is a hole in "every tool
+            # call passes the gate". Only pass it through if the deployer opts
+            # in (migration / shadow mode).
+            if not allow_ungated:
+                raise ValueError(
+                    f"raucle: cannot gate {t!r} (not a FunctionTool). Pass "
+                    f"allow_ungated=True to pass unsupported tools through ungated "
+                    f"(NOT recommended — those tool calls bypass the gate)."
+                )
+            logger.warning("raucle: %r is not a FunctionTool; passing through UNGATED", t)
             out.append(t)
             continue
         out.append(
