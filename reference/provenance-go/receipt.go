@@ -1,6 +1,7 @@
 package provenance
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
@@ -291,6 +292,16 @@ func Verify(jws string, pub ed25519.PublicKey) (Receipt, error) {
 		}
 	}
 
+	// Canonical byte-equality (spec v1 §4.3, matches the Python reference): the
+	// signature binds the on-wire bytes, but without re-encoding and comparing,
+	// a non-canonical header (unsorted keys / extra whitespace) would still
+	// verify, admitting byte-different receipts for the same logical content.
+	if canonHeader, cerr := canonicalEncode(header); cerr != nil {
+		return Receipt{}, cerr
+	} else if !bytes.Equal(canonHeader, hb) {
+		return Receipt{}, fmt.Errorf("JOSE header is not canonical JSON (JCS)")
+	}
+
 	sig, err := b64uDecode(sigB)
 	if err != nil {
 		return Receipt{}, err
@@ -306,6 +317,11 @@ func Verify(jws string, pub ed25519.PublicKey) (Receipt, error) {
 	var pm map[string]any
 	if err := json.Unmarshal(pb, &pm); err != nil {
 		return Receipt{}, err
+	}
+	if canonPayload, cerr := canonicalEncode(pm); cerr != nil {
+		return Receipt{}, cerr
+	} else if !bytes.Equal(canonPayload, pb) {
+		return Receipt{}, fmt.Errorf("JWS payload is not canonical JSON (JCS)")
 	}
 	p, err := payloadFromMap(pm)
 	if err != nil {

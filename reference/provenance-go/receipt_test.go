@@ -322,3 +322,50 @@ func hexDecode(s string) ([]byte, error) {
 	}
 	return out, nil
 }
+
+// TestVerifyRejectsNonCanonicalPayload pins live bug #2 (§8.10): a JWS whose
+// payload bytes are valid JSON but not JCS-canonical (here: pretty-printed with
+// whitespace) must be rejected even when correctly signed — otherwise
+// byte-different receipts for the same logical content would verify.
+func TestVerifyRejectsNonCanonicalPayload(t *testing.T) {
+	pub, priv := mustKeys(t)
+	r, err := Emit(basePayload(), priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := strings.Split(r.JWS, ".")
+	payloadBytes, _ := base64.RawURLEncoding.DecodeString(parts[1])
+	var pm map[string]any
+	if err := json.Unmarshal(payloadBytes, &pm); err != nil {
+		t.Fatal(err)
+	}
+	// Re-encode with insignificant whitespace → same object, non-canonical bytes.
+	noncanon, _ := json.MarshalIndent(pm, "", "  ")
+	pb := base64.RawURLEncoding.EncodeToString(noncanon)
+	signingInput := parts[0] + "." + pb
+	sig := ed25519.Sign(priv, []byte(signingInput))
+	jws := signingInput + "." + base64.RawURLEncoding.EncodeToString(sig)
+	if _, err := Verify(jws, pub); err == nil {
+		t.Fatal("expected non-canonical payload rejection")
+	}
+}
+
+// TestVerifyRejectsNonCanonicalHeader is the header-side counterpart.
+func TestVerifyRejectsNonCanonicalHeader(t *testing.T) {
+	pub, priv := mustKeys(t)
+	r, _ := Emit(basePayload(), priv)
+	parts := strings.Split(r.JWS, ".")
+	headerBytes, _ := base64.RawURLEncoding.DecodeString(parts[0])
+	var hm map[string]any
+	if err := json.Unmarshal(headerBytes, &hm); err != nil {
+		t.Fatal(err)
+	}
+	noncanon, _ := json.MarshalIndent(hm, "", " ")
+	hb := base64.RawURLEncoding.EncodeToString(noncanon)
+	signingInput := hb + "." + parts[1]
+	sig := ed25519.Sign(priv, []byte(signingInput))
+	jws := signingInput + "." + base64.RawURLEncoding.EncodeToString(sig)
+	if _, err := Verify(jws, pub); err == nil {
+		t.Fatal("expected non-canonical header rejection")
+	}
+}

@@ -245,4 +245,25 @@ public class ReceiptTests
             Assert.True(emitted.Id == expectedHash, $"{name}: emitted id differs");
         }
     }
+
+    // Live bug #2 (§8.10): a correctly-signed JWS whose payload bytes are valid
+    // JSON but not JCS-canonical (here pretty-printed) must be rejected.
+    [Fact]
+    public void VerifyRejectsNonCanonicalPayload()
+    {
+        var (priv, pub) = Key();
+        var r = Receipt.Emit(BasePayload(), priv);
+        var parts = r.Jws.Split('.');
+        using var pdoc = JsonDocument.Parse(Receipt.B64UrlDecode(parts[1]));
+        // Re-serialise with indentation → same object, non-canonical bytes.
+        var noncanon = JsonSerializer.SerializeToUtf8Bytes(
+            pdoc.RootElement, new JsonSerializerOptions { WriteIndented = true });
+        var signingInput = parts[0] + "." + Receipt.B64UrlEncode(noncanon);
+        var signer = new Org.BouncyCastle.Crypto.Signers.Ed25519Signer();
+        signer.Init(true, priv);
+        var msg = System.Text.Encoding.ASCII.GetBytes(signingInput);
+        signer.BlockUpdate(msg, 0, msg.Length);
+        var jws = signingInput + "." + Receipt.B64UrlEncode(signer.GenerateSignature());
+        Assert.Throws<ProvException>(() => Receipt.Verify(jws, pub));
+    }
 }

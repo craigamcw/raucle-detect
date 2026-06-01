@@ -141,6 +141,28 @@ class TestReceiptCrypto:
         assert report.valid is False
         assert report.tampered_receipts
 
+    def test_duplicate_key_in_envelope_rejected(self, tmp_path):
+        """Live bug #3 (§8.10): the JSONL envelope wrapper must reject duplicate
+        keys, not just the inner JWS payload. A line carrying two ``jws`` keys
+        lets two parsers disagree on which receipt it represents."""
+        identity = AgentIdentity.generate(agent_id="agent:dup")
+        chain_path = tmp_path / "chain.jsonl"
+        with ProvenanceLogger(agent=identity, sink_path=chain_path) as log:
+            log.record_user_input(text="hi")
+
+        record = json.loads(chain_path.read_text().strip())
+        # Hand-craft a line with a duplicate "jws" key (json.dumps won't emit
+        # duplicates, so build the raw JSON text directly).
+        jws = json.dumps(record["jws"])
+        rhash = json.dumps(record["receipt_hash"])
+        line = '{"receipt_hash": ' + rhash + ', "jws": ' + jws + ', "jws": ' + jws + "}\n"
+        chain_path.write_text(line)
+
+        verifier = ProvenanceVerifier(public_keys={identity.key_id: identity.public_key_pem()})
+        report = verifier.verify_chain(chain_path)
+        assert report.valid is False
+        assert any("duplicate key" in e for e in report.errors)
+
 
 # ---------------------------------------------------------------------------
 # DAG composition
