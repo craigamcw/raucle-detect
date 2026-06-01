@@ -126,3 +126,67 @@ def test_report_inputs_independently_reverifiable(tmp_path):
     fresh = ProvenanceVerifier(public_keys=keys).verify_chain(chain)
     assert report.chain_verdict["valid"] == fresh.valid
     assert report.chain_verdict["receipt_count"] == fresh.receipt_count
+
+
+def _chain_with_tool(tmp_path):
+    """A two-receipt chain: a user_input root + a tool_call invoking 'transfer'."""
+    ident = AgentIdentity.generate(agent_id="agent:billing")
+    chain = tmp_path / "chain.jsonl"
+    with ProvenanceLogger(agent=ident, sink_path=chain) as log:
+        h = log.record_user_input(text="pay alice")
+        log.record_tool_call(parents=[h], tool="transfer", input_args={"to": "alice"}, output={})
+    return ident, chain
+
+
+def test_finding_attributed_to_specific_node(tmp_path):
+    """A signature/tamper finding lands on the offending node; clean nodes stay
+    green even when the chain is INVALID elsewhere (precise attribution)."""
+    ident, chain = _chain_with_tool(tmp_path)
+    lines = chain.read_text().splitlines()
+    rec = json.loads(lines[1])  # tamper the tool_call receipt
+    rec["receipt_hash"] = "sha256:" + "0" * 64
+    lines[1] = json.dumps(rec)
+    chain.write_text("\n".join(lines) + "\n")
+    keys = {ident.key_id: ident.public_key_pem()}
+    report = build_report(chain, keys, generated_at=1700000000)
+    assert report.summary["chain_valid"] is False
+    by_kind = {n.kind: n for n in report.nodes}
+    assert by_kind["tool"].status == "red"  # the tampered tool node
+    assert by_kind["operation"].status == "green"  # the clean user_input node
+    # no blanket "amber elsewhere"
+    assert all(n.status != "amber" for n in report.nodes)
+
+
+def test_node_joined_to_cited_proof(tmp_path):
+    """A capability citing a PROVEN proof makes the tool node carry the
+    certificate inline (the discharged-obligation magic moment)."""
+    ident, chain = _chain_with_tool(tmp_path)
+    keys = {ident.key_id: ident.public_key_pem()}
+    proofs = [{"prover": "JSONSchemaProver", "status": "PROVEN", "hash": "sha256:abc"}]
+    caps = [{"tool": "transfer", "policy_proof_hash": "sha256:abc"}]
+    report = build_report(chain, keys, proofs, generated_at=1700000000, capabilities=caps)
+    tool_node = next(n for n in report.nodes if n.kind == "tool")
+    assert tool_node.proof_certificate == "sha256:abc"
+    assert tool_node.proof_status == "green"
+    assert "Theorem 3" in tool_node.lean_theorem
+    assert tool_node.status == "green"
+
+
+def test_node_red_when_cited_proof_refuted(tmp_path):
+    ident, chain = _chain_with_tool(tmp_path)
+    keys = {ident.key_id: ident.public_key_pem()}
+    proofs = [{"prover": "JSONSchemaProver", "status": "REFUTED", "hash": "sha256:bad"}]
+    caps = [{"tool": "transfer", "policy_proof_hash": "sha256:bad"}]
+    report = build_report(chain, keys, proofs, generated_at=1700000000, capabilities=caps)
+    tool_node = next(n for n in report.nodes if n.kind == "tool")
+    assert tool_node.status == "red"
+
+
+def test_node_amber_when_cited_proof_missing(tmp_path):
+    ident, chain = _chain_with_tool(tmp_path)
+    keys = {ident.key_id: ident.public_key_pem()}
+    caps = [{"tool": "transfer", "policy_proof_hash": "sha256:notsupplied"}]
+    report = build_report(chain, keys, [], generated_at=1700000000, capabilities=caps)
+    tool_node = next(n for n in report.nodes if n.kind == "tool")
+    assert tool_node.status == "amber"
+    assert any("not supplied" in e for e in tool_node.evidence)

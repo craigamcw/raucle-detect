@@ -21,6 +21,7 @@ obligations). It runs nothing and mutates nothing.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -55,6 +56,12 @@ class AuditNode:
     status: str
     evidence: list[str] = field(default_factory=list)
     receipt_hashes: list[str] = field(default_factory=list)
+    # When a capability for this tool cites a proof we were given, the joined
+    # obligation is recorded inline: the green "discharged proof obligation with
+    # a certificate hash" — the founding-myth magic moment.
+    proof_certificate: str = ""
+    proof_status: str = ""  # "" if none joined; else green|amber|red
+    lean_theorem: str = ""
 
 
 @dataclass
@@ -79,6 +86,9 @@ class AuditReport:
     obligations: list[ProofObligation]
     summary: dict[str, Any]
     input_hashes: dict[str, Any]
+    # Chain findings that could not be attributed to a single node (DAG-level
+    # parent/taint issues, global parse failures). Shown in the banner.
+    global_findings: list[str] = field(default_factory=list)
 
     def body(self) -> dict[str, Any]:
         """The canonical, signable manifest body (no signature)."""
@@ -89,6 +99,7 @@ class AuditReport:
             "chain_verdict": self.chain_verdict,
             "nodes": [asdict(n) for n in self.nodes],
             "obligations": [asdict(o) for o in self.obligations],
+            "global_findings": self.global_findings,
             "summary": self.summary,
             "input_hashes": self.input_hashes,
         }
@@ -99,13 +110,18 @@ class AuditReport:
 # ---------------------------------------------------------------------------
 
 
-def _load_receipts(chain_path: str | Path) -> list[ProvenanceReceipt]:
-    """Parse every receipt in a chain for node-building. The authoritative
-    verdict comes from verify_chain; this is only the node inventory, so a line
-    that fails to parse is skipped (it is already reflected in the verdict)."""
-    out: list[ProvenanceReceipt] = []
+_LINE_RE = re.compile(r"^line (\d+):\s*(.*)$")
+_RECEIPT_RE = re.compile(r"^receipt (sha256:[0-9a-f]+):\s*(.*)$")
+_WORST = {RED: 2, AMBER: 1, GREEN: 0}
+
+
+def _load_receipts(chain_path: str | Path) -> list[tuple[int, ProvenanceReceipt]]:
+    """Parse every receipt with its 1-based line number, so verify_chain's
+    ``line N: ...`` findings can be attributed to the exact node. The verdict is
+    authoritative; an unparseable line is skipped (it is already in the verdict)."""
+    out: list[tuple[int, ProvenanceReceipt]] = []
     with open(chain_path, encoding="utf-8") as fh:
-        for line in fh:
+        for line_no, line in enumerate(fh, start=1):
             line = line.strip()
             if not line:
                 continue
@@ -113,10 +129,14 @@ def _load_receipts(chain_path: str | Path) -> list[ProvenanceReceipt]:
                 raw = json.loads(line)
                 jws = raw.get("jws") if isinstance(raw, dict) else None
                 if jws:
-                    out.append(ProvenanceReceipt.from_jws(jws))
+                    out.append((line_no, ProvenanceReceipt.from_jws(jws)))
             except (ValueError, KeyError):
                 continue
     return out
+
+
+def _worse(a: str, b: str) -> str:
+    return a if _WORST[a] >= _WORST[b] else b
 
 
 def build_report(
@@ -126,18 +146,29 @@ def build_report(
     *,
     generated_at: int,
     tool_version: str = __version__,
+    capabilities: list[dict[str, Any]] | None = None,
 ) -> AuditReport:
     """Compute the audit report. ``generated_at`` is injected (not read from the
-    clock) so the manifest is deterministic and testable."""
+    clock) so the manifest is deterministic and testable.
+
+    ``capabilities`` (optional) is a list of capability tokens — each carrying at
+    least ``tool`` and ``policy_proof_hash`` — used to join a tool node to the
+    proof it cites, so a node can show a discharged proof obligation inline.
+    """
     proofs = proofs or []
+    capabilities = capabilities or []
     verifier = ProvenanceVerifier(public_keys=public_keys)
     verdict = verifier.verify_chain(chain_path)
-    receipts = _load_receipts(chain_path)
+    numbered = _load_receipts(chain_path)
     tampered = set(verdict.tampered_receipts)
 
-    # Nodes: group receipts by the tool they invoke, else by operation.
+    # Nodes: group receipts by the tool they invoke, else by operation. Track
+    # which line numbers and receipt hashes belong to each node for attribution.
     grouped: dict[str, AuditNode] = {}
-    for r in receipts:
+    line_to_node: dict[int, AuditNode] = {}
+    hash_to_node: dict[str, AuditNode] = {}
+    node_tool: dict[str, str] = {}
+    for line_no, r in numbered:
         tool = getattr(r, "tool", "") or ""
         if tool:
             key, label, kind = f"{r.agent_id}/{tool}", f"{r.agent_id} → {tool}", "tool"
@@ -148,24 +179,44 @@ def build_report(
         if node is None:
             node = AuditNode(id=key, label=label, kind=kind, status=GREEN)
             grouped[key] = node
+            node_tool[key] = tool
         node.receipt_hashes.append(r.receipt_hash)
+        line_to_node[line_no] = node
+        hash_to_node[r.receipt_hash] = node
 
-    for node in grouped.values():
-        if any(h in tampered for h in node.receipt_hashes):
+    # Tampered receipts → RED on the owning node.
+    for h in tampered:
+        node = hash_to_node.get(h)
+        if node:
             node.status = RED
-            node.evidence.append("one or more receipts flagged as tampered (receipt_hash mismatch)")
-        elif verdict.valid:
-            node.status = GREEN
-            node.evidence.append("chain verified clean for this node's receipts")
+            node.evidence.append("receipt flagged as tampered (receipt_hash mismatch)")
+
+    # Attribute every verify_chain finding to its node by line or receipt hash;
+    # anything not attributable is a global (DAG/taint-level) finding.
+    global_findings: list[str] = []
+    for err in verdict.errors:
+        m_line, m_rcpt = _LINE_RE.match(err), _RECEIPT_RE.match(err)
+        node = None
+        detail = err
+        if m_line:
+            node, detail = line_to_node.get(int(m_line.group(1))), m_line.group(2)
+        elif m_rcpt:
+            node, detail = hash_to_node.get(m_rcpt.group(1)), m_rcpt.group(2)
+        if node is not None:
+            node.status = RED
+            node.evidence.append(detail)
         else:
-            node.status = AMBER
-            node.evidence.append(
-                "chain has unresolved findings elsewhere; "
-                "this node's receipts were not individually flagged"
-            )
+            global_findings.append(err)
+
+    # Nodes with no attributed finding verified cleanly — say so explicitly,
+    # even when the chain is INVALID elsewhere (precise, not blanket-amber).
+    for node in grouped.values():
+        if node.status == GREEN and not node.evidence:
+            node.evidence.append("chain verified clean for this node's receipts")
 
     # Proof obligations from supplied ProofResult dicts.
     obligations: list[ProofObligation] = []
+    proof_by_hash: dict[str, dict[str, Any]] = {}
     for p in proofs:
         status_str = str(p.get("status", "")).upper()
         colour, detail = _PROOF_STATUS.get(
@@ -184,6 +235,31 @@ def build_report(
                 detail=detail,
             )
         )
+        if p.get("hash"):
+            proof_by_hash[p["hash"]] = p
+
+    # Join: a tool node → the capability for that tool → the proof it cites.
+    cap_by_tool = {c.get("tool"): c for c in capabilities if c.get("tool")}
+    for key, node in grouped.items():
+        tool = node_tool.get(key)
+        cap = cap_by_tool.get(tool) if tool else None
+        cited = cap.get("policy_proof_hash") if cap else None
+        if not cited:
+            continue
+        node.proof_certificate = cited
+        node.lean_theorem = "Theorem 3 (policy-proof composition)"
+        proof = proof_by_hash.get(cited)
+        if proof is None:
+            node.proof_status = AMBER
+            node.status = _worse(node.status, AMBER)
+            node.evidence.append(f"capability cites proof {cited} but the proof was not supplied")
+            continue
+        pstatus, pdetail = _PROOF_STATUS.get(
+            str(proof.get("status", "")).upper(), (AMBER, "unknown")
+        )
+        node.proof_status = pstatus
+        node.status = _worse(node.status, pstatus)
+        node.evidence.append(f"cited proof {cited}: {pdetail}")
 
     def _count(colour: str) -> int:
         return sum(1 for n in grouped.values() if n.status == colour) + sum(
@@ -193,6 +269,7 @@ def build_report(
     summary = {
         "chain_valid": verdict.valid,
         "receipt_count": verdict.receipt_count,
+        "global_findings": len(global_findings),
         "green": _count(GREEN),
         "amber": _count(AMBER),
         "red": _count(RED),
@@ -214,6 +291,7 @@ def build_report(
         obligations=obligations,
         summary=summary,
         input_hashes=input_hashes,
+        global_findings=global_findings,
     )
 
 
@@ -288,8 +366,14 @@ def render_html(manifest: dict[str, Any]) -> str:
     s = body["summary"]
     rows = []
     for n in body["nodes"]:
+        cert = ""
+        if n.get("proof_certificate"):
+            cert = (
+                f"<br><small>proof <code>{_esc(n['proof_certificate'])}</code>"
+                f" · {_esc(n.get('lean_theorem', ''))}</small>"
+            )
         rows.append(
-            f"<tr><td>{_esc(n['label'])}</td><td>{_BADGE.get(n['status'], n['status'])}</td>"
+            f"<tr><td>{_esc(n['label'])}{cert}</td><td>{_BADGE.get(n['status'], n['status'])}</td>"
             f"<td>{_esc('; '.join(n['evidence']))}</td></tr>"
         )
     obls = []
@@ -301,6 +385,14 @@ def render_html(manifest: dict[str, Any]) -> str:
     pk = "".join(
         f"<li><code>{_esc(k)}</code>: <code>{_esc(v)}</code></li>"
         for k, v in body["input_hashes"]["public_keys"].items()
+    )
+    gf = body.get("global_findings", [])
+    global_block = (
+        "<h2>Chain-level findings (not attributable to one node)</h2><ul>"
+        + "".join(f"<li>{_esc(f)}</li>" for f in gf)
+        + "</ul>"
+        if gf
+        else ""
     )
     node_rows = "".join(rows) or "<tr><td colspan=3>none</td></tr>"
     obl_rows = "".join(obls) or "<tr><td colspan=4>none supplied</td></tr>"
@@ -327,7 +419,7 @@ def render_html(manifest: dict[str, Any]) -> str:
 
 <h2>Proof obligations</h2>
 <table><tr><th>Obligation</th><th>Status</th><th>Certificate</th><th>Detail</th></tr>{obl_rows}</table>
-
+{global_block}
 <div class="box">
 <h3>What this report does and does not claim</h3>
 <p>This is a <strong>reproducible attestation</strong>, not a certification.
