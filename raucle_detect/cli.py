@@ -225,6 +225,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--proofs", nargs="*", default=[], help="ProofResult JSON files (optional)"
     )
     audit_exp.add_argument(
+        "--capabilities",
+        nargs="*",
+        default=[],
+        help="Capability token JSON files (optional) — joins a tool node to the proof it cites",
+    )
+    audit_exp.add_argument(
         "--sign-key",
         required=True,
         help="Ed25519 PEM private key that signs the manifest (audit key)",
@@ -796,6 +802,7 @@ def _cmd_audit_export(args: argparse.Namespace) -> int:
             public_keys[hashlib.sha256(content).hexdigest()[:16]] = content
 
     proofs = [json.loads(Path(p).read_text()) for p in args.proofs]
+    capabilities = [json.loads(Path(c).read_text()) for c in args.capabilities]
 
     try:
         report = build_report(
@@ -803,6 +810,7 @@ def _cmd_audit_export(args: argparse.Namespace) -> int:
             public_keys,
             proofs,
             generated_at=int(_dt.datetime.now(_dt.timezone.utc).timestamp()),
+            capabilities=capabilities,
         )
         manifest = sign_manifest(report, Path(args.sign_key).read_bytes())
     except (ValueError, OSError) as exc:
