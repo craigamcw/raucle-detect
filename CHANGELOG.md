@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.16.1 (2026-06-01) — CLI developer-experience fix
+
+No behaviour or wire-format changes. Polishes the command-line surface.
+
+- **CLI:** expected user errors (missing file, invalid JSON, missing optional
+  extra, malformed input) now print a one-line `error: ...` to stderr with a
+  non-zero exit code instead of a raw Python traceback. Genuinely unexpected
+  errors still raise a stack trace for debugging.
+- **CLI:** `--help` description now reflects the product — verifiable
+  authorization & audit (capability tokens, SMT/Lean-proven policies, signed
+  provenance receipts), not just prompt-injection detection.
+
 ## 0.16.0 (2026-06-01) — security hardening (round 2 + re-audit)
 
 A full security-focused audit + confirmation re-audit. All CRITICAL/HIGH/MEDIUM
