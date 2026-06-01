@@ -574,18 +574,45 @@ class TestEnvelopeMigration:
         verifier = ProvenanceVerifier(public_keys={identity.key_id: identity.public_key_pem()})
         assert verifier.verify_chain(legacy).valid is False
 
-        # Migrate, then it verifies.
+        # Migrate (with signature verification), then it verifies.
+        keys = {identity.key_id: identity.public_key_pem()}
         migrated = tmp_path / "migrated.jsonl"
-        n = migrate_chain_envelope(legacy, migrated)
+        n = migrate_chain_envelope(legacy, migrated, keys)
         assert n == 1
         rec = json.loads(migrated.read_text().strip())
         assert set(rec) == {"receipt_hash", "jws"}
         assert verifier.verify_chain(migrated).valid is True
 
+    def test_migrate_rejects_bad_signature(self, tmp_path):
+        """The migrator verifies signatures: a receipt whose signature segment is
+        corrupted is NOT migrated (from_jws alone would not catch this)."""
+        from raucle_detect.provenance import migrate_chain_envelope
+
+        identity = AgentIdentity.generate(agent_id="agent:m")
+        r = ProvenanceReceipt(
+            agent_id=identity.agent_id,
+            agent_key_id=identity.key_id,
+            operation=Operation.USER_INPUT,
+            input_hash=hash_text("hi"),
+            taint=["external_user"],
+            issued_at=1700000000,
+        )
+        r.sign(identity)
+        # Corrupt ONLY the signature segment; header+payload stay strictly valid.
+        h, p, _sig = r.jws.split(".")
+        tampered = f"{h}.{p}.AAAA{_sig[4:]}" if len(_sig) > 4 else f"{h}.{p}.AAAA"
+        legacy = tmp_path / "legacy.jsonl"
+        legacy.write_text(json.dumps({"receipt_hash": r.receipt_hash, "jws": tampered}) + "\n")
+        keys = {identity.key_id: identity.public_key_pem()}
+        with pytest.raises(ValueError, match="signature verification failed"):
+            migrate_chain_envelope(legacy, tmp_path / "out.jsonl", keys)
+
     def test_migrate_fails_loud_on_missing_jws(self, tmp_path):
         from raucle_detect.provenance import migrate_chain_envelope
 
+        identity = AgentIdentity.generate(agent_id="agent:m")
+        keys = {identity.key_id: identity.public_key_pem()}
         bad = tmp_path / "bad.jsonl"
         bad.write_text(json.dumps({"receipt_hash": "sha256:x"}) + "\n")
         with pytest.raises(ValueError, match="no 'jws'"):
-            migrate_chain_envelope(bad, tmp_path / "out.jsonl")
+            migrate_chain_envelope(bad, tmp_path / "out.jsonl", keys)

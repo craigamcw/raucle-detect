@@ -1532,26 +1532,41 @@ class ProvenanceVerifier:
         return out
 
 
-def migrate_chain_envelope(in_path: str | Path, out_path: str | Path) -> int:
+def migrate_chain_envelope(
+    in_path: str | Path,
+    out_path: str | Path,
+    public_keys: dict[str, bytes],
+) -> int:
     """Offline one-off converter: rewrite a legacy rich-envelope chain to the
     v0.17 minimal ``{receipt_hash, jws}`` envelope.
 
     The v0.17 verifier intentionally accepts ONLY the minimal envelope (no
     dual-format tolerance — that would re-introduce the malleability the minimal
-    envelope removes). This converter is the migration path: it reads each line,
-    verifies the embedded JWS parses under the strict, structurally-complete
-    contract, recomputes the content-addressed ``receipt_hash`` from the JWS
-    (never trusting the old envelope copy), and writes the minimal record.
+    envelope removes). This converter is the migration path. For each line it:
 
-    It is deliberately a separate, explicit, offline step — not part of any
-    verification path. Fails loudly (raising) on the first line whose JWS is
-    missing or does not parse strictly, so a malformed legacy chain is surfaced
-    rather than silently dropped.
+    1. parses the embedded JWS under the strict, structurally-complete contract;
+    2. **verifies the Ed25519 signature** against *public_keys* (keyed by
+       ``agent_key_id``) — a corrupted or unknown-key receipt is rejected, not
+       silently rewritten; ``from_jws`` alone does NOT check signatures;
+    3. recomputes the content-addressed ``receipt_hash`` from the JWS (never
+       trusting the old envelope copy) and writes the minimal record.
+
+    It is a separate, explicit, offline step — not part of any live verification
+    path. Fails loudly (raising) on the first line whose JWS is missing, does not
+    parse strictly, or fails signature verification, so a bad legacy chain is
+    surfaced rather than migrated.
+
+    Parameters
+    ----------
+    public_keys
+        ``{agent_key_id: public_key_pem}`` — the keys that signed the chain.
+        Required: migration verifies signatures, so the keys must be supplied.
 
     Returns the number of records converted.
     """
     in_path = Path(in_path)
     out_path = Path(out_path)
+    verifier = ProvenanceVerifier(public_keys=public_keys)
     count = 0
     with open(in_path, encoding="utf-8") as fin, open(out_path, "w", encoding="utf-8") as fout:
         for line_no, line in enumerate(fin, start=1):
@@ -1566,8 +1581,15 @@ def migrate_chain_envelope(in_path: str | Path, out_path: str | Path) -> int:
             if not jws:
                 raise ValueError(f"line {line_no}: record has no 'jws' field; cannot migrate")
             # Strict, structurally-complete parse — a legacy line that cannot be
-            # verified is surfaced, not silently rewritten.
+            # parsed is surfaced, not silently rewritten.
             receipt = ProvenanceReceipt.from_jws(jws, strict=True)
+            # Signature verification (from_jws does not do this): only migrate a
+            # receipt whose signature actually checks out under a trusted key.
+            if not verifier._verify_signature(receipt):
+                raise ValueError(
+                    f"line {line_no}: signature verification failed for "
+                    f"agent_key_id={receipt.agent_key_id} — refusing to migrate"
+                )
             fout.write(
                 json.dumps(
                     {"receipt_hash": receipt.receipt_hash, "jws": receipt.jws},

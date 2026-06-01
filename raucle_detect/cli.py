@@ -330,10 +330,17 @@ def _build_parser() -> argparse.ArgumentParser:
     prov_migrate = prov_sub.add_parser(
         "migrate-envelope",
         help="Convert a legacy rich-envelope chain to the v0.17 minimal "
-        "{receipt_hash, jws} envelope (verifies each embedded JWS)",
+        "{receipt_hash, jws} envelope (verifies each embedded JWS signature)",
     )
     prov_migrate.add_argument("chain", help="Path to the legacy chain JSONL")
     prov_migrate.add_argument("--out", required=True, help="Path to write the migrated chain")
+    prov_migrate.add_argument(
+        "--pubkeys",
+        nargs="+",
+        required=True,
+        help="Capability-statement JSON files OR public-key PEM files that signed "
+        "the chain — migration verifies each receipt's signature before rewriting",
+    )
 
     # ---- Federated signed-IOC feeds (v0.8.0) -----------------------------
     feed_p = subparsers.add_parser(
@@ -955,14 +962,30 @@ def _cmd_provenance_graph(args: argparse.Namespace) -> int:
 
 
 def _cmd_provenance_migrate_envelope(args: argparse.Namespace) -> int:
-    from raucle_detect.provenance import migrate_chain_envelope
+    from raucle_detect.provenance import CapabilityStatement, migrate_chain_envelope
+
+    # Load public keys exactly as `provenance verify` does (capability-statement
+    # JSON or raw PEM); migration verifies each receipt's signature.
+    public_keys: dict[str, bytes] = {}
+    for src in args.pubkeys:
+        content = Path(src).read_bytes()
+        try:
+            stmt = CapabilityStatement.from_dict(json.loads(content))
+            public_keys[stmt.key_id] = stmt.public_key_pem.encode("ascii")
+        except (json.JSONDecodeError, KeyError):
+            import hashlib
+
+            public_keys[hashlib.sha256(content).hexdigest()[:16]] = content
 
     try:
-        count = migrate_chain_envelope(args.chain, args.out)
+        count = migrate_chain_envelope(args.chain, args.out, public_keys)
     except (ValueError, OSError) as exc:
         print(f"migration failed: {exc}", file=sys.stderr)
         return 1
-    print(f"migrated {count} receipt(s) to minimal envelope → {args.out}", file=sys.stderr)
+    print(
+        f"migrated {count} signature-verified receipt(s) to minimal envelope → {args.out}",
+        file=sys.stderr,
+    )
     return 0
 
 
