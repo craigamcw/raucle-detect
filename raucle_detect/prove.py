@@ -71,9 +71,10 @@ from typing import Any
 
 
 def _canonical_json(obj: Any) -> bytes:
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
-        "utf-8"
-    )
+    # allow_nan=False: NaN/Infinity are not valid JSON — reject, never emit.
+    return json.dumps(
+        obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    ).encode("utf-8")
 
 
 def _sha256_hex(data: bytes) -> str:
@@ -392,21 +393,39 @@ class URLPolicyProver:
                 if not any(_host_matches(h, a) for a in allowlist):
                     violations.append({"scheme": schemes[0], "host": h, "path": path_prefixes[0]})
 
-        # max_path_depth
+        # max_path_depth — the grammar declares path *prefixes*, and an agent
+        # can append further segments to any prefix, so the constructible path
+        # depth is unbounded. A declared prefix already exceeding the bound is a
+        # concrete REFUTED counterexample; but the *absence* of such a prefix
+        # cannot be PROVEN (deeper paths are still constructible). So a
+        # max_path_depth obligation with no in-prefix violation is UNDECIDED,
+        # never PROVEN.
+        undecidable = False
         max_depth = policy.get("max_path_depth")
         if max_depth is not None:
+            depth_violation = False
             for p in path_prefixes:
                 depth = len([s for s in p.split("/") if s])
                 if depth > max_depth:
                     notes.append(f"path prefix {p!r} already exceeds max_path_depth={max_depth}")
                     violations.append({"scheme": schemes[0], "host": hosts[0], "path": p})
+                    depth_violation = True
+            if not depth_violation:
+                undecidable = True
+                notes.append(
+                    "max_path_depth cannot be PROVEN over a prefix grammar: an agent may append "
+                    "segments to any prefix, so deeper paths remain constructible (UNDECIDED)"
+                )
 
-        if not violations:
-            status = "PROVEN"
-            counter = None
-        else:
+        if violations:
             status = "REFUTED"
             counter = violations[0]
+        elif undecidable:
+            status = "UNDECIDED"
+            counter = None
+        else:
+            status = "PROVEN"
+            counter = None
 
         return ProofResult(
             status=status,

@@ -136,10 +136,14 @@ def _b64url_decode(data: str) -> bytes:
 
 
 def _canonical_json(obj: Any) -> bytes:
-    """Serialise *obj* with sorted keys, no whitespace, UTF-8 — for hashing."""
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
-        "utf-8"
-    )
+    """Serialise *obj* with sorted keys, no whitespace, UTF-8 — for hashing.
+
+    allow_nan=False: NaN/Infinity are not valid JSON and would break
+    cross-implementation verification — reject rather than emit them.
+    """
+    return json.dumps(
+        obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    ).encode("utf-8")
 
 
 def _sha256_hex(data: bytes) -> str:

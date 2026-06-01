@@ -227,13 +227,19 @@ class RaucleCallbackHandler(BaseCallbackHandler):
         call_args: Any = inputs if inputs is not None else input_str
 
         token = self._resolver(serialized or {})
-        agent_id = (metadata or {}).get("agent_id") or "<unbound>"
+        bound_agent_id = (metadata or {}).get("agent_id")
+        agent_id = bound_agent_id or "<unbound>"
 
         if token is None:
             decision = GateDecision(allowed=False, reason="no in-force capability token")
         else:
             check_args = call_args if isinstance(call_args, dict) else {"input": call_args}
-            decision = self.gate.check(token=token, tool=tool_name, args=check_args)
+            # Pass the caller's agent_id so the gate enforces the token's agent
+            # scope (previously the LangChain path left tokens effectively
+            # unbound — the agent_id was only recorded in the receipt).
+            decision = self.gate.check(
+                token=token, tool=tool_name, args=check_args, agent_id=bound_agent_id
+            )
 
         self._emit_receipt(
             token=token,

@@ -234,3 +234,23 @@ def test_proof_result_hash_is_canonical():
     )
     assert r1.hash == r2.hash
     assert r1.hash.startswith("sha256:")
+
+
+def test_url_max_path_depth_is_undecidable_not_proven():
+    """max_path_depth over a prefix grammar cannot be PROVEN (segments appendable)."""
+    from raucle_detect.prove import URLPolicyProver
+
+    grammar = {
+        "schemes": ["https"],
+        "hosts": ["api.example.com"],
+        "path_prefixes": ["/v1"],
+        "query_keys": [],
+    }
+    r = URLPolicyProver().prove(grammar, {"max_path_depth": 3})
+    assert r.status == "UNDECIDED"
+    # but a declared prefix already too deep is a concrete REFUTED counterexample
+    r2 = URLPolicyProver().prove(
+        {"schemes": ["https"], "hosts": ["h"], "path_prefixes": ["/a/b/c"], "query_keys": []},
+        {"max_path_depth": 1},
+    )
+    assert r2.status == "REFUTED"

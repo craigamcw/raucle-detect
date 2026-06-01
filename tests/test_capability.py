@@ -691,3 +691,14 @@ def test_sec_c3_type_confusion_denies_not_raises():
     for bad in ["99999999", True, None, [1, 2], {"x": 1}]:
         d = g.check(t, tool="t", args={"amount": bad})
         assert not d.allowed  # no exception, explicit deny
+
+
+def test_canonical_json_rejects_nan_infinity():
+    """NaN/Infinity are not valid JSON — canonicalisation must raise, not emit."""
+    import pytest
+
+    from raucle_detect.capability import _canonical_json
+
+    for bad in [float("nan"), float("inf"), float("-inf")]:
+        with pytest.raises(ValueError):
+            _canonical_json({"x": bad})
