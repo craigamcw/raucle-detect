@@ -266,6 +266,24 @@ class Capability:
 _KNOWN_CONSTRAINT_KEYS = _registry.KNOWN_CONSTRAINT_KEYS
 
 
+def _require_int_bound(kind: str, field: str, bound: Any) -> None:
+    """Reject a numeric-bound value that is not a real integer (§8.5).
+
+    ``bool`` is an ``int`` subclass in Python, so ``True``/``False`` would
+    otherwise be accepted as a bound and compared numerically (``True == 1``) —
+    an ambiguous, error-prone token. Floats are rejected here too with a clear
+    message (the canonical encoder also rejects them at sign-time, but a
+    validator error at mint is far more actionable). Strings/None/collections
+    are likewise rejected.
+    """
+    if isinstance(bound, bool) or not isinstance(bound, int):
+        raise ValueError(
+            f"{kind}[{field!r}] bound must be an integer, got "
+            f"{type(bound).__name__} {bound!r} (§8.5 — cap:v1 bounds are "
+            f"integer-only; bool is not a number)"
+        )
+
+
 def _as_value_list(kind: str, field: str, v: Any) -> list[Any]:
     """Validate that a value-set constraint is a real list/tuple, not a scalar.
 
@@ -314,10 +332,20 @@ def _normalise_constraints(c: dict[str, Any]) -> dict[str, Any]:
             for k, v in c["allowed_values"].items()
         }
     if "starts_with" in c:
+        for fld, prefix in c["starts_with"].items():
+            if not isinstance(prefix, str):
+                raise ValueError(
+                    f"starts_with[{fld!r}] prefix must be a string, got "
+                    f"{type(prefix).__name__} {prefix!r} (§8.5)"
+                )
         out["starts_with"] = dict(c["starts_with"])
     if "max_value" in c:
+        for fld, bound in c["max_value"].items():
+            _require_int_bound("max_value", fld, bound)
         out["max_value"] = dict(c["max_value"])
     if "min_value" in c:
+        for fld, bound in c["min_value"].items():
+            _require_int_bound("min_value", fld, bound)
         out["min_value"] = dict(c["min_value"])
     if "required_present" in c:
         out["required_present"] = sorted(c["required_present"])
@@ -1133,48 +1161,76 @@ def _check_constraints(c: dict[str, Any], args: dict[str, Any]) -> str | None:
     security-critical fields; binding the gate to the tool's declared schema is
     tracked as a future hardening.
     """
-    # Blacklist: a present, forbidden value is a violation. (Absent ⇒ no
-    # forbidden value present; see caveat above re: aliasing.)
+    # Registry-driven fail-closed guard: any constraint kind that is not in the
+    # Modelled Language Registry must DENY rather than be silently ignored. The
+    # mint/normalise path already rejects unknown keys, but the gate is the
+    # trust boundary and re-checks independently (defence in depth).
+    for kind in c:
+        if kind not in _registry.CONSTRAINT_REGISTRY:
+            return f"unmodelled constraint kind {kind!r} reached the gate (deny)"
+
+    # Collection-arg semantics are EXACT per §8.6 (registry rows). The shared
+    # principle: a collection value can never be used to smuggle a value past a
+    # check — blacklists deny on ANY contained scalar (exists), positive/bound
+    # constraints require ALL contained scalars to satisfy (for-all).
+
+    # forbidden_values — EXISTS_DENY: a present, forbidden scalar anywhere in the
+    # argument (incl. nested in a list/dict, keys included) is a violation.
     for fld, bads in c.get("forbidden_values", {}).items():
         if fld not in args:
             continue
-        # Check the value AND every scalar nested inside it: a forbidden value
-        # hidden in a list/dict argument (e.g. to=["attacker@evil"]) must not
-        # bypass the blacklist (capability-constraint bypass).
         for scalar in _flatten_scalars(args[fld]):
             if scalar in bads:
                 return f"{fld}={scalar!r} is in forbidden_values"
 
-    # Whitelist: field MUST be present and in the allowed set.
+    # allowed_values — FORALL_ALLOW: field MUST be present and EVERY contained
+    # scalar must be in the allowed set. An empty collection carries no checkable
+    # value and is denied (cannot demonstrate the constraint is satisfied).
     for fld, oks in c.get("allowed_values", {}).items():
         if fld not in args:
             return f"allowed_values field {fld!r} is absent from the call"
-        if args[fld] not in oks:
-            return f"{fld}={args[fld]!r} is not in allowed_values"
+        scalars = list(_flatten_scalars(args[fld]))
+        if not scalars:
+            return f"allowed_values field {fld!r} carries no value to check"
+        for scalar in scalars:
+            if scalar not in oks:
+                return f"{fld} contains {scalar!r} which is not in allowed_values"
 
-    # Prefix: field MUST be present and a string with the prefix.
+    # starts_with — STRING_ONLY: field MUST be present and be a string with the
+    # prefix. Any non-string (including any collection) is denied.
     for fld, prefix in c.get("starts_with", {}).items():
         if fld not in args:
             return f"starts_with field {fld!r} is absent from the call"
         if not (isinstance(args[fld], str) and args[fld].startswith(prefix)):
             return f"{fld}={args[fld]!r} does not start with {prefix!r}"
 
-    # Numeric bounds: field MUST be present and numeric (not bool).
+    # max_value / min_value — FORALL_NUMERIC: field MUST be present and EVERY
+    # contained scalar must be a finite non-bool number satisfying the bound.
     for fld, bound in c.get("max_value", {}).items():
         if fld not in args:
             return f"max_value field {fld!r} is absent from the call"
-        if not _is_number(args[fld]):
-            return f"{fld}={args[fld]!r} is not a number (max_value)"
-        if args[fld] > bound:
-            return f"{fld}={args[fld]!r} exceeds max_value {bound!r}"
+        scalars = list(_flatten_scalars(args[fld]))
+        if not scalars:
+            return f"max_value field {fld!r} carries no value to check"
+        for scalar in scalars:
+            if not _is_number(scalar):
+                return f"{fld} contains {scalar!r} which is not a number (max_value)"
+            if scalar > bound:
+                return f"{fld} contains {scalar!r} exceeding max_value {bound!r}"
     for fld, bound in c.get("min_value", {}).items():
         if fld not in args:
             return f"min_value field {fld!r} is absent from the call"
-        if not _is_number(args[fld]):
-            return f"{fld}={args[fld]!r} is not a number (min_value)"
-        if args[fld] < bound:
-            return f"{fld}={args[fld]!r} below min_value {bound!r}"
+        scalars = list(_flatten_scalars(args[fld]))
+        if not scalars:
+            return f"min_value field {fld!r} carries no value to check"
+        for scalar in scalars:
+            if not _is_number(scalar):
+                return f"{fld} contains {scalar!r} which is not a number (min_value)"
+            if scalar < bound:
+                return f"{fld} contains {scalar!r} below min_value {bound!r}"
 
+    # required_present / forbidden_field_combinations — PRESENCE: only the
+    # field's presence matters; the value (collection or not) is irrelevant.
     for fld in c.get("required_present", []):
         if fld not in args:
             return f"required field {fld!r} missing"

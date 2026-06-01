@@ -124,6 +124,57 @@ def test_root_token_still_allowed_without_resolver():
     assert decision.allowed, decision.reason
 
 
+def test_allowed_values_forall_collection_semantics():
+    """§8.6 FORALL_ALLOW: a list is allowed iff every element is in the allowed
+    set; one disallowed element (or an empty collection) DENIES."""
+    iss = CapabilityIssuer.generate(issuer="platform.example")
+    cap = iss.mint(
+        agent_id="agent:billing",
+        tool="t",
+        constraints={"allowed_values": {"region": ["us", "eu"]}},
+    )
+    gate = CapabilityGate(trusted_issuers={iss.key_id: iss.public_key_pem})
+    assert gate.check(cap, tool="t", args={"region": "us"}).allowed
+    assert gate.check(cap, tool="t", args={"region": ["us", "eu"]}).allowed
+    assert not gate.check(cap, tool="t", args={"region": ["us", "apac"]}).allowed
+    assert not gate.check(cap, tool="t", args={"region": []}).allowed
+    assert not gate.check(cap, tool="t", args={}).allowed  # absent → deny
+
+
+def test_starts_with_collection_denied():
+    """§8.6 STRING_ONLY: a collection value can never satisfy starts_with."""
+    iss = CapabilityIssuer.generate(issuer="platform.example")
+    cap = iss.mint(
+        agent_id="agent:billing",
+        tool="t",
+        constraints={"starts_with": {"path": "/safe/"}},
+    )
+    gate = CapabilityGate(trusted_issuers={iss.key_id: iss.public_key_pem})
+    assert gate.check(cap, tool="t", args={"path": "/safe/x"}).allowed
+    assert not gate.check(cap, tool="t", args={"path": ["/safe/x"]}).allowed
+
+
+def test_mint_rejects_bool_and_float_numeric_bounds():
+    """§8.5: numeric bounds must be real integers — bool (an int subclass) and
+    float are rejected at mint, not silently signed."""
+    import pytest
+
+    iss = CapabilityIssuer.generate(issuer="platform.example")
+    for bad in (True, 1.5, "100", None):
+        with pytest.raises(ValueError):
+            iss.mint(agent_id="a", tool="t", constraints={"max_value": {"amount": bad}})
+
+
+def test_mint_rejects_non_string_starts_with_prefix():
+    """§8.5: a starts_with prefix must be a string."""
+    import pytest
+
+    iss = CapabilityIssuer.generate(issuer="platform.example")
+    for bad in (123, ["/x"], None):
+        with pytest.raises(ValueError):
+            iss.mint(agent_id="a", tool="t", constraints={"starts_with": {"path": bad}})
+
+
 def test_child_allowed_when_resolver_present():
     """With a resolver wired, a valid child still passes (the fix only closes the
     no-resolver hole, it does not break resolvable chains)."""
