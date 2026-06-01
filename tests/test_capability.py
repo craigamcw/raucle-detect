@@ -689,14 +689,31 @@ def test_sec_c2_value_constraints_fail_closed_on_absent_field():
 
 
 def test_sec_c3_type_confusion_denies_not_raises():
-    """Non-numeric / bool args on a numeric bound DENY, never raise."""
+    """Non-numeric / bool args on a numeric bound DENY, never raise.
+
+    Per §8.6 (FORALL_NUMERIC): a collection is evaluated element-wise — every
+    contained scalar must be a finite non-bool number satisfying the bound. A
+    string-number, bool, None, or a dict (whose flattened key is a string) all
+    contain a non-number → DENY.
+    """
     i, g = _issuer_gate()
     t = i.mint(
         agent_id="agent:b", tool="t", constraints={"max_value": {"amount": 100}}, ttl_seconds=300
     )
-    for bad in ["99999999", True, None, [1, 2], {"x": 1}]:
+    for bad in ["99999999", True, None, {"x": 1}, [1, "2"], []]:
         d = g.check(t, tool="t", args={"amount": bad})
-        assert not d.allowed  # no exception, explicit deny
+        assert not d.allowed, f"expected deny for {bad!r}"  # no exception, explicit deny
+
+
+def test_sec_c3_numeric_collection_semantics():
+    """§8.6 for-all numeric: a list of in-bound numbers is ALLOWED; one
+    out-of-bound element DENIES the whole call."""
+    i, g = _issuer_gate()
+    t = i.mint(
+        agent_id="agent:b", tool="t", constraints={"max_value": {"amount": 100}}, ttl_seconds=300
+    )
+    assert g.check(t, tool="t", args={"amount": [1, 2, 100]}).allowed
+    assert not g.check(t, tool="t", args={"amount": [1, 2, 101]}).allowed
 
 
 def test_canonical_json_rejects_nan_infinity():
