@@ -1530,3 +1530,50 @@ class ProvenanceVerifier:
                     continue
                 out[r.receipt_hash] = r
         return out
+
+
+def migrate_chain_envelope(in_path: str | Path, out_path: str | Path) -> int:
+    """Offline one-off converter: rewrite a legacy rich-envelope chain to the
+    v0.17 minimal ``{receipt_hash, jws}`` envelope.
+
+    The v0.17 verifier intentionally accepts ONLY the minimal envelope (no
+    dual-format tolerance — that would re-introduce the malleability the minimal
+    envelope removes). This converter is the migration path: it reads each line,
+    verifies the embedded JWS parses under the strict, structurally-complete
+    contract, recomputes the content-addressed ``receipt_hash`` from the JWS
+    (never trusting the old envelope copy), and writes the minimal record.
+
+    It is deliberately a separate, explicit, offline step — not part of any
+    verification path. Fails loudly (raising) on the first line whose JWS is
+    missing or does not parse strictly, so a malformed legacy chain is surfaced
+    rather than silently dropped.
+
+    Returns the number of records converted.
+    """
+    in_path = Path(in_path)
+    out_path = Path(out_path)
+    count = 0
+    with open(in_path, encoding="utf-8") as fin, open(out_path, "w", encoding="utf-8") as fout:
+        for line_no, line in enumerate(fin, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                raw = json.loads(line, object_pairs_hook=_reject_duplicate_keys)
+            except ValueError as exc:
+                raise ValueError(f"line {line_no}: malformed JSON: {exc}") from exc
+            jws = raw.get("jws") if isinstance(raw, dict) else None
+            if not jws:
+                raise ValueError(f"line {line_no}: record has no 'jws' field; cannot migrate")
+            # Strict, structurally-complete parse — a legacy line that cannot be
+            # verified is surfaced, not silently rewritten.
+            receipt = ProvenanceReceipt.from_jws(jws, strict=True)
+            fout.write(
+                json.dumps(
+                    {"receipt_hash": receipt.receipt_hash, "jws": receipt.jws},
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+            count += 1
+    return count

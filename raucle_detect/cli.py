@@ -327,6 +327,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Include receipts whose verdict did not change in the output",
     )
 
+    prov_migrate = prov_sub.add_parser(
+        "migrate-envelope",
+        help="Convert a legacy rich-envelope chain to the v0.17 minimal "
+        "{receipt_hash, jws} envelope (verifies each embedded JWS)",
+    )
+    prov_migrate.add_argument("chain", help="Path to the legacy chain JSONL")
+    prov_migrate.add_argument("--out", required=True, help="Path to write the migrated chain")
+
     # ---- Federated signed-IOC feeds (v0.8.0) -----------------------------
     feed_p = subparsers.add_parser(
         "feed",
@@ -946,6 +954,18 @@ def _cmd_provenance_graph(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_provenance_migrate_envelope(args: argparse.Namespace) -> int:
+    from raucle_detect.provenance import migrate_chain_envelope
+
+    try:
+        count = migrate_chain_envelope(args.chain, args.out)
+    except (ValueError, OSError) as exc:
+        print(f"migration failed: {exc}", file=sys.stderr)
+        return 1
+    print(f"migrated {count} receipt(s) to minimal envelope → {args.out}", file=sys.stderr)
+    return 0
+
+
 def _cmd_provenance_replay(args: argparse.Namespace) -> int:
     from raucle_detect.replay import InputStore, Replayer
     from raucle_detect.scanner import Scanner
@@ -1454,6 +1474,8 @@ def _dispatch(argv: list[str] | None = None) -> int:
         return _cmd_provenance_graph(args)
     elif args.command == "provenance" and args.provenance_command == "replay":
         return _cmd_provenance_replay(args)
+    elif args.command == "provenance" and args.provenance_command == "migrate-envelope":
+        return _cmd_provenance_migrate_envelope(args)
     elif args.command == "feed" and args.feed_command == "keygen":
         return _cmd_feed_keygen(args)
     elif args.command == "feed" and args.feed_command == "sign":
