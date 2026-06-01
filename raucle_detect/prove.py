@@ -2,9 +2,12 @@
 
 The 2026 AI-security industry runs on the phrase *"we tested it against
 10,000 attacks."*  That is not a guarantee, that is statistics over a
-sample.  For bounded input sub-languages -- tool-call JSON, URL strings,
-read-only SQL -- we can do dramatically better: produce an actual proof
-that **no string in the grammar** bypasses a given policy.
+sample.  For bounded input sub-languages -- tool-call JSON, URL strings --
+we can do dramatically better: produce an actual proof that **no string in
+the grammar** bypasses a given policy. For SQL the scope is narrower: a
+finite-template checker over a modelled subset (see ``SQLClauseProver``),
+which returns ``UNDECIDED`` for any construct it does not model rather than
+claiming a proof it cannot make.
 
 This module ships three first-cut provers, each producing a signed
 ``ProofResult`` artifact whose hash can be embedded in a v0.5.0
@@ -16,9 +19,11 @@ verdict receipt or chained into the v0.4.0 audit log:
 - ``URLPolicyProver`` -- given a URL allowlist (scheme + host glob +
   path prefix) and an extra rule (e.g. "no secrets in query"), emit
   ``PROVEN`` or a counterexample URL.
-- ``SQLClauseProver`` -- given a bounded read-only-ish SQL policy
-  (forbidden tokens, declared tables, no statement chaining), emit
-  ``PROVEN`` or a counterexample query.
+- ``SQLClauseProver`` -- a **finite SQL-template checker over a modelled
+  subset** (NOT a general SQL prover): given a bounded policy (forbidden
+  tokens, declared tables, no statement chaining) over an enumerated set of
+  statement templates, emit ``PROVEN`` / ``REFUTED`` (counterexample) /
+  ``UNDECIDED`` (template uses a construct outside the modelled subset).
 
 The proof artifacts are not "the policy is safe in general" -- they
 are "the policy is safe **over the declared grammar**".  That is the
@@ -593,11 +598,19 @@ _UNMODELLED_SQL_RE = re.compile("|".join(_registry.SQL_UNMODELLED_CONSTRUCTS), r
 
 @dataclass
 class SQLClauseProver:
-    """Prove a bounded SQL policy over an enumerable set of candidate queries.
+    """A **finite SQL-template checker over a modelled subset** — not a general
+    SQL prover.
 
-    Unlike the JSON prover this is *enumeration with SMT-style reasoning*,
-    not full grammar inference -- modelling an arbitrary SQL grammar in SMT
-    is well outside this scope.  The honest claim is: given a finite set
+    It checks a bounded policy across an enumerated set of statement *templates*
+    using a regex extractor; it does **not** parse arbitrary SQL. Templates that
+    use constructs outside the modelled subset (quoted identifiers,
+    ``LATERAL``/``UNNEST``/``VALUES``, recursive CTEs, table functions, and
+    other dialect forms — see ``registry.SQL_UNMODELLED_CONSTRUCTS``) yield
+    UNDECIDED, never a false PROVEN. Highest assurance for table isolation comes
+    from validating against the target DB's own parser under a no-execute role;
+    this checker is a portable, dependency-light approximation that fails closed.
+
+    The honest claim is: given a finite set
     of statement *templates* and the columns/tables they touch, prove the
     policy holds for every template.
 

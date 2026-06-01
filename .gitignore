@@ -23,5 +23,6 @@ demo-output/
 /latency.json
 /results.json
 paper/lean/.lake/
+paper/lean/lake-manifest.json
 .claude/
 /package-lock.json

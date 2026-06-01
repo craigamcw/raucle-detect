@@ -223,7 +223,7 @@ A policy that is **structurally enforced**, not configured. The auditor can re-p
 ## Where next
 
 - **`URLPolicyProver`** — same idea, for URL allowlists (`raucle-detect prove url`): require_https, host_allowlist with wildcards, max_path_depth.
-- **`SQLClauseProver`** — same idea, for bounded read-only SQL templates (`raucle-detect prove sql`): forbidden_tokens, allowed_tables.
+- **`SQLClauseProver`** — a **finite SQL-template checker over a modelled subset** (`raucle-detect prove sql`): forbidden_tokens, allowed_tables. Not a general SQL prover — a template using a construct outside the modelled subset (quoted identifiers, `LATERAL`/`UNNEST`/`VALUES`, recursive CTEs, table functions) returns **UNDECIDED** rather than PROVEN.
 - **[Paper draft](../../paper/DRAFT.md)** — the soundness theorems backing the prover (`VCD.GateAllowImpliesPolicy`, `VCD.TokenCitingProofConforms`).
 
 If you'd rather author policies in a UI with a live "Prove" button and a counterexample browser, that's [Raucle Cloud's](https://cloud.raucle.com) Policies workspace (phase 5b — shipping shortly).

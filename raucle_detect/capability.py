@@ -184,11 +184,19 @@ class Capability:
     Constraint schema mirrors :class:`raucle_detect.prove.JSONSchemaProver`'s
     policy keys:
 
-    - ``forbidden_values`` -- ``{field: [bad, ...]}``
+    - ``forbidden_values`` -- ``{field: [bad, ...]}`` (**best-effort denylist**)
     - ``max_value`` / ``min_value`` -- ``{field: bound}``
     - ``required_present`` -- ``[field, ...]``
     - ``forbidden_field_combinations`` -- ``[[a, b], ...]``
     - ``allowed_values`` -- ``{field: [ok, ...]}`` (whitelist)
+
+    .. warning::
+       ``forbidden_values`` is a **best-effort denylist**: the gate enforces it
+       on the argument *names* the policy declares and cannot see the tool's full
+       parameter schema, so a forbidden value supplied under a different
+       parameter name is not caught. For security-critical fields prefer the
+       fail-closed positive constraints — ``allowed_values`` (whitelist),
+       ``required_present``, and ``max_value``/``min_value`` bounds.
     """
 
     token_id: str
@@ -870,10 +878,15 @@ class CapabilityGate:
         Mapping of ``key_id -> public_key_pem``. Tokens signed by any other
         key are rejected. There is no global root.
     parent_resolver
-        Optional callable ``(token_id) -> Capability | None`` used when a
-        token carries ``parent_id`` and the gate is configured to verify
-        the full chain. Default behaviour is to verify the immediate
-        signature and trust the attenuation invariants enforced at mint.
+        Callable ``(token_id) -> Capability | None`` that resolves a token's
+        ancestors so the gate can re-verify the whole attenuation chain
+        (signatures, narrowing, revocation depth) independently of mint.
+
+        **Fail-closed (§8.7):** a token that carries a ``parent_id`` but is
+        presented to a gate with **no** ``parent_resolver`` is DENIED — the gate
+        cannot verify the chain, so it does not trust that the issuer minted it
+        correctly. Supply a resolver to use attenuated/derived tokens. Root
+        tokens (no ``parent_id``) are unaffected.
     """
 
     def __init__(

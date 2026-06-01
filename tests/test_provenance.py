@@ -542,3 +542,77 @@ class TestEnvelopeAndIntegerDomain:
         _canonical_json({"iat": 2**53 - 1})  # safe, ok
         with pytest.raises(ValueError, match="safe-integer"):
             _canonical_json({"iat": 2**53})
+
+
+class TestEnvelopeMigration:
+    def test_migrate_rich_envelope_to_minimal(self, tmp_path):
+        """The offline converter rewrites a legacy rich-envelope chain to the
+        minimal {receipt_hash, jws} envelope, and the result verifies."""
+        from raucle_detect.provenance import migrate_chain_envelope
+
+        identity = AgentIdentity.generate(agent_id="agent:m")
+        # Build a legacy rich-envelope chain by hand (full payload + receipt_hash + jws).
+        r = ProvenanceReceipt(
+            agent_id=identity.agent_id,
+            agent_key_id=identity.key_id,
+            operation=Operation.USER_INPUT,
+            input_hash=hash_text("hi"),
+            taint=["external_user"],
+            issued_at=1700000000,
+        )
+        r.sign(identity)
+        legacy = tmp_path / "legacy.jsonl"
+        # Construct the old rich record: full payload + receipt_hash + jws.
+        import base64
+
+        payload = json.loads(base64.urlsafe_b64decode(r.jws.split(".")[1] + "=="))
+        payload["receipt_hash"] = r.receipt_hash
+        payload["jws"] = r.jws
+        legacy.write_text(json.dumps(payload) + "\n")
+
+        # The verifier rejects the legacy rich envelope.
+        verifier = ProvenanceVerifier(public_keys={identity.key_id: identity.public_key_pem()})
+        assert verifier.verify_chain(legacy).valid is False
+
+        # Migrate (with signature verification), then it verifies.
+        keys = {identity.key_id: identity.public_key_pem()}
+        migrated = tmp_path / "migrated.jsonl"
+        n = migrate_chain_envelope(legacy, migrated, keys)
+        assert n == 1
+        rec = json.loads(migrated.read_text().strip())
+        assert set(rec) == {"receipt_hash", "jws"}
+        assert verifier.verify_chain(migrated).valid is True
+
+    def test_migrate_rejects_bad_signature(self, tmp_path):
+        """The migrator verifies signatures: a receipt whose signature segment is
+        corrupted is NOT migrated (from_jws alone would not catch this)."""
+        from raucle_detect.provenance import migrate_chain_envelope
+
+        identity = AgentIdentity.generate(agent_id="agent:m")
+        r = ProvenanceReceipt(
+            agent_id=identity.agent_id,
+            agent_key_id=identity.key_id,
+            operation=Operation.USER_INPUT,
+            input_hash=hash_text("hi"),
+            taint=["external_user"],
+            issued_at=1700000000,
+        )
+        r.sign(identity)
+        # Corrupt ONLY the signature segment; header+payload stay strictly valid.
+        h, p, _sig = r.jws.split(".")
+        tampered = f"{h}.{p}.AAAA{_sig[4:]}" if len(_sig) > 4 else f"{h}.{p}.AAAA"
+        legacy = tmp_path / "legacy.jsonl"
+        legacy.write_text(json.dumps({"receipt_hash": r.receipt_hash, "jws": tampered}) + "\n")
+        keys = {identity.key_id: identity.public_key_pem()}
+        with pytest.raises(ValueError, match="signature verification failed"):
+            migrate_chain_envelope(legacy, tmp_path / "out.jsonl", keys)
+
+    def test_migrate_fails_loud_on_missing_jws(self, tmp_path):
+        from raucle_detect.provenance import migrate_chain_envelope
+
+        identity = AgentIdentity.generate(agent_id="agent:m")
+        keys = {identity.key_id: identity.public_key_pem()}
+        bad = tmp_path / "bad.jsonl"
+        bad.write_text(json.dumps({"receipt_hash": "sha256:x"}) + "\n")
+        with pytest.raises(ValueError, match="no 'jws'"):
+            migrate_chain_envelope(bad, tmp_path / "out.jsonl", keys)

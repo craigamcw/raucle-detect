@@ -1,5 +1,21 @@
 /-
   Theorem 3 — Policy-Proof Composition.
+
+  Scope (read this before citing the theorem): the composition below makes the
+  `prover_soundness` axiom LOAD-BEARING. Given a proof that is PROVEN for a
+  tool's (schema, policy P), a call that lies in that tool's modelled call
+  language (`SchemaLang schema`), and a gate that ACCEPTS the call under token
+  `t`, the theorem concludes BOTH:
+    (1) the call satisfies P            — discharged via `prover_soundness`; and
+    (2) the call satisfies t.constraints — discharged via `gate_soundness`.
+
+  What is assumed, not mechanized here: that the cited proof actually pertains
+  to this tool's (schema, P). Operationally the gate's strict proof mode binds a
+  token's `policy_proof_hash` to the proof's grammar/policy hashes
+  (`capability.py::_check_proof_binding`); this model takes that binding as a
+  hypothesis (the proof is for the given `schema`/`P`) rather than re-deriving
+  it from hashes. `prover_soundness` itself is an axiom — the SMT/grammar
+  prover's soundness is assumed, not proved in Lean (see STATUS.md).
 -/
 
 import VCD.Basic
@@ -97,15 +113,19 @@ theorem policy_proof_composition
     (K : TrustedIssuers) (schema : String) (P : Policy)
     (fields : List FieldName)
     (ρ : ProofResult) (t : Token) (call : Call) (now : Int)
-    (_h_proof  : ρ.status = ProofStatus.proven)
-    (_h_cite   : t.policy_proof_hash = some ρ.proof_hash)
-    (h_tighter : t.constraints ⊑ P)
-    (h_lang    : SchemaLang schema call.args)
-    (h_gate    : Gate.check K t call now fields = .allow) :
-    Policy.satisfiesArgs P call.args fields = true ∧ SchemaLang schema call.args := by
-  refine ⟨?_, h_lang⟩
-  have h_sound := gate_soundness K t call now fields h_gate
-  obtain ⟨_, h_sat_tok, _, _, _, _⟩ := h_sound
-  exact tighter_implies_satisfies _ _ _ _ h_tighter h_sat_tok
+    (h_proof : ρ.status = ProofStatus.proven)
+    (h_lang  : SchemaLang schema call.args)
+    (h_gate  : Gate.check K t call now fields = .allow) :
+    Policy.satisfiesArgs P call.args fields = true
+    ∧ Policy.satisfiesArgs t.constraints call.args fields = true := by
+  refine ⟨?_, ?_⟩
+  · -- (1) call satisfies the PROVEN policy P, because the call is in the tool's
+    -- modelled language and the proof certifies P over all of it. This is where
+    -- the prover_soundness axiom is load-bearing.
+    exact prover_soundness schema P fields ρ h_proof call.args h_lang
+  · -- (2) call satisfies the token's own runtime constraints (gate soundness).
+    have h_sound := gate_soundness K t call now fields h_gate
+    obtain ⟨_, h_sat_tok, _, _, _, _⟩ := h_sound
+    exact h_sat_tok
 
 end VCD
