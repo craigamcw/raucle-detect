@@ -468,6 +468,10 @@ def render_html(manifest: dict[str, Any]) -> str:
         f"<li><code>{_esc(k)}</code>: <code>{_esc(v)}</code></li>"
         for k, v in body["input_hashes"]["public_keys"].items()
     )
+    cs = "".join(
+        f"<li><code>{_esc(k)}</code>: <code>{_esc(v)}</code></li>"
+        for k, v in body["input_hashes"].get("capability_statements", {}).items()
+    )
     gf = body.get("global_findings", [])
     global_block = (
         "<h2>Chain-level findings (not attributable to one node)</h2><ul>"
@@ -516,13 +520,18 @@ def render_html(manifest: dict[str, Any]) -> str:
 <h2>Inputs (SHA-256)</h2>
 <p>Chain: <code>{_esc(body["input_hashes"]["chain_sha256"])}</code></p>
 <p>Public keys:</p><ul>{pk or "<li>none</li>"}</ul>
+<p>Capability statements (gate allowed-tools / models — they affect node
+ status):</p><ul>{cs or "<li>none (no per-agent tool/model enforcement applied)</li>"}</ul>
 <p>Proof certificates: {_esc(", ".join(h for h in body["input_hashes"]["proofs"]) or "none")}</p>
 
 <h2>Verify this report yourself</h2>
 <ol>
  <li>Recompute the chain SHA-256 and confirm it matches above.</li>
- <li>Run <code>raucle-detect provenance verify &lt;chain&gt; --pubkeys &lt;keys&gt;</code>
-  and confirm the verdict matches "Chain" above.</li>
+ <li>Run <code>raucle-detect provenance verify &lt;chain&gt; --pubkeys &lt;the same
+  capability-statement files&gt;</code> — pass the capability statements, not bare
+  PEM keys, so the agents' allowed-tools/models are enforced; confirm the verdict
+  matches "Chain" above. (A capability-violation status is only reproducible with
+  the statements listed above.)</li>
  <li>Recompute each proof certificate hash and confirm it matches the obligations table.</li>
  <li>Verify the manifest signature with the signer public key embedded in the manifest JSON.</li>
 </ol>

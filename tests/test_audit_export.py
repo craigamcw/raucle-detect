@@ -281,3 +281,25 @@ def test_html_escapes_unknown_status(tmp_path):
     html = render_html(manifest)
     assert "<script>alert(1)</script>" not in html
     assert "&lt;script&gt;" in html
+
+
+def test_html_shows_capability_statement_inputs(tmp_path):
+    """Reproducibility: when capability statements drive verdicts, the report
+    must list their hashes and tell the verifier to rerun with them — not just
+    PEM keys (Codex follow-up)."""
+    ident = AgentIdentity.generate(agent_id="agent:billing", allowed_tools=["safe_tool"])
+    chain = tmp_path / "chain.jsonl"
+    with ProvenanceLogger(agent=ident, sink_path=chain) as log:
+        log.record_user_input(text="hi")
+    keys = {ident.key_id: ident.public_key_pem()}
+    report = build_report(
+        chain, keys, generated_at=1700000000, capability_statements={ident.key_id: ident.statement}
+    )
+    manifest = sign_manifest(report, _audit_key_pem())
+    html = render_html(manifest)
+    # the statement's hash appears in the Inputs section
+    stmt_hash = report.input_hashes["capability_statements"][ident.key_id]
+    assert stmt_hash in html
+    assert "Capability statements" in html
+    # the verify appendix tells the examiner to rerun with the statement files
+    assert "capability-statement files" in html
