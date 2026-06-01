@@ -73,6 +73,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from . import registry as _registry
+
 if TYPE_CHECKING:
     from raucle_detect.prove import ProofResult
 
@@ -257,17 +259,11 @@ class Capability:
         return cls.from_dict(json.loads(Path(path).read_text()))
 
 
-_KNOWN_CONSTRAINT_KEYS = frozenset(
-    {
-        "forbidden_values",
-        "allowed_values",
-        "starts_with",
-        "max_value",
-        "min_value",
-        "required_present",
-        "forbidden_field_combinations",
-    }
-)
+# Derived from the Modelled Language Registry (§8.1) — the single source of
+# truth. Do not hand-maintain this set; add a constraint kind in registry.py
+# (which forces every semantic column to be filled in). The drift test
+# (tests/test_registry_drift.py) fails if this diverges from the registry.
+_KNOWN_CONSTRAINT_KEYS = _registry.KNOWN_CONSTRAINT_KEYS
 
 
 def _as_value_list(kind: str, field: str, v: Any) -> list[Any]:
@@ -928,8 +924,20 @@ class CapabilityGate:
             if proof_decision is not None:
                 return proof_decision
 
-        # 8) Optional chain verification.
+        # 8) Chain verification. A token that cites a parent_id MUST have its
+        # ancestry verified; with no parent_resolver configured the gate cannot
+        # do so and must fail closed rather than silently trust that the issuer
+        # minted the chain correctly (§8.7 — unresolved-chain DENY). Otherwise a
+        # hostile child citing a parent_id it never had to justify slips through
+        # whenever the deployment forgot to wire a resolver.
         chain: list[str] = []
+        if token.parent_id and self._resolver is None:
+            return GateDecision(
+                False,
+                f"token cites parent {token.parent_id!r} but no parent_resolver "
+                f"is configured to verify the chain (deny)",
+                token.token_id,
+            )
         if token.parent_id and self._resolver is not None:
             current = token
             while current.parent_id:
