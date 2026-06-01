@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.16.3 (2026-06-01) — static-analysis hardening (SonarQube Cloud)
+
+Findings from a third, independent analysis method (SonarQube Cloud static
+analysis), on top of the round-3 adversarial audit. No wire-format change;
+five-language byte-identity preserved.
+
+- **feed.py:** pin an explicit TLS 1.2 floor (`ctx.minimum_version`) rather than
+  relying on the interpreter default — defence in depth for the (already
+  SSRF-pinned) feed fetch. Adds a live DNS-rebind pin integration test.
+- **TS reference impl:** strip base64url padding with `String#replaceAll` (no
+  ReDoS-shaped regex); make the JCS canonical sort use an explicit UTF-16
+  code-unit comparator (documented NOT to be `localeCompare`, which would break
+  cross-language byte-identity). Behaviour byte-identical.
+- **cli.py:** avoid a float-equality check in the fuzz coverage gate
+  (`coverage <= 0.0`).
+- Scoped SonarQube Cloud analysis to the shipped package via
+  `.sonarcloud.properties`. Security and Reliability ratings: A (0 vulnerabilities,
+  0 bugs).
+
 ## 0.16.2 (2026-06-01) — security hardening (round 3 + blind cross-check)
 
 Two independent adversarial audits (a multi-agent finder/refutation workflow plus
