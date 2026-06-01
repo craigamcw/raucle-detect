@@ -627,3 +627,108 @@ def test_strict_verify_rejects_non_canonical_jws(tmp_path):
     c.write_text(json.dumps({"receipt_hash": rh, "jws": jws}) + "\n")
     rep = ProvenanceVerifier(public_keys={idn.key_id: idn.public_key_pem()}).verify_chain(c)
     assert rep.valid is False
+
+
+# === Codex run-6 (current-main) regressions =================================
+
+
+def test_sql_grammar_allowed_tables_cannot_broaden_policy():
+    """grammar.allowed_tables must not broaden the policy allowlist (round-6 F1)."""
+    from raucle_detect.prove import SQLClauseProver, UnsupportedGrammar
+
+    p = SQLClauseProver()
+    # both present: policy dominates, grammar's broader entry ignored
+    assert (
+        p.prove(
+            {"templates": ["SELECT * FROM secret"], "allowed_tables": ["secret"]},
+            {"allowed_tables": ["public"], "forbidden_tokens": []},
+        ).status
+        == "REFUTED"
+    )
+    # grammar-only is a misplaced-key footgun → raises (no silent unrestricted PROVEN)
+    with pytest.raises(UnsupportedGrammar):
+        p.prove(
+            {"templates": ["SELECT * FROM secret"], "allowed_tables": ["secret"]},
+            {"forbidden_tokens": []},
+        )
+
+
+def test_sql_non_select_table_access_undecided():
+    """Table-bearing forms the FROM/JOIN extractor can't cover → UNDECIDED, not
+    a false PROVEN (round-6 F2)."""
+    from raucle_detect.prove import SQLClauseProver
+
+    p = SQLClauseProver()
+    assert (
+        p.prove({"templates": ["COPY secret TO STDOUT"]}, {"allowed_tables": ["public"]}).status
+        == "UNDECIDED"
+    )
+    assert (
+        p.prove(
+            {"templates": ["SELECT * INTO evil FROM public"]},
+            {"allowed_tables": ["public"], "forbidden_tokens": []},
+        ).status
+        == "UNDECIDED"
+    )
+
+
+def test_gate_rejects_broadened_attenuation_chain():
+    """A child citing a parent but carrying BROADER constraints is rejected by
+    the chain walk (round-6 F3)."""
+    pytest.importorskip("cryptography")
+    import raucle_detect.capability as cap
+    from raucle_detect.capability import CapabilityGate, CapabilityIssuer
+
+    iss = CapabilityIssuer.generate("issuer")
+    parent = iss.mint(
+        agent_id="agent:a", tool="t", constraints={"allowed_values": {"role": ["user"]}}
+    )
+    forged = iss.mint(
+        agent_id="agent:a", tool="t", constraints={"allowed_values": {"role": ["user", "admin"]}}
+    )
+    forged.parent_id = parent.token_id
+    forged.token_id = "cap:" + cap._sha256_hex(cap._canonical_json(forged.body()))[:24]
+    forged.signature = cap._b64(iss._priv.sign(cap._canonical_json(forged.body())))
+    by_id = {parent.token_id: parent, forged.token_id: forged}
+    g = CapabilityGate(trusted_issuers={iss.key_id: iss.public_key_pem}, parent_resolver=by_id.get)
+    dec = g.check(forged, tool="t", args={"role": "admin"})
+    assert dec.allowed is False
+    assert "attenuation" in dec.reason
+
+
+def test_strict_verify_rejects_extra_jose_header(tmp_path):
+    """Header with a key outside the fixed set is rejected (round-6 F6)."""
+    pytest.importorskip("cryptography")
+    from raucle_detect.provenance import (
+        _EXPECTED_TYP,
+        AgentIdentity,
+        ProvenanceReceipt,
+        _b64url_encode,
+        _canonical_json,
+    )
+
+    idn = AgentIdentity.generate(agent_id="agent:x")
+    hdr = {
+        "alg": "EdDSA",
+        "typ": _EXPECTED_TYP,
+        "kid": idn.key_id,
+        "crit": ["raucle/v1"],
+        "raucle/v1": "provenance",
+        "extra": "x",
+    }
+    pl = {
+        "iss": "raucle-detect/provenance",
+        "typ": _EXPECTED_TYP,
+        "iat": 1,
+        "agent_id": "agent:x",
+        "agent_key_id": idn.key_id,
+        "operation": "user_input",
+        "parents": [],
+        "taint": [],
+        "input_hash": "sha256:" + "0" * 64,
+    }
+    hb = _b64url_encode(_canonical_json(hdr))
+    pb = _b64url_encode(_canonical_json(pl))
+    jws = hb + "." + pb + "." + _b64url_encode(idn.sign((hb + "." + pb).encode("ascii")))
+    with pytest.raises(ValueError, match="header key"):
+        ProvenanceReceipt.from_jws(jws, strict=True)

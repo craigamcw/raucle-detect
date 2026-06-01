@@ -695,6 +695,39 @@ def _merge_narrowing(parent: dict[str, Any], extra: dict[str, Any]) -> dict[str,
     return _normalise_constraints(out)
 
 
+def _attenuation_violation(child: Capability, parent: Capability) -> str | None:
+    """Return why *child* is NOT a valid attenuation of *parent*, or None if valid.
+
+    Attenuation soundness (Theorem 1) is enforced at mint by ``attenuate`` — but
+    a verifier walking a presented chain must re-check it independently, else a
+    mis-minted or hostile child that merely *cites* a parent_id could carry
+    BROADER permissions than its parent and still pass (round-6 F3). A valid
+    child has: the same tool; an agent_id equal to or a dot-delimited descendant
+    of the parent's; expiry no later than the parent's; not_before no earlier;
+    and constraints at least as tight as the parent on every dimension.
+
+    The constraint check reuses the narrowing meet: ``child ⊑ parent`` exactly
+    when merging the parent with the child yields the child unchanged (the merge
+    takes the tighter bound per dimension, so a looser child would be tightened
+    back toward the parent and differ).
+    """
+    if child.tool != parent.tool:
+        return f"child tool {child.tool!r} != parent tool {parent.tool!r}"
+    if not (child.agent_id == parent.agent_id or child.agent_id.startswith(parent.agent_id + ".")):
+        return f"child agent_id {child.agent_id!r} is not a descendant of {parent.agent_id!r}"
+    if child.expires_at > parent.expires_at:
+        return "child token outlives its parent"
+    if child.not_before < parent.not_before:
+        return "child not_before precedes its parent"
+    try:
+        merged = _merge_narrowing(parent.constraints, child.constraints)
+    except ValueError as exc:
+        return f"child constraints broaden the parent: {exc}"
+    if merged != _normalise_constraints(child.constraints):
+        return "child constraints are not a narrowing of the parent's"
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Gate
 # ---------------------------------------------------------------------------
@@ -932,6 +965,17 @@ class CapabilityGate:
                     return GateDecision(
                         False,
                         f"ancestor token {parent.token_id} is revoked",
+                        token.token_id,
+                        chain,
+                    )
+                # Attenuation soundness: every link must be a valid narrowing of
+                # its parent — a child that cites a parent but broadens tool /
+                # agent scope / expiry / constraints is rejected (round-6 F3).
+                att = _attenuation_violation(current, parent)
+                if att is not None:
+                    return GateDecision(
+                        False,
+                        f"invalid attenuation of {parent.token_id}: {att}",
                         token.token_id,
                         chain,
                     )

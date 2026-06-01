@@ -850,6 +850,7 @@ def _cmd_provenance_verify(args: argparse.Namespace) -> int:
     from raucle_detect.provenance import CapabilityStatement, ProvenanceVerifier
 
     public_keys: dict[str, bytes] = {}
+    capabilities: dict[str, CapabilityStatement] = {}
     for src in args.pubkeys:
         path = Path(src)
         content = path.read_bytes()
@@ -858,6 +859,10 @@ def _cmd_provenance_verify(args: argparse.Namespace) -> int:
             d = json.loads(content)
             stmt = CapabilityStatement.from_dict(d)
             public_keys[stmt.key_id] = stmt.public_key_pem.encode("ascii")
+            # When a full statement is supplied, enforce its model/tool/
+            # sanitisation allowlists too — not just extract the public key
+            # (else the user's allowlists are silently ignored).
+            capabilities[stmt.key_id] = stmt
         except (json.JSONDecodeError, KeyError):
             # Raw PEM — derive key_id from the bytes
             import hashlib
@@ -865,7 +870,9 @@ def _cmd_provenance_verify(args: argparse.Namespace) -> int:
             key_id = hashlib.sha256(content).hexdigest()[:16]
             public_keys[key_id] = content
 
-    report = ProvenanceVerifier(public_keys=public_keys).verify_chain(args.path)
+    report = ProvenanceVerifier(
+        public_keys=public_keys, capabilities=capabilities or None
+    ).verify_chain(args.path)
 
     if args.format == "json":
         print(json.dumps(report.to_dict(), indent=2))
