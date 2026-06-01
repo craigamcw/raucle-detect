@@ -121,6 +121,49 @@ class Operation(str, Enum):
     agent assembles results from multiple tool calls or sub-agents."""
 
 
+#: Operations permitted to have empty parents (chain roots) — spec v1 §3/§6.
+_ROOTABLE_OPS = {Operation.USER_INPUT.value, Operation.GUARDRAIL_SCAN.value}
+
+#: Payload fields REQUIRED for each operation (spec v1 §4.2). A verifier MUST
+#: reject a receipt missing any required field for its operation type.
+_REQUIRED_FIELDS_BY_OP: dict[str, tuple[str, ...]] = {
+    Operation.USER_INPUT.value: ("input_hash",),
+    Operation.MODEL_CALL.value: ("input_hash", "output_hash", "model"),
+    Operation.TOOL_CALL.value: ("input_hash", "output_hash", "tool"),
+    Operation.RETRIEVAL.value: ("input_hash", "output_hash", "corpus"),
+    Operation.GUARDRAIL_SCAN.value: ("input_hash", "ruleset_hash", "guardrail_verdict"),
+    Operation.AGENT_HANDOFF.value: ("output_hash",),
+    Operation.SANITISATION.value: ("input_hash", "output_hash", "tool", "corpus"),
+    Operation.MERGE.value: ("output_hash",),
+}
+
+
+def _structural_errors(receipt: ProvenanceReceipt) -> list[str]:
+    """Per-receipt structural validity per spec v1 §3/§4.2/§6.
+
+    Checks the root rule (only ``user_input`` may have empty parents), the
+    ``merge`` arity rule (>= 2 parents), and the required-fields-per-operation
+    table. Returns a list of human-readable error strings (empty == valid).
+    """
+    errs: list[str] = []
+    op = receipt.operation.value
+    # Operations permitted to root a chain (empty parents): user_input, and a
+    # standalone guardrail_scan (an entry-point scan of incoming external
+    # content). Mid-chain operations (model_call/tool_call/retrieval/
+    # agent_handoff/sanitisation/merge) MUST cite >= 1 parent.
+    if not receipt.parents and op not in _ROOTABLE_OPS:
+        errs.append(
+            f"{op} receipt has empty parents but is not a permitted chain root "
+            f"(only user_input or guardrail_scan may root a chain)"
+        )
+    if op == Operation.MERGE.value and len(receipt.parents) < 2:
+        errs.append(f"merge receipt must have >= 2 parents, has {len(receipt.parents)}")
+    for fld in _REQUIRED_FIELDS_BY_OP.get(op, ()):
+        if not getattr(receipt, fld, ""):
+            errs.append(f"{op} receipt missing required field {fld!r}")
+    return errs
+
+
 # ---------------------------------------------------------------------------
 # Utilities — canonical JSON, base64url, Ed25519
 # ---------------------------------------------------------------------------
@@ -135,12 +178,36 @@ def _b64url_decode(data: str) -> bytes:
     return base64.urlsafe_b64decode(data + padding)
 
 
+def _reject_floats(obj: Any) -> None:
+    """Raise if *obj* contains any float.
+
+    The v1 payload schema uses only strings, integers, and arrays. Floats are
+    rejected (not serialised) so the canonical bytes stay identical across the
+    five reference implementations: the TS/Go/Rust/C# encoders reject
+    non-integer numbers, and float canonicalisation (RFC 8785 §3.2.2) is the one
+    genuinely hard part of JCS. ``bool`` is an ``int`` subclass and is allowed.
+    """
+    if isinstance(obj, float):
+        raise ValueError(
+            "canonical JSON: floats are not permitted in v1 signed/hashed material "
+            "(use integers; float canonicalisation is not cross-implementation stable)"
+        )
+    if isinstance(obj, dict):
+        for v in obj.values():
+            _reject_floats(v)
+    elif isinstance(obj, (list, tuple)):
+        for v in obj:
+            _reject_floats(v)
+
+
 def _canonical_json(obj: Any) -> bytes:
     """Serialise *obj* with sorted keys, no whitespace, UTF-8 — for hashing.
 
-    allow_nan=False: NaN/Infinity are not valid JSON and would break
-    cross-implementation verification — reject rather than emit them.
+    allow_nan=False rejects NaN/Infinity; ``_reject_floats`` additionally rejects
+    *all* floats, matching the TS/Go/Rust/C# reference encoders so the signed
+    bytes are byte-identical across implementations.
     """
+    _reject_floats(obj)
     return json.dumps(
         obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
     ).encode("utf-8")
@@ -1061,6 +1128,13 @@ class ProvenanceVerifier:
                         f"line {line_no}: signature verification failed for "
                         f"agent_key_id={receipt.agent_key_id}"
                     )
+                    report.valid = False
+
+                # Structural validity per operation (spec v1 §4.2/§6): required
+                # fields, root rule, merge arity. A tool_call with no parents and
+                # no output_hash, etc., is malformed and must be rejected.
+                for serr in _structural_errors(receipt):
+                    report.errors.append(f"line {line_no}: {serr}")
                     report.valid = False
 
                 # Capability conformance (verifier-side, when statements supplied)
