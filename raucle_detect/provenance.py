@@ -176,8 +176,10 @@ def _validate_agent_id(agent_id: str) -> None:
 class CapabilityStatement:
     """Signed declaration of what an agent is permitted to do.
 
-    Distributed alongside the agent's public key. Verifiers cross-check
-    that emitted receipts only invoke permitted models / tools.
+    Distributed alongside the agent's public key. Enforced producer-side by
+    :class:`ProvenanceLogger`, and — when the statements are supplied to
+    :class:`ProvenanceVerifier` — independently cross-checked verifier-side
+    so that emitted receipts only invoke permitted models / tools.
 
     Lives outside the receipt body so receipts stay compact — receipts
     cite the capability statement by ``key_id``.
@@ -803,6 +805,7 @@ class VerificationReport:
     signature_failures: int = 0
     parent_link_failures: int = 0
     taint_monotonicity_failures: int = 0
+    capability_violations: int = 0
     tampered_receipts: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
@@ -813,6 +816,7 @@ class VerificationReport:
             "signature_failures": self.signature_failures,
             "parent_link_failures": self.parent_link_failures,
             "taint_monotonicity_failures": self.taint_monotonicity_failures,
+            "capability_violations": self.capability_violations,
             "tampered_receipts": self.tampered_receipts,
             "errors": self.errors,
         }
@@ -821,7 +825,7 @@ class VerificationReport:
 class ProvenanceVerifier:
     """Verify a provenance chain end-to-end.
 
-    Three classes of check, all of which must pass for ``valid=True``:
+    Up to four classes of check, all of which must pass for ``valid=True``:
 
     1. **Signature** — every receipt's JWS verifies against the agent
        public key identified by its ``agent_key_id``.
@@ -832,19 +836,35 @@ class ProvenanceVerifier:
        that is a superset of the union of their parents' taint sets.
        Sanitisation receipts may shrink the set, but only by tags listed in
        their ``removed:…`` claim.
+    4. **Capability conformance** *(only when ``capabilities`` is supplied)* —
+       every receipt's ``model`` / ``tool`` is permitted by the issuing
+       agent's :class:`CapabilityStatement`. This is the verifier-side
+       cross-check; without the statements the verifier cannot perform it
+       (the producer-side check in :class:`ProvenanceLogger` is cooperative
+       and a malicious producer can skip it).
 
     Parameters
     ----------
     public_keys : dict[str, bytes]
         Mapping ``key_id -> PEM-encoded public key bytes``.
+    capabilities : dict[str, CapabilityStatement], optional
+        Mapping ``agent_key_id -> CapabilityStatement``. When provided, the
+        verifier independently confirms each receipt only invoked permitted
+        models/tools. Omit to skip capability conformance (signature/DAG/taint
+        still run).
     """
 
-    def __init__(self, public_keys: dict[str, bytes]) -> None:
+    def __init__(
+        self,
+        public_keys: dict[str, bytes],
+        capabilities: dict[str, CapabilityStatement] | None = None,
+    ) -> None:
         from cryptography.hazmat.primitives import serialization
 
         self._keys: dict[str, Any] = {
             kid: serialization.load_pem_public_key(pem) for kid, pem in public_keys.items()
         }
+        self._caps: dict[str, CapabilityStatement] = dict(capabilities or {})
 
     def verify_chain(self, path: str | Path) -> VerificationReport:
         """Verify a JSONL chain file."""
@@ -878,6 +898,25 @@ class ProvenanceVerifier:
                         f"agent_key_id={receipt.agent_key_id}"
                     )
                     report.valid = False
+
+                # Capability conformance (verifier-side, when statements supplied)
+                if self._caps:
+                    stmt = self._caps.get(receipt.agent_key_id)
+                    if stmt is not None:
+                        if receipt.model and not stmt.permits_model(receipt.model):
+                            report.capability_violations += 1
+                            report.errors.append(
+                                f"line {line_no}: model {receipt.model!r} not permitted by "
+                                f"capability statement for {receipt.agent_key_id}"
+                            )
+                            report.valid = False
+                        if receipt.tool and not stmt.permits_tool(receipt.tool):
+                            report.capability_violations += 1
+                            report.errors.append(
+                                f"line {line_no}: tool {receipt.tool!r} not permitted by "
+                                f"capability statement for {receipt.agent_key_id}"
+                            )
+                            report.valid = False
 
                 receipts_by_hash[receipt.receipt_hash] = receipt
                 report.receipt_count += 1

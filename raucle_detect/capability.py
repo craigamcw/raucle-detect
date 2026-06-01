@@ -875,6 +875,25 @@ class CapabilityGate:
                 "strict proof mode: token missing grammar_hash or policy_hash binding",
                 token.token_id,
             )
+        # Bind the PROOF to what the gate actually ENFORCES. Without this, a
+        # token could cite a PROVEN proof over an unrelated policy while
+        # carrying entirely different constraints — making "formally proven"
+        # decorative. In strict mode the token's policy_hash MUST equal the
+        # hash of its own (normalised) constraints, which the prior checks
+        # already tie to the proof's policy_hash. (The proof must therefore be
+        # generated over the capability's normalised constraints — the
+        # documented, correct usage.)
+        if strict:
+            enforced_hash = "sha256:" + _sha256_hex(
+                _canonical_json(_normalise_constraints(token.constraints))
+            )
+            if token.policy_hash != enforced_hash:
+                return GateDecision(
+                    False,
+                    "strict proof mode: token.policy_hash does not match the hash of the "
+                    "constraints the gate enforces — the proof is not bound to this token's policy",
+                    token.token_id,
+                )
         return None
 
     @staticmethod

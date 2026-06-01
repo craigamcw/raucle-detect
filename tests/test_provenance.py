@@ -445,3 +445,30 @@ class TestHashHelpers:
     def test_hash_obj_ignores_key_order(self):
         assert hash_obj({"a": 1, "b": 2}) == hash_obj({"b": 2, "a": 1})
         assert hash_obj({"a": 1}) != hash_obj({"a": 2})
+
+
+def test_verifier_enforces_capability_statement(tmp_path):
+    """H4: when given the statements, the verifier independently rejects
+    receipts whose model/tool the statement does not permit — even though a
+    lax/compromised producer emitted them."""
+    import dataclasses
+
+    from raucle_detect.provenance import AgentIdentity, ProvenanceLogger, ProvenanceVerifier
+
+    idy = AgentIdentity.generate(
+        agent_id="agent:m", allowed_models=["m1", "m2"], allowed_tools=["t1"]
+    )
+    chain = tmp_path / "chain.jsonl"
+    with ProvenanceLogger(agent=idy, sink_path=chain) as log:
+        root = log.record_user_input(text="hi")
+        log.record_model_call(parents=[root], model="m2", input_text="hi", output_text="ok")
+    keys = {idy.key_id: idy.public_key_pem()}
+
+    # Without statements: signature/DAG/taint only — passes, no capability check.
+    rep = ProvenanceVerifier(keys).verify_chain(chain)
+    assert rep.valid and rep.capability_violations == 0
+
+    # With an authoritative, stricter statement (only m1): the m2 receipt is flagged.
+    strict_stmt = dataclasses.replace(idy.statement, allowed_models=["m1"])
+    rep2 = ProvenanceVerifier(keys, capabilities={idy.key_id: strict_stmt}).verify_chain(chain)
+    assert not rep2.valid and rep2.capability_violations >= 1

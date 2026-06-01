@@ -476,15 +476,54 @@ def test_gate_proof_mode_strict_denies_token_with_no_proof_hash():
 
 
 def test_gate_proof_mode_strict_allows_matching_proof():
+    """Strict mode allows only when the proof is bound to the ENFORCED constraints (H3)."""
+    from raucle_detect.prove import JSONSchemaProver
+
     iss = _issuer()
-    proof = _proven_proof()
-    cap = iss.mint(agent_id="agent:x", tool="t", proof_result=proof)
+    schema = {
+        "type": "object",
+        "properties": {"amount": {"type": "integer", "minimum": 0, "maximum": 100}},
+        "required": ["amount"],
+    }
+    policy = {"max_value": {"amount": 100}}
+    proof = JSONSchemaProver().prove(schema, policy)
+    assert proof.status == "PROVEN"
+    cap = iss.mint(agent_id="agent:x", tool="t", constraints=policy, proof_result=proof)
     gate = CapabilityGate(
         trusted_issuers={iss.key_id: iss.public_key_pem},
         proof_enforcement_mode="strict",
         trusted_proofs={proof.hash: proof},
     )
-    assert gate.check(cap, tool="t", args={}).allowed
+    assert gate.check(cap, tool="t", args={"amount": 50}).allowed
+
+
+def test_gate_proof_mode_strict_denies_proof_unbound_to_constraints():
+    """H3: a token citing a valid proof but enforcing DIFFERENT constraints is denied."""
+    from raucle_detect.prove import JSONSchemaProver
+
+    iss = _issuer()
+    schema = {
+        "type": "object",
+        "properties": {"amount": {"type": "integer", "minimum": 0, "maximum": 100}},
+        "required": ["amount"],
+    }
+    policy = {"max_value": {"amount": 100}}
+    proof = JSONSchemaProver().prove(schema, policy)
+    cap = iss.mint(
+        agent_id="agent:x",
+        tool="t",
+        constraints={"max_value": {"amount": 1_000_000}},
+        policy_proof_hash=proof.hash,
+        grammar_hash=proof.grammar_hash,
+        policy_hash=proof.policy_hash,
+    )
+    gate = CapabilityGate(
+        trusted_issuers={iss.key_id: iss.public_key_pem},
+        proof_enforcement_mode="strict",
+        trusted_proofs={proof.hash: proof},
+    )
+    d = gate.check(cap, tool="t", args={"amount": 999_999})
+    assert not d.allowed and "not bound" in d.reason
 
 
 def test_unknown_constraint_key_raises_not_silently_dropped():
