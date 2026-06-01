@@ -570,6 +570,26 @@ _DEFAULT_FORBIDDEN_TOKENS = (
 
 _STATEMENT_CHAIN_RE = re.compile(r";\s*\S")
 
+# §8.4 — SQL constructs the regex FROM/JOIN extractor does NOT model soundly.
+# Their presence in a template makes static table-isolation unverifiable, so a
+# would-be PROVEN is downgraded to UNDECIDED (fail-closed) rather than risk a
+# false PROVEN. This enumerates the "reject → UNDECIDED" side of §8.4:
+#   - quoted/back-quoted identifiers (a quoted name can contain whitespace,
+#     keywords, or dots that defeat the identifier/clause regexes);
+#   - LATERAL / table functions / UNNEST / VALUES table sources;
+#   - recursive or otherwise non-trivial CTEs (name shadowing);
+#   - TABLESAMPLE / PIVOT / UNPIVOT dialect forms.
+# A plain SELECT/WITH over FROM/JOIN with bare identifiers stays in the modelled
+# (PROVEN-eligible) set. sqlglot is intentionally NOT adopted here: a parser
+# whose AST diverges from the target DB's own dialect is itself a soundness
+# risk (§8.4); the conservative-UNDECIDED net is sound without it.
+_UNMODELLED_SQL_RE = re.compile(
+    r"\"|`|"  # quoted / back-quoted identifiers
+    r"\bLATERAL\b|\bUNNEST\b|\bVALUES\b|\bTABLESAMPLE\b|\bPIVOT\b|\bUNPIVOT\b|"
+    r"\bWITH\s+RECURSIVE\b",
+    re.IGNORECASE,
+)
+
 
 @dataclass
 class SQLClauseProver:
@@ -657,6 +677,16 @@ class SQLClauseProver:
                         f"FROM/JOIN extractor; table isolation not verifiable (UNDECIDED)"
                     )
                     continue
+                # §8.4: SQL constructs the extractor cannot model soundly →
+                # UNDECIDED rather than a possibly-false PROVEN.
+                if _UNMODELLED_SQL_RE.search(tmpl):
+                    undecidable = True
+                    notes.append(
+                        f"unmodelled SQL construct in {tmpl!r} (quoted identifier / "
+                        f"LATERAL / UNNEST / VALUES / recursive CTE / dialect form); "
+                        f"table isolation not verifiable (UNDECIDED)"
+                    )
+                    continue
                 # Extract every table referenced after a FROM/JOIN, including
                 # comma-separated lists (a bare `FROM a, b` join). Capture the
                 # whole clause up to the next SQL keyword, split on commas, and
@@ -673,9 +703,11 @@ class SQLClauseProver:
                         piece = piece.strip()
                         if not piece:
                             continue
-                        if piece.startswith("("):
-                            # subquery / derived table — the crude extractor
-                            # cannot statically resolve it; refuse to claim PROVEN.
+                        if "(" in piece:
+                            # subquery / derived table / table function — the
+                            # crude extractor cannot statically resolve a paren
+                            # anywhere in the reference (leading "(subquery)" OR
+                            # a table function like func(arg)); refuse PROVEN.
                             undecidable = True
                             notes.append(f"unparsable table reference in {tmpl!r} (UNDECIDED)")
                             continue
