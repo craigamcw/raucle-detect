@@ -236,6 +236,9 @@ def _signed_receipt(identity: AgentIdentity) -> ProvenanceReceipt:
         agent_id=identity.agent_id,
         agent_key_id=identity.key_id,
         operation=Operation.USER_INPUT,
+        # user_input requires input_hash (§4.2); a strict parse now enforces
+        # structure, so the helper must build a structurally-valid receipt.
+        input_hash="sha256:" + "0" * 64,
         taint=["external_user"],
         issued_at=1,
     )
@@ -291,6 +294,25 @@ class TestJwsParse:
         )
         with pytest.raises(ValueError, match="duplicate key"):
             ProvenanceReceipt.from_jws(jws)
+
+    def test_strict_parse_enforces_structure(self):
+        """§3.3: a strict standalone parse rejects a structurally-invalid
+        receipt (here: user_input missing its required input_hash). The chain
+        verifier opts out (validate_structure=False) to report per-line."""
+        ident = AgentIdentity.generate(agent_id="agent:p")
+        r = ProvenanceReceipt(
+            agent_id=ident.agent_id,
+            agent_key_id=ident.key_id,
+            operation=Operation.USER_INPUT,  # missing input_hash
+            taint=["external_user"],
+            issued_at=1,
+        )
+        r.sign(ident)
+        with pytest.raises(ValueError, match="missing required field"):
+            ProvenanceReceipt.from_jws(r.jws, strict=True)
+        # validate_structure=False still parses it (chain verifier path).
+        parsed = ProvenanceReceipt.from_jws(r.jws, strict=True, validate_structure=False)
+        assert parsed.agent_id == ident.agent_id
 
     def _jws_with_header(self, ident, header):
         r = _signed_receipt(ident)
