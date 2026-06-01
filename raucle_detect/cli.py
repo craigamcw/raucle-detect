@@ -24,6 +24,22 @@ from raucle_detect.scanner import MAX_INPUT_BYTES, Scanner
 logger = logging.getLogger(__name__)
 
 
+def _write_private_key(path: "Path", data: bytes) -> None:
+    """Write a private key with 0600 perms atomically (round-3 #20).
+
+    Using ``os.open(..., O_CREAT, 0o600)`` creates the file already-restricted,
+    closing the TOCTOU window where ``write_bytes`` then ``chmod`` left the key
+    world-readable at the default umask between the two calls.
+    """
+    import os
+
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, data)
+    finally:
+        os.close(fd)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="raucle-detect",
@@ -711,9 +727,8 @@ def _cmd_audit_keygen(args: argparse.Namespace) -> int:
         format=serialization.PrivateFormat.PKCS8,
         encryption_algorithm=serialization.NoEncryption(),
     )
-    priv_path.write_bytes(priv_pem)
+    _write_private_key(priv_path, priv_pem)
     pub_path.write_bytes(signer.public_key_pem())
-    priv_path.chmod(0o600)
 
     print("Generated key pair:")
     print(f"  Private key: {priv_path} (chmod 600)")
@@ -816,8 +831,7 @@ def _cmd_provenance_keygen(args: argparse.Namespace) -> int:
     priv_path = Path(f"{prefix}-private.pem")
     stmt_path = Path(f"{prefix}-capability.json")
 
-    priv_path.write_bytes(identity.private_key_pem())
-    priv_path.chmod(0o600)
+    _write_private_key(priv_path, identity.private_key_pem())
     stmt_path.write_text(json.dumps(identity.statement.to_dict(), indent=2))
 
     print("Generated agent identity:")
