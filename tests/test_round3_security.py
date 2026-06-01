@@ -233,6 +233,7 @@ def test_feed_fetch_rejects_url_whose_host_resolves_to_blocked_ip():
 
 # --- Codex F1: JSONSchemaProver + additionalProperties soundness -------------
 def test_jsonschema_forbidden_value_on_undeclared_field_not_proven():
+    pytest.importorskip("z3")  # JSONSchemaProver needs the [proof] extra
     from raucle_detect.prove import JSONSchemaProver
 
     # additionalProperties default-true: an attacker can supply 'role', so a
@@ -247,6 +248,7 @@ def test_jsonschema_forbidden_value_on_undeclared_field_not_proven():
 
 
 def test_jsonschema_closed_schema_makes_undeclared_blacklist_vacuous():
+    pytest.importorskip("z3")  # JSONSchemaProver needs the [proof] extra
     from raucle_detect.prove import JSONSchemaProver
 
     schema = {
