@@ -21,7 +21,6 @@ obligations). It runs nothing and mutates nothing.
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -110,9 +109,24 @@ class AuditReport:
 # ---------------------------------------------------------------------------
 
 
-_LINE_RE = re.compile(r"^line (\d+):\s*(.*)$")
-_RECEIPT_RE = re.compile(r"^receipt (sha256:[0-9a-f]+):\s*(.*)$")
 _WORST = {RED: 2, AMBER: 1, GREEN: 0}
+
+
+def _parse_finding(err: str) -> tuple[str | None, object, str]:
+    """Attribute a verify_chain error to a node key, with linear string parsing
+    (no regex — avoids ReDoS on the catch-all tail). Returns one of:
+    ``("line", <int>, detail)``, ``("receipt", <hash>, detail)``, or
+    ``(None, None, err)`` when the finding is not node-attributable."""
+    head, sep, rest = err.partition(": ")
+    if sep and head.startswith("line "):
+        num = head[5:].strip()
+        if num.isdigit():
+            return "line", int(num), rest
+    if sep and head.startswith("receipt "):
+        h = head[len("receipt ") :].strip()
+        if h.startswith("sha256:"):
+            return "receipt", h, rest
+    return None, None, err
 
 
 def _load_receipts(chain_path: str | Path) -> list[tuple[int, ProvenanceReceipt]]:
@@ -195,13 +209,12 @@ def build_report(
     # anything not attributable is a global (DAG/taint-level) finding.
     global_findings: list[str] = []
     for err in verdict.errors:
-        m_line, m_rcpt = _LINE_RE.match(err), _RECEIPT_RE.match(err)
+        kind, key, detail = _parse_finding(err)
         node = None
-        detail = err
-        if m_line:
-            node, detail = line_to_node.get(int(m_line.group(1))), m_line.group(2)
-        elif m_rcpt:
-            node, detail = hash_to_node.get(m_rcpt.group(1)), m_rcpt.group(2)
+        if kind == "line":
+            node = line_to_node.get(key)
+        elif kind == "receipt":
+            node = hash_to_node.get(key)
         if node is not None:
             node.status = RED
             node.evidence.append(detail)
