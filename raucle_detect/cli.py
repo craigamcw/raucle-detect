@@ -24,7 +24,7 @@ from raucle_detect.scanner import MAX_INPUT_BYTES, Scanner
 logger = logging.getLogger(__name__)
 
 
-def _write_private_key(path: "Path", data: bytes) -> None:
+def _write_private_key(path: Path, data: bytes) -> None:
     """Write a private key with 0600 perms atomically (round-3 #20).
 
     Using ``os.open(..., O_CREAT, 0o600)`` creates the file already-restricted,

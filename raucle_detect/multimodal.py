@@ -582,8 +582,7 @@ class MultimodalScanner:
         reader = pypdf.PdfReader(str(path))
         if len(reader.pages) > _MAX_PDF_PAGES:
             raise ValueError(
-                f"refusing to scan PDF: {len(reader.pages)} pages exceeds "
-                f"{_MAX_PDF_PAGES}-page cap"
+                f"refusing to scan PDF: {len(reader.pages)} pages exceeds {_MAX_PDF_PAGES}-page cap"
             )
         pages_text: list[str] = []
         for page in reader.pages:

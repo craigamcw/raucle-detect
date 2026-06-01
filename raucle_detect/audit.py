@@ -727,9 +727,7 @@ class AuditVerifier:
         try:
             expected_root = _merkle_root(leaf_hashes)
         except ValueError as exc:
-            report.errors.append(
-                f"checkpoint at index {ckpt_index}: {exc} — chain tampered"
-            )
+            report.errors.append(f"checkpoint at index {ckpt_index}: {exc} — chain tampered")
             report.valid = False
             return
         if rec.get("merkle_root") != expected_root:
