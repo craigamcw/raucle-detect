@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.15.0 (2026-06-01) — security hardening
+
+Pre-launch end-to-end audit. Closes gate-authorisation bypasses, hardens the
+proof/verifier guarantees, and makes the reference implementations genuinely
+interoperable.
+
+### Security (gate)
+- **Agent-id privilege escalation fixed.** Agent matching required a bare
+  prefix, so a token for `agent:billing` authorised `agent:billing-evil`.
+  Now requires exact match or a dot-delimited descendant (`agent:billing.x`);
+  same fix in `attenuate()`.
+- **Constraint bypass-by-omission fixed.** Value constraints were skipped when
+  the named field was absent, so aliasing/omitting an argument bypassed them.
+  Positive/bound constraints (`allowed_values`, `starts_with`, `max_value`,
+  `min_value`) now **fail closed** on an absent field. (Documented limitation:
+  `forbidden_values` blacklists can still be aliased without the tool schema —
+  prefer `allowed_values`.)
+- **Fail-open/DoS fixed.** Numeric bounds raised an unhandled `TypeError` on
+  non-numeric args; non-numeric/bool now DENY, and the whole constraint check
+  is wrapped so any error is a DENY, never a propagated exception.
+- **Strict proof mode binds to enforced constraints.** A token can no longer
+  cite a PROVEN proof over an unrelated policy; in strict mode `policy_hash`
+  must equal the hash of the token's own constraints.
+
+### Security (provenance)
+- **Verifier-side capability enforcement.** `ProvenanceVerifier` accepts an
+  optional `capabilities=` map and independently rejects receipts whose
+  model/tool the issuing agent's `CapabilityStatement` does not permit (the
+  cross-check the docstring already claimed). Adds `capability_violations`.
+
+### Reference implementations
+- **All five impls are now byte-identical.** The TS/Go/Rust/C# ports had each
+  diverged from the Python reference and could not reproduce its receipt IDs.
+  Reworked to match byte-for-byte; added `reference/conformance.py` proving
+  identical `receipt_hash` across all five for every published test vector.
+
+### Docs / claims
+- Every quickstart snippet now runs verbatim (`[compliance]` install, real
+  `HashChainSink`/`prove`/`audit verify` APIs, dead links removed).
+- Eval claims scoped to the evidence (banking-suite '100%', restated latency,
+  per-receipt vs one-time-Lean verification).
+- Package metadata: author email + URLs corrected to live targets.
+
 ## 0.14.0 (2026-06-01)
 
 ### Capability constraints

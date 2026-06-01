@@ -588,7 +588,7 @@ def test_package_version_matches_metadata():
     """__version__ must match the installed package metadata (regression: was 0.7.0)."""
     import raucle_detect
 
-    assert raucle_detect.__version__ == "0.14.0"
+    assert raucle_detect.__version__ == "0.15.0"
 
 
 def test_revocation_denylist_refuses_token_and_children():
