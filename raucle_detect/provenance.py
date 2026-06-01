@@ -1167,6 +1167,20 @@ class ProvenanceVerifier:
                             f"agent_key_id={receipt.agent_key_id} — unknown key rejected"
                         )
                         report.valid = False
+                    elif not self._verify_statement(stmt, receipt.agent_key_id):
+                        # Authenticity: a supplied capability statement is only
+                        # trusted if its self-signature verifies under the key the
+                        # verifier holds out-of-band for this agent. Without this
+                        # a forged statement (bogus signature, or widened
+                        # allowed_tools/models signed by an attacker key) would be
+                        # trusted and authorise tools the agent was never granted
+                        # (round-4 F2). Reject and do NOT consult its allowlists.
+                        report.capability_violations += 1
+                        report.errors.append(
+                            f"line {line_no}: capability statement for "
+                            f"{receipt.agent_key_id} failed signature/key-binding verification"
+                        )
+                        report.valid = False
                     else:
                         # Identity binding: the receipt's agent_id must be the
                         # identity the capability statement (and thus the key)
@@ -1283,6 +1297,35 @@ class ProvenanceVerifier:
             header_b64, payload_b64, sig_b64 = receipt.jws.split(".")
             signing_input = (header_b64 + "." + payload_b64).encode("ascii")
             key.verify(_b64url_decode(sig_b64), signing_input)
+            return True
+        except Exception:
+            return False
+
+    def _verify_statement(self, stmt: CapabilityStatement, agent_key_id: str) -> bool:
+        """Authenticate a supplied capability statement before trusting it.
+
+        A statement is only honoured if (a) its ``key_id`` matches the
+        agent_key_id it is registered under AND is the SHA-256 prefix of its own
+        ``public_key_pem`` (binding key_id to key), and (b) its signature
+        verifies over ``body()`` under the key the verifier holds out-of-band for
+        this agent. Verifying under the TRUSTED key — not the statement's
+        embedded key — is what defeats forgery: an attacker can self-sign a
+        widened statement with their own keypair, but it will not verify under
+        the agent's real public key. (round-4 F2)
+        """
+        if stmt.key_id != agent_key_id:
+            return False
+        try:
+            derived = _sha256_hex(stmt.public_key_pem.encode("ascii"))[:16]
+        except Exception:
+            return False
+        if derived != stmt.key_id:
+            return False
+        key = self._keys.get(agent_key_id)
+        if key is None:
+            return False
+        try:
+            key.verify(base64.b64decode(stmt.signature), _canonical_json(stmt.body()))
             return True
         except Exception:
             return False

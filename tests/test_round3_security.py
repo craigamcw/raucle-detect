@@ -81,8 +81,12 @@ def test_forbid_query_keys_closed_grammar_proves_or_refutes():
 
 # --- provenance verifier hardening (#4 expiry, #5 agent_id, #6 kid) ----------
 def _stmt(idn, **ov):
+    import base64
+
+    from raucle_detect.provenance import _canonical_json
+
     s = idn.statement
-    return CapabilityStatement(
+    stmt = CapabilityStatement(
         agent_id=ov.get("agent_id", s.agent_id),
         key_id=s.key_id,
         public_key_pem=s.public_key_pem,
@@ -90,6 +94,9 @@ def _stmt(idn, **ov):
         allowed_tools=list(s.allowed_tools),
         expires_at=ov.get("expires_at"),
     )
+    # Self-sign so the verifier (which now authenticates statements) trusts it.
+    stmt.signature = base64.b64encode(idn.sign(_canonical_json(stmt.body()))).decode("ascii")
+    return stmt
 
 
 def _chain(tmp_path):
@@ -491,3 +498,56 @@ def test_forbidden_values_catches_value_in_collection_arg():
     # legit calls (scalar or collection without the forbidden value) still allowed
     assert g.check(tok, tool="send_email", args={"to": "ok@good"}).allowed is True
     assert g.check(tok, tool="send_email", args={"to": ["a@good", "b@good"]}).allowed is True
+
+
+def test_verifier_rejects_forged_capability_statement(tmp_path):
+    """A capability statement with a bogus/invalid signature (or one not signed
+    by the trusted key) must be rejected, not trusted to widen allowed_tools
+    (round-4 F2)."""
+    pytest.importorskip("cryptography")
+    from raucle_detect.provenance import (
+        AgentIdentity,
+        CapabilityStatement,
+        Operation,
+        ProvenanceReceipt,
+        ProvenanceVerifier,
+    )
+
+    idn = AgentIdentity.generate(agent_id="agent:a", allowed_tools=["safe"])
+    ui = ProvenanceReceipt(
+        agent_id="agent:a",
+        agent_key_id=idn.key_id,
+        operation=Operation.USER_INPUT,
+        parents=[],
+        input_hash="sha256:" + "2" * 64,
+    )
+    ui.sign(idn)
+    tc = ProvenanceReceipt(
+        agent_id="agent:a",
+        agent_key_id=idn.key_id,
+        operation=Operation.TOOL_CALL,
+        parents=[ui.receipt_hash],
+        input_hash="sha256:" + "0" * 64,
+        output_hash="sha256:" + "1" * 64,
+        tool="evil",
+    )
+    tc.sign(idn)
+    c = tmp_path / "c.jsonl"
+    c.write_text(
+        json.dumps({"receipt_hash": ui.receipt_hash, "jws": ui.jws})
+        + "\n"
+        + json.dumps({"receipt_hash": tc.receipt_hash, "jws": tc.jws})
+        + "\n"
+    )
+    forged = CapabilityStatement(
+        agent_id="agent:a",
+        key_id=idn.key_id,
+        public_key_pem=idn.public_key_pem(),
+        allowed_tools=["evil", "safe"],
+        signature="bogus",
+    )
+    rep = ProvenanceVerifier(
+        public_keys={idn.key_id: idn.public_key_pem()}, capabilities={idn.key_id: forged}
+    ).verify_chain(c)
+    assert rep.valid is False
+    assert any("signature/key-binding" in e for e in rep.errors)

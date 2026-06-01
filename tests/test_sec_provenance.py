@@ -29,9 +29,17 @@ from raucle_detect.provenance import (
 
 
 def _stmt(identity: AgentIdentity, **overrides) -> CapabilityStatement:
-    """A capability statement matching an identity's key, with overrides."""
+    """A capability statement matching an identity's key, with overrides.
+
+    Self-signed by the identity so the verifier (which now authenticates
+    statements) trusts it — mirroring real usage.
+    """
+    import base64
+
+    from raucle_detect.provenance import _canonical_json
+
     s = identity.statement
-    return CapabilityStatement(
+    stmt = CapabilityStatement(
         agent_id=s.agent_id,
         key_id=s.key_id,
         public_key_pem=s.public_key_pem,
@@ -39,6 +47,8 @@ def _stmt(identity: AgentIdentity, **overrides) -> CapabilityStatement:
         allowed_tools=overrides.get("allowed_tools", list(s.allowed_tools)),
         sanitisation_authority=overrides.get("sanitisation_authority", []),
     )
+    stmt.signature = base64.b64encode(identity.sign(_canonical_json(stmt.body()))).decode("ascii")
+    return stmt
 
 
 # ---------------------------------------------------------------------------

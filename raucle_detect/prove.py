@@ -590,7 +590,11 @@ class SQLClauseProver:
 
         forbidden = {t.upper() for t in policy.get("forbidden_tokens", _DEFAULT_FORBIDDEN_TOKENS)}
         allow_chain = policy.get("allow_statement_chaining", False)
+        # Honour allowed_tables from EITHER policy or grammar. The docstring's
+        # grammar example lists it, so a caller following that example must not
+        # silently get an unrestricted (no-table-check) PROVEN (round-4 F3).
         allowed_tables = {t.lower() for t in policy.get("allowed_tables", [])}
+        allowed_tables |= {t.lower() for t in grammar.get("allowed_tables", [])}
 
         notes: list[str] = []
         counter: dict[str, Any] | None = None
