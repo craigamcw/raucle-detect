@@ -68,9 +68,11 @@ logger = logging.getLogger(__name__)
 
 
 def _canonical_json(obj: Any) -> bytes:
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
-        "utf-8"
-    )
+    # allow_nan=False: NaN/Infinity are not valid JSON and break cross-language
+    # signature verification (round-3 #13).
+    return json.dumps(
+        obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    ).encode("utf-8")
 
 
 def _sha256_hex(data: bytes) -> str:
@@ -558,7 +560,16 @@ def _assert_safe_url(url: str) -> str:
     except OSError as exc:
         raise ValueError(f"refusing to fetch feed: cannot resolve host {host!r}: {exc}") from exc
 
-    resolved = {info[4][0] for info in infos}
+    # Preserve resolution order; dedupe without losing the first address. A set
+    # is not subscriptable, so `resolved[0]` raised TypeError on every call,
+    # leaving the entire SSRF-pinning path as dead code (round-3 #21).
+    seen: set[str] = set()
+    resolved: list[str] = []
+    for info in infos:
+        ip = info[4][0]
+        if ip not in seen:
+            seen.add(ip)
+            resolved.append(ip)
     if not resolved:
         raise ValueError(f"refusing to fetch feed: host {host!r} resolved to no addresses")
     for ip in resolved:
