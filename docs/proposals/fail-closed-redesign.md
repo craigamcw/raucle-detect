@@ -1,6 +1,6 @@
 # Proposal: fail-closed redesign of the prover, gate, and verifier
 
-**Status:** Draft v2 — incorporates the cross-model (Codex) design review (§8); not yet implemented
+**Status:** Draft v3 — incorporates two cross-model (Codex) design-review passes (§8); not yet implemented. Second pass verdict: "yes-with-changes"; this v3 makes those changes (executable registry with full columns + CLI/adapter dimensions + drift test; enumerated collection semantics §8.6; unresolved-chain added to live bugs §8.10; versioned-extension rule).
 **Author:** drafted 2026-06-01 after six cross-model (Codex) adversarial rounds
 **Scope:** `raucle_detect/prove.py`, `raucle_detect/capability.py`, `raucle_detect/provenance.py`
 **Non-goal:** this does NOT replace a human security review / pentest of the same modules.
@@ -167,19 +167,23 @@ target that core.
 ## 7. Suggested sequencing
 
 1. Review + approve this design.
-2. **Build the Modelled Language Registry first (§8.1)** — every other fix hangs
-   off it; it is the structural backbone, not a doc artefact.
-3. Fix the three immediately-real bugs (§8.10): prover policy-key allowlist
-   (decorative proof inputs), reference-verifier canonical parity, JSONL envelope
-   duplicate-key rejection.
-4. Implement §3.2 (capability validator + uniform checker) — highest-value, most
-   self-contained.
-3. Implement §3.1 (prover whitelisting; decide on the `sqlglot` stretch goal).
-4. Implement §3.3 consolidation (`_validate_receipt_strict`).
-5. Run a fresh Codex cross-model pass against the redesigned code (the spec above
-   is the checklist).
-6. Human security review of the reduced core.
-7. Release (minor bump; "stricter by default" CHANGELOG section).
+2. **Build the Modelled Language Registry first (§8.1) as an EXECUTABLE,
+   test-enforced code object** — both runtime and tests derive from it, and a CI
+   drift test fails if code and registry disagree. Every fix below routes through
+   it; the "three bugs" are not local patches but the first registry rows.
+3. Fix the four immediately-real bugs (§8.10) *via the registry*: prover
+   policy-key allowlist (decorative proof inputs), reference-verifier canonical
+   parity, JSONL envelope duplicate-key rejection, and unresolved-chain DENY.
+4. Implement §3.2 (capability validator + uniform checker, collection semantics
+   per §8.6) — highest-value, most self-contained.
+5. Implement §3.1 (prover whitelisting; enumerate the SQL grammar in the registry;
+   decide on the `sqlglot` stretch goal).
+6. Implement §3.3 consolidation (`_validate_receipt_strict`) + port canonical +
+   envelope checks to the four reference verifiers.
+7. Run a fresh Codex cross-model pass against the redesigned code (this spec is
+   the checklist).
+8. Human security review of the reduced core (§8.9 scope).
+9. Release (minor bump; "stricter by default" CHANGELOG section, per §8.8).
 
 ## 8. Revisions from the cross-model (Codex) design review
 
@@ -188,20 +192,47 @@ enumerate-bad rounds) and surfaced gaps the v1 design missed. All accepted.
 
 ### 8.1 The central artefact: a Modelled Language Registry (NEW — top priority)
 
-Replace the prose allowlists with one normative registry table. Every input
-dimension the system reasons about has a row; each row specifies **validator,
-semantics, conservative fallback, and tests**. A key not in the registry is
-unreachable code-wise — adding one is impossible without filling every column.
-Dimensions to cover:
+Replace the prose allowlists with **one executable, test-enforced registry**.
+Every entry the system reasons about is a row; an entry not in the registry hits
+its dimension's conservative verdict by construction. Markdown alone is
+insufficient (table and code would drift) — the registry must be a code object
+(e.g. a typed dict / dataclass per dimension) from which both the runtime and the
+test suite are derived, with a **CI test that fails on drift** (any modelled key
+in code but absent from the registry, or vice versa).
 
-| Dimension | Examples | Conservative fallback |
+**Mandatory columns** (second-pass review — a row is incomplete without all of
+these, so a key cannot be added with partial semantics):
+
+| Column | Meaning |
+|---|---|
+| key / node | the schema keyword, policy key, constraint kind, SQL AST node, URL key, or envelope field |
+| owning component + trust boundary | where it is enforced (prover / gate / verifier / **CLI / adapter**) |
+| validator | the function that accepts/rejects its *shape* at the boundary |
+| normaliser | canonical form used for hashing/signing/compare |
+| runtime checker / prover encoder | how the gate enforces it AND how the prover encodes it (must agree) |
+| partial order + meet | for constraint kinds: the lattice op used by attenuation narrowing |
+| conservative verdict | the fail-closed result on anything unmodelled (DENY / UNDECIDED / reject) |
+| test IDs | the regression + fuzz tests pinning it |
+| migration behaviour | what changes for existing callers; verify-paths never warn-and-accept (§8.8) |
+| extension process | how a new key is added (must fill every column + a version/namespace rule) |
+
+**Dimensions (now including the wrapper surfaces — prior point 1):**
+
+| Dimension | Examples | Conservative verdict |
 |---|---|---|
 | JSON Schema keywords | `type, properties, required, additionalProperties` | unknown keyword → UNDECIDED |
 | **Policy constraint keys (prover)** | `forbidden_values, max/min_value, required_present, forbidden_field_combinations` | unmodelled key → UNDECIDED |
 | Capability constraint kinds (gate) | + `allowed_values, starts_with` | unknown key → reject at mint |
-| SQL AST node types | `SELECT, WITH, FROM, JOIN, WHERE…` | unknown node → UNDECIDED |
+| SQL AST node types | enumerated explicitly (§8.4) | unknown node → UNDECIDED |
 | URL grammar keys | `schemes, hosts, path_prefixes, query_keys[_closed]` | unknown key → UNDECIDED |
-| Verifier envelope fields | `receipt_hash, jws` | duplicate/unknown → reject |
+| Verifier envelope fields | `receipt_hash, jws` | duplicate/unknown → reject (versioned-extension rule below) |
+| **CLI / wrapper verification surfaces** | provenance-verify, gated-tools, adapter token resolution | must enforce the same conformance as the core (no wrapper fail-open) |
+| **Framework adapters** | LangChain / AutoGen / Agent Framework gate calls | caller-identity + ungated-tool posture per registry, not per-adapter |
+
+**Versioned-extension rule:** an unknown envelope/header field is rejected, but a
+future field is added only under an explicit version bump or a reserved
+vendor-namespace prefix that is *also* declared in the registry — so nobody adds
+ad-hoc exceptions later (second-pass new gap).
 
 ### 8.2 Highest-risk gap: prover policy language ≠ gate policy language
 
@@ -243,12 +274,22 @@ ambiguous (e.g. `1` vs `True`, `"1"` vs `1`) must be defined or rejected.
 
 ### 8.6 Collection-arg semantics must be EXACT (not just "apply every check")
 
-For each constraint kind, define the rule for a collection-valued arg, or reject
-collections for scalar constraints. E.g. `allowed_values`: pass iff **every**
-element is allowed (not "any"); `max_value`: **every** scalar must be numeric and
-within bound; blacklist: deny if **any** contained scalar is forbidden (current
-behaviour, `capability.py:1130`). Undefined semantics here is how the round-4
-hole appeared.
+Final per-kind semantics for a collection-valued arg (registry rows; "deny" is
+always the fail-closed direction):
+
+| Constraint kind | Collection-arg rule |
+|---|---|
+| `forbidden_values` | DENY if **any** contained scalar (flattened, incl. dict keys/values) is forbidden |
+| `forbidden_field_combinations` | presence-based; field counts as present if the key exists (collection value irrelevant) |
+| `allowed_values` | ALLOW iff the field is present and **every** contained scalar is in the allowed set; absent → DENY |
+| `starts_with` | the field must be a **string** with the prefix; a non-string (incl. any collection) → DENY |
+| `max_value` / `min_value` | **every** contained scalar must be a finite non-bool number satisfying the bound; any non-number or out-of-bound → DENY |
+| `required_present` | presence-based (collection value irrelevant) |
+
+Rationale: positive/bound constraints use **for-all** (a single bad element
+denies); blacklists use **exists** (a single forbidden element denies). Either
+way a collection cannot be used to smuggle a value past a check. Undefined
+semantics here is exactly how the round-4 hole appeared (`capability.py:1130`).
 
 ### 8.7 Attenuation: default-DENY on unresolved chain
 
@@ -284,6 +325,10 @@ Not just design — these are live on `main`:
    `starts_with`. Soundness/claim-integrity.
 2. **Reference verifiers lack canonical byte-equality** (§3.3 correction).
 3. **JSONL envelope duplicate-key hole** (`provenance.py:1148`).
+4. **Unresolved attenuation chain is not denied** (§8.7, `capability.py:931`) —
+   a token with a `parent_id` but no configured `parent_resolver` is currently
+   allowed (chain unchecked) instead of DENIED. Live and security-relevant
+   (second-pass review). Must fail closed.
 
 ### 8.11 Verdict (Codex)
 
