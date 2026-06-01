@@ -1145,7 +1145,12 @@ class ProvenanceVerifier:
                 if not line:
                     continue
                 try:
-                    raw = json.loads(line)
+                    # Reject duplicate keys in the JSONL envelope wrapper too —
+                    # not just the inner JWS payload. A wrapper like
+                    # {"jws": <evil>, "jws": <good>, "receipt_hash": ...} would
+                    # otherwise let two parsers disagree on which receipt the
+                    # line carries (envelope smuggling, §8.10 #3).
+                    raw = json.loads(line, object_pairs_hook=_reject_duplicate_keys)
                     receipt = ProvenanceReceipt.from_jws(raw["jws"], strict=True)
                 except (json.JSONDecodeError, ValueError, KeyError) as exc:
                     report.errors.append(f"line {line_no}: malformed record: {exc}")
