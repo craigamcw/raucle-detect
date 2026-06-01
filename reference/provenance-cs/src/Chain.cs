@@ -33,14 +33,19 @@ public static class Chain
 
             if (op == "sanitisation")
             {
+                // Sanitisation may drop tags it lists in `corpus` as
+                // "removed:<comma-separated>" (mirrors the Python verifier).
+                var corpus = r.Payload.Str("corpus") ?? "";
                 var removed = new HashSet<string>(
-                    r.Payload.StrArray("x_removed_taint") ?? new List<string>());
+                    corpus.StartsWith("removed:")
+                        ? corpus["removed:".Length..].Split(',', StringSplitOptions.RemoveEmptyEntries)
+                        : Array.Empty<string>());
                 var missing = parentTaint.Where(t => !childTaint.Contains(t) && !removed.Contains(t))
                     .OrderBy(x => x, StringComparer.Ordinal).ToList();
                 if (missing.Count > 0)
                     throw new ChainException(
                         $"sanitisation receipt {r.Id} dropped tags without declaring them " +
-                        $"in x_removed_taint: {string.Join(", ", missing)}");
+                        $"in corpus removed-set: {string.Join(", ", missing)}");
             }
             else
             {

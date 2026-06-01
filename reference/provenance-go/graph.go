@@ -3,6 +3,7 @@ package provenance
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // ChainError is returned when a chain violates the spec.
@@ -22,7 +23,9 @@ type Chain struct {
 }
 
 // BuildChain validates an ordered slice of already-verified receipts:
-// DAG closure + acyclicity (§8) and taint monotonicity (§7).
+// DAG closure + acyclicity (§8) and taint monotonicity (§7). Mirrors the
+// Python verifier: sanitisation may drop tags it lists in its `corpus`
+// field as "removed:<comma-separated>".
 func BuildChain(receipts []Receipt) (*Chain, error) {
 	byID := make(map[string]Receipt, len(receipts))
 
@@ -41,6 +44,9 @@ func BuildChain(receipts []Receipt) (*Chain, error) {
 	}
 
 	for _, r := range receipts {
+		if len(r.Payload.Parents) == 0 {
+			continue
+		}
 		parentTaint := map[string]bool{}
 		for _, p := range r.Payload.Parents {
 			for _, t := range byID[p].Payload.Taint {
@@ -54,24 +60,30 @@ func BuildChain(receipts []Receipt) (*Chain, error) {
 
 		if r.Payload.Operation == "sanitisation" {
 			removed := map[string]bool{}
-			if rv, ok := r.Payload.Extra["x_removed_taint"].([]any); ok {
-				for _, e := range rv {
-					if s, ok := e.(string); ok {
+			if strings.HasPrefix(r.Payload.Corpus, "removed:") {
+				for _, s := range strings.Split(r.Payload.Corpus[len("removed:"):], ",") {
+					if s != "" {
 						removed[s] = true
 					}
 				}
 			}
-			var missing []string
+			// expected = inherited - removed; child taint MUST equal it.
+			var bad []string
 			for t := range parentTaint {
-				if !childTaint[t] && !removed[t] {
-					missing = append(missing, t)
+				if !removed[t] && !childTaint[t] {
+					bad = append(bad, t)
 				}
 			}
-			if len(missing) > 0 {
-				sort.Strings(missing)
+			for t := range childTaint {
+				if !parentTaint[t] {
+					bad = append(bad, "+"+t)
+				}
+			}
+			if len(bad) > 0 {
+				sort.Strings(bad)
 				return nil, chainErr(
-					"sanitisation receipt %s dropped tags without declaring "+
-						"them in x_removed_taint: %v", r.ID, missing)
+					"sanitisation receipt %s taint mismatch vs corpus removed-set: %v",
+					r.ID, bad)
 			}
 		} else {
 			var missing []string

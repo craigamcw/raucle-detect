@@ -69,13 +69,15 @@ pub fn build_chain(receipts: Vec<Receipt>) -> Result<Chain, ChainError> {
         let op = r.payload.get("operation").and_then(|v| v.as_str()).unwrap_or("");
 
         if op == "sanitisation" {
-            let removed: BTreeSet<String> = r
-                .payload
-                .get("x_removed_taint")
-                .and_then(|v| v.as_array())
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|x| x.as_str().map(String::from))
+            // Sanitisation may drop tags it lists in `corpus` as
+            // "removed:<comma-separated>" (mirrors the Python verifier).
+            let corpus = r.payload.get("corpus").and_then(|v| v.as_str()).unwrap_or("");
+            let removed: BTreeSet<String> = corpus
+                .strip_prefix("removed:")
+                .map(|rest| {
+                    rest.split(',')
+                        .filter(|s| !s.is_empty())
+                        .map(String::from)
                         .collect()
                 })
                 .unwrap_or_default();
@@ -86,7 +88,7 @@ pub fn build_chain(receipts: Vec<Receipt>) -> Result<Chain, ChainError> {
             if !missing.is_empty() {
                 return Err(ChainError(format!(
                     "sanitisation receipt {} dropped tags without declaring them \
-                     in x_removed_taint: {:?}",
+                     in corpus removed-set: {:?}",
                     r.id, missing
                 )));
             }

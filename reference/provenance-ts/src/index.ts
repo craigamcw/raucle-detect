@@ -3,7 +3,6 @@ export {
   verify,
   validatePayload,
   VALID_OPERATIONS,
-  VALID_VERDICTS,
   type Receipt,
   type ReceiptPayload,
 } from './receipt.js'
