@@ -24,7 +24,7 @@ The reference implementation, Lean proofs, and benchmark harness are released as
 
 Counting commitments forces honesty. Each of these has to be defended in the paper:
 
-1. **"renders … structurally impossible for the verified action surface"** — Theorem 2 + Theorem 3 must hold mechanically. ✓ Done. Lean 4 + Mathlib v4.10.0; ~410 lines; zero `sorry`s.
+1. **"renders … structurally impossible for the verified action surface"** — Theorem 2 + Theorem 3 must hold mechanically. ✓ Done. Lean 4 + Mathlib v4.10.0; ~430 lines; zero `sorry`s.
 2. **"from 14-31% to 0.0%"** — the 0.0% is the bet. If even one attack succeeds in the benchmark, the abstract changes.
 3. **"86% benign task completion"** — has to be measured against the same baselines for it to be a fair comparison.
 4. ~~**"1-2 ms per call"**~~ → **"sub-100 µs per call"** — verified on AMD EPYC-Milan, single thread: gate at 0.07 ms p50, 3-link chain at 0.27 ms p50, cold proof at 0.67 ms p50. Cached proof negligible. ✓
