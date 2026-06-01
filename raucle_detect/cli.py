@@ -791,13 +791,17 @@ def _cmd_audit_export(args: argparse.Namespace) -> int:
     from raucle_detect.audit_export import build_report, render_html, sign_manifest
     from raucle_detect.provenance import CapabilityStatement
 
-    # Same pubkey loader as `provenance verify`.
+    # Same pubkey loader as `provenance verify`. Keep the parsed capability
+    # statements too — they gate allowed-tools/models and MUST be enforced, not
+    # discarded after extracting the PEM (else a forbidden tool call verifies clean).
     public_keys: dict[str, bytes] = {}
+    statements = {}
     for src in args.pubkeys:
         content = Path(src).read_bytes()
         try:
             stmt = CapabilityStatement.from_dict(json.loads(content))
             public_keys[stmt.key_id] = stmt.public_key_pem.encode("ascii")
+            statements[stmt.key_id] = stmt
         except (json.JSONDecodeError, KeyError):
             public_keys[hashlib.sha256(content).hexdigest()[:16]] = content
 
@@ -811,6 +815,7 @@ def _cmd_audit_export(args: argparse.Namespace) -> int:
             proofs,
             generated_at=int(_dt.datetime.now(_dt.timezone.utc).timestamp()),
             capabilities=capabilities,
+            capability_statements=statements or None,
         )
         manifest = sign_manifest(report, Path(args.sign_key).read_bytes())
     except (ValueError, OSError) as exc:

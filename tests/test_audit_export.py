@@ -17,6 +17,7 @@ from raucle_detect.audit_export import (
     sign_manifest,
     verify_manifest,
 )
+from raucle_detect.prove import ProofResult
 from raucle_detect.provenance import AgentIdentity, ProvenanceLogger, ProvenanceVerifier
 
 
@@ -59,31 +60,46 @@ def test_report_red_on_tampered_chain(tmp_path):
     assert any(n.status == "red" for n in report.nodes)
 
 
+def _proof(status: str, **kw) -> dict:
+    """A real ProofResult dict (hash matches body) so the audit-export
+    content-address check trusts it."""
+    return ProofResult(
+        status=status,
+        prover="JSONSchemaProver",
+        prover_version="jsonschema-prover/v1",
+        grammar_hash="g",
+        policy_hash="p",
+        **kw,
+    ).to_dict()
+
+
 def test_proof_obligations_colour_mapping(tmp_path):
     ident, chain = _clean_chain(tmp_path)
     keys = {ident.key_id: ident.public_key_pem()}
-    proofs = [
-        {
-            "prover": "JSONSchemaProver",
-            "status": "PROVEN",
-            "hash": "sha256:aa",
-            "grammar_hash": "g",
-            "policy_hash": "p",
-        },
-        {
-            "prover": "JSONSchemaProver",
-            "status": "REFUTED",
-            "hash": "sha256:bb",
-            "counterexample": {"amount": 999},
-        },
-        {"prover": "SQLClauseProver", "status": "UNDECIDED", "hash": "sha256:cc"},
-    ]
-    report = build_report(chain, keys, proofs, generated_at=1700000000)
+    proven = _proof("PROVEN")
+    refuted = _proof("REFUTED", counterexample={"amount": 999})
+    undecided = _proof("UNDECIDED")
+    report = build_report(chain, keys, [proven, refuted, undecided], generated_at=1700000000)
     by_cert = {o.certificate: o for o in report.obligations}
-    assert by_cert["sha256:aa"].status == "green"
-    assert by_cert["sha256:bb"].status == "red"
-    assert "counterexample" in by_cert["sha256:bb"].detail
-    assert by_cert["sha256:cc"].status == "amber"
+    assert by_cert[proven["hash"]].status == "green"
+    assert by_cert[refuted["hash"]].status == "red"
+    assert "counterexample" in by_cert[refuted["hash"]].detail
+    assert by_cert[undecided["hash"]].status == "amber"
+
+
+def test_forged_proof_hash_is_untrusted_not_green(tmp_path):
+    """B2: a proof claiming PROVEN under a hash that does not match its own body
+    is untrusted (amber), never green — and a node citing it does not go green."""
+    ident, chain = _chain_with_tool(tmp_path)
+    keys = {ident.key_id: ident.public_key_pem()}
+    forged = {**_proof("PROVEN"), "hash": "sha256:" + "0" * 64}  # body no longer hashes to this
+    caps = [{"tool": "transfer", "policy_proof_hash": forged["hash"]}]
+    report = build_report(chain, keys, [forged], generated_at=1700000000, capabilities=caps)
+    obl = report.obligations[0]
+    assert obl.status == "amber"
+    assert "does not match" in obl.detail
+    tool_node = next(n for n in report.nodes if n.kind == "tool")
+    assert tool_node.status != "green"
 
 
 def test_manifest_signs_and_reverifies(tmp_path):
@@ -162,11 +178,11 @@ def test_node_joined_to_cited_proof(tmp_path):
     certificate inline (the discharged-obligation magic moment)."""
     ident, chain = _chain_with_tool(tmp_path)
     keys = {ident.key_id: ident.public_key_pem()}
-    proofs = [{"prover": "JSONSchemaProver", "status": "PROVEN", "hash": "sha256:abc"}]
-    caps = [{"tool": "transfer", "policy_proof_hash": "sha256:abc"}]
-    report = build_report(chain, keys, proofs, generated_at=1700000000, capabilities=caps)
+    proof = _proof("PROVEN")
+    caps = [{"tool": "transfer", "policy_proof_hash": proof["hash"]}]
+    report = build_report(chain, keys, [proof], generated_at=1700000000, capabilities=caps)
     tool_node = next(n for n in report.nodes if n.kind == "tool")
-    assert tool_node.proof_certificate == "sha256:abc"
+    assert tool_node.proof_certificate == proof["hash"]
     assert tool_node.proof_status == "green"
     assert "Theorem 3" in tool_node.lean_theorem
     assert tool_node.status == "green"
@@ -175,9 +191,9 @@ def test_node_joined_to_cited_proof(tmp_path):
 def test_node_red_when_cited_proof_refuted(tmp_path):
     ident, chain = _chain_with_tool(tmp_path)
     keys = {ident.key_id: ident.public_key_pem()}
-    proofs = [{"prover": "JSONSchemaProver", "status": "REFUTED", "hash": "sha256:bad"}]
-    caps = [{"tool": "transfer", "policy_proof_hash": "sha256:bad"}]
-    report = build_report(chain, keys, proofs, generated_at=1700000000, capabilities=caps)
+    proof = _proof("REFUTED", counterexample={"amount": 999})
+    caps = [{"tool": "transfer", "policy_proof_hash": proof["hash"]}]
+    report = build_report(chain, keys, [proof], generated_at=1700000000, capabilities=caps)
     tool_node = next(n for n in report.nodes if n.kind == "tool")
     assert tool_node.status == "red"
 
@@ -189,4 +205,79 @@ def test_node_amber_when_cited_proof_missing(tmp_path):
     report = build_report(chain, keys, [], generated_at=1700000000, capabilities=caps)
     tool_node = next(n for n in report.nodes if n.kind == "tool")
     assert tool_node.status == "amber"
-    assert any("not supplied" in e for e in tool_node.evidence)
+    assert any("no trusted" in e for e in tool_node.evidence)
+
+
+def test_capability_violation_is_red_not_green(tmp_path):
+    """B1: a chain calling a tool the agent's capability statement forbids must
+    be RED. A malicious emitter bypasses the runtime gate; the verifier (given
+    the signed statement) must still catch it. Without the statement enforced
+    the bug shows it GREEN — which is why build_report now passes statements."""
+    from raucle_detect.provenance import Operation, ProvenanceReceipt, hash_text
+
+    ident = AgentIdentity.generate(agent_id="agent:billing", allowed_tools=["safe_tool"])
+    # Build receipts manually (bypassing the logger's permission gate) so the
+    # chain contains a tool the statement forbids — exactly the verifier's job.
+    r1 = ProvenanceReceipt(
+        agent_id=ident.agent_id,
+        agent_key_id=ident.key_id,
+        operation=Operation.USER_INPUT,
+        input_hash=hash_text("go"),
+        issued_at=1,
+    )
+    r1.sign(ident)
+    r2 = ProvenanceReceipt(
+        agent_id=ident.agent_id,
+        agent_key_id=ident.key_id,
+        operation=Operation.TOOL_CALL,
+        parents=[r1.receipt_hash],
+        tool="danger_tool",
+        input_hash=hash_text("{}"),
+        output_hash=hash_text("{}"),
+        issued_at=2,
+    )
+    r2.sign(ident)
+    chain = tmp_path / "chain.jsonl"
+    chain.write_text(
+        json.dumps({"receipt_hash": r1.receipt_hash, "jws": r1.jws})
+        + "\n"
+        + json.dumps({"receipt_hash": r2.receipt_hash, "jws": r2.jws})
+        + "\n"
+    )
+    keys = {ident.key_id: ident.public_key_pem()}
+
+    # Statements enforced → capability violation → INVALID + the tool node RED.
+    enforced = build_report(
+        chain, keys, generated_at=1700000000, capability_statements={ident.key_id: ident.statement}
+    )
+    assert enforced.summary["chain_valid"] is False
+    tool_node = next(n for n in enforced.nodes if n.kind == "tool")
+    assert tool_node.status == "red"
+    assert "capability_statements" in enforced.input_hashes
+
+    # Demonstrate the gap the fix closes: without statements, no permission check.
+    unenforced = build_report(chain, keys, generated_at=1700000000)
+    assert unenforced.summary["chain_valid"] is True  # documents why statements are required
+
+
+def test_mutated_signer_key_id_fails_verification(tmp_path):
+    """B3: the displayed signer_key_id is unsigned; a mutated label must be
+    rejected (derived from the embedded key), not silently trusted."""
+    ident, chain = _clean_chain(tmp_path)
+    keys = {ident.key_id: ident.public_key_pem()}
+    manifest = sign_manifest(build_report(chain, keys, generated_at=1700000000), _audit_key_pem())
+    assert verify_manifest(manifest) is True
+    manifest["signer_key_id"] = "trusted-looking"
+    assert verify_manifest(manifest) is False
+
+
+def test_html_escapes_unknown_status(tmp_path):
+    """B4: a hand-crafted manifest with an unknown node status must not inject
+    raw HTML through the badge fallback."""
+    ident, chain = _clean_chain(tmp_path)
+    keys = {ident.key_id: ident.public_key_pem()}
+    manifest = sign_manifest(build_report(chain, keys, generated_at=1700000000), _audit_key_pem())
+    manifest["body"]["nodes"][0]["status"] = "<script>alert(1)</script>"
+    html = render_html(manifest)
+    assert "<script>alert(1)</script>" not in html
+    assert "&lt;script&gt;" in html
