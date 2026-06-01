@@ -68,7 +68,10 @@ class ReleaseNotes:
     raw_section: str = ""
 
 
-_VERSION_HEADER_RE = re.compile(r"^##\s+([0-9][^\s(]*)\s*(?:\(([^)]*)\))?\s*$")
+# Matches `## <version>`, optionally `(<date>)`, and optionally a trailing
+# `— <title>` (em-dash / en-dash / hyphen) — the project's established changelog
+# style, e.g. `## 0.17.0 (2026-06-01) — fail-closed redesign`.
+_VERSION_HEADER_RE = re.compile(r"^##\s+([0-9][^\s(]*)\s*(?:\(([^)]*)\))?\s*(?:[—–-]\s.*)?$")
 _BULLET_RE = re.compile(r"^\s*-\s+(.*)$")
 _SUBSECTION_RE = re.compile(r"^###\s+(.*)$")
 # Match Markdown emphasis like **foo** at the start of a bullet for the
