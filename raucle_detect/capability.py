@@ -1019,6 +1019,26 @@ def _is_number(v: Any) -> bool:
     return False
 
 
+def _flatten_scalars(val: Any) -> Any:
+    """Yield every scalar contained in *val*, recursing into list/tuple/set/dict.
+
+    A ``forbidden_values`` blacklist must catch a forbidden value wherever it
+    appears in an argument — including hidden inside a collection. Without this,
+    ``to=["attacker@evil"]`` (a list) or ``to={"x":"attacker@evil"}`` (a dict)
+    would slip past a scalar ``args[fld] in bads`` check (capability-constraint
+    bypass). Dict keys are included too (fail-safe).
+    """
+    if isinstance(val, dict):
+        for k, v in val.items():
+            yield k
+            yield from _flatten_scalars(v)
+    elif isinstance(val, (list, tuple, set, frozenset)):
+        for v in val:
+            yield from _flatten_scalars(v)
+    else:
+        yield val
+
+
 def _check_constraints(c: dict[str, Any], args: dict[str, Any]) -> str | None:
     """Return a non-empty reason string on violation, or None on pass.
 
@@ -1041,8 +1061,14 @@ def _check_constraints(c: dict[str, Any], args: dict[str, Any]) -> str | None:
     # Blacklist: a present, forbidden value is a violation. (Absent ⇒ no
     # forbidden value present; see caveat above re: aliasing.)
     for fld, bads in c.get("forbidden_values", {}).items():
-        if fld in args and args[fld] in bads:
-            return f"{fld}={args[fld]!r} is in forbidden_values"
+        if fld not in args:
+            continue
+        # Check the value AND every scalar nested inside it: a forbidden value
+        # hidden in a list/dict argument (e.g. to=["attacker@evil"]) must not
+        # bypass the blacklist (capability-constraint bypass).
+        for scalar in _flatten_scalars(args[fld]):
+            if scalar in bads:
+                return f"{fld}={scalar!r} is in forbidden_values"
 
     # Whitelist: field MUST be present and in the allowed set.
     for fld, oks in c.get("allowed_values", {}).items():

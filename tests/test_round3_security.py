@@ -465,3 +465,29 @@ def test_verifier_rejects_unsorted_taint_and_bad_payload_typ(tmp_path):
     assert v.verify_chain(_make({**base, "taint": ["z", "a"]})).valid is False
     # bad payload typ (strict from_jws rejects → malformed record)
     assert v.verify_chain(_make({**base, "taint": [], "typ": "evil"})).valid is False
+
+
+def test_forbidden_values_catches_value_in_collection_arg():
+    """A forbidden value hidden in a list/dict argument must still be denied
+    (capability-constraint bypass: forbidden_values only checked scalar ==)."""
+    pytest.importorskip("cryptography")
+    from raucle_detect.capability import CapabilityGate, CapabilityIssuer
+
+    iss = CapabilityIssuer.generate("issuer")
+    g = CapabilityGate(trusted_issuers={iss.key_id: iss.public_key_pem})
+    tok = iss.mint(
+        agent_id="agent:a",
+        tool="send_email",
+        constraints={"forbidden_values": {"to": ["attacker@evil"]}},
+    )
+    assert g.check(tok, tool="send_email", args={"to": "attacker@evil"}).allowed is False
+    assert g.check(tok, tool="send_email", args={"to": ["attacker@evil"]}).allowed is False
+    assert (
+        g.check(tok, tool="send_email", args={"to": ["ok@good", "attacker@evil"]}).allowed is False
+    )
+    assert (
+        g.check(tok, tool="send_email", args={"to": {"primary": "attacker@evil"}}).allowed is False
+    )
+    # legit calls (scalar or collection without the forbidden value) still allowed
+    assert g.check(tok, tool="send_email", args={"to": "ok@good"}).allowed is True
+    assert g.check(tok, tool="send_email", args={"to": ["a@good", "b@good"]}).allowed is True
