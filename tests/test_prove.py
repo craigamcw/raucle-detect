@@ -275,3 +275,31 @@ def test_sql_comma_join_not_falsely_proven():
         {"allowed_tables": ["customers"]},
     )
     assert sub.status in ("UNDECIDED", "REFUTED")
+
+
+def test_sql_unmodelled_constructs_undecided():
+    """§8.4: SQL constructs the regex extractor cannot model soundly must yield
+    UNDECIDED on the allowed_tables (PROVEN-eligible) path, never a false PROVEN.
+    """
+    from raucle_detect.prove import SQLClauseProver
+
+    p = SQLClauseProver()
+    pol = {"allowed_tables": ["customers"]}
+    # quoted identifier could hide a disallowed table name
+    quoted = p.prove({"templates": ['SELECT * FROM "customers"']}, pol)
+    assert quoted.status == "UNDECIDED", quoted.status
+    # table function — func(...) is not a base table the extractor can resolve
+    tfunc = p.prove({"templates": ["SELECT * FROM generate_series(1, 10)"]}, pol)
+    assert tfunc.status == "UNDECIDED", tfunc.status
+    # LATERAL join
+    lat = p.prove({"templates": ["SELECT * FROM customers, LATERAL (SELECT 1) z"]}, pol)
+    assert lat.status == "UNDECIDED", lat.status
+    # recursive CTE
+    rec = p.prove({"templates": ["WITH RECURSIVE t AS (SELECT 1) SELECT * FROM customers"]}, pol)
+    assert rec.status == "UNDECIDED", rec.status
+    # VALUES table source
+    vals = p.prove({"templates": ["SELECT * FROM (VALUES (1),(2)) v"]}, pol)
+    assert vals.status == "UNDECIDED", vals.status
+    # sanity: plain modelled SELECT still PROVEN
+    ok = p.prove({"templates": ["SELECT id FROM customers WHERE id = 1"]}, pol)
+    assert ok.status == "PROVEN", ok.status
