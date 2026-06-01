@@ -1,6 +1,7 @@
 package provenance
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
@@ -277,9 +278,28 @@ func Verify(jws string, pub ed25519.PublicKey) (Receipt, error) {
 	if header["typ"] != jwsTyp {
 		return Receipt{}, fmt.Errorf("unexpected typ: %v", header["typ"])
 	}
-	crit, _ := header["crit"].([]any)
-	if !containsAny(crit, "raucle/v1") {
-		return Receipt{}, fmt.Errorf("crit must include 'raucle/v1'")
+	crit, ok := header["crit"].([]any)
+	if !ok || len(crit) != 1 || crit[0] != "raucle/v1" {
+		return Receipt{}, fmt.Errorf("crit must be exactly ['raucle/v1']")
+	}
+	if header["raucle/v1"] != "provenance" {
+		return Receipt{}, fmt.Errorf("header 'raucle/v1' must be 'provenance'")
+	}
+	allowedHeaderKeys := map[string]bool{"alg": true, "typ": true, "kid": true, "crit": true, "raucle/v1": true}
+	for k := range header {
+		if !allowedHeaderKeys[k] {
+			return Receipt{}, fmt.Errorf("unexpected JOSE header key: %s", k)
+		}
+	}
+
+	// Canonical byte-equality (spec v1 §4.3, matches the Python reference): the
+	// signature binds the on-wire bytes, but without re-encoding and comparing,
+	// a non-canonical header (unsorted keys / extra whitespace) would still
+	// verify, admitting byte-different receipts for the same logical content.
+	if canonHeader, cerr := canonicalEncode(header); cerr != nil {
+		return Receipt{}, cerr
+	} else if !bytes.Equal(canonHeader, hb) {
+		return Receipt{}, fmt.Errorf("JOSE header is not canonical JSON (JCS)")
 	}
 
 	sig, err := b64uDecode(sigB)
@@ -297,6 +317,11 @@ func Verify(jws string, pub ed25519.PublicKey) (Receipt, error) {
 	var pm map[string]any
 	if err := json.Unmarshal(pb, &pm); err != nil {
 		return Receipt{}, err
+	}
+	if canonPayload, cerr := canonicalEncode(pm); cerr != nil {
+		return Receipt{}, cerr
+	} else if !bytes.Equal(canonPayload, pb) {
+		return Receipt{}, fmt.Errorf("JWS payload is not canonical JSON (JCS)")
 	}
 	p, err := payloadFromMap(pm)
 	if err != nil {

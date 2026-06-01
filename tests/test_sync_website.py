@@ -76,6 +76,25 @@ class TestParseChangelog:
         with pytest.raises(SystemExit, match="not found"):
             sync_website.parse_changelog(_CHANGELOG, "9.9.9")
 
+    def test_header_with_em_dash_title_parses(self):
+        """Regression: the project's changelog style puts a `— title` after the
+        `(date)` (e.g. `## 0.17.0 (2026-06-01) — fail-closed redesign`). The
+        parser must still locate the section (this broke the website sync on the
+        v0.17.0 tag)."""
+        changelog = (
+            "## 0.17.0 (2026-06-01) — fail-closed redesign (stricter by default)\n\n"
+            "### Security fixes\n\n"
+            "- **Decorative proof inputs** — unmodelled keys force UNDECIDED.\n\n"
+            "## 0.16.4 (2026-06-01) — prover soundness\n\n"
+            "- **older** — prior release.\n"
+        )
+        notes = sync_website.parse_changelog(changelog, "0.17.0")
+        assert notes.version == "0.17.0"
+        assert "Security fixes" in notes.section_titles
+        # Must stop at the next release header, not bleed into 0.16.4.
+        assert "older" not in notes.raw_section
+        assert all("older" not in f for f in notes.headline_features)
+
     def test_backticks_inside_bold_phrase_stripped(self):
         """Regression: ``**`AgentIdentity`** — …`` should produce a clean
         feature name ``AgentIdentity`` with no literal backticks rendered."""

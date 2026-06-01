@@ -229,10 +229,28 @@ pub fn verify(jws: &str, verifying_key: &VerifyingKey) -> Result<Receipt, ProvEr
     let crit_ok = header
         .get("crit")
         .and_then(|v| v.as_array())
-        .map(|a| a.iter().any(|x| x.as_str() == Some("raucle/v1")))
+        .map(|a| a.len() == 1 && a[0].as_str() == Some("raucle/v1"))
         .unwrap_or(false);
     if !crit_ok {
-        return err("crit must include 'raucle/v1'");
+        return err("crit must be exactly ['raucle/v1']");
+    }
+    if header.get("raucle/v1").and_then(|v| v.as_str()) != Some("provenance") {
+        return err("header 'raucle/v1' must be 'provenance'");
+    }
+    if let Some(obj) = header.as_object() {
+        for k in obj.keys() {
+            if !matches!(k.as_str(), "alg" | "typ" | "kid" | "crit" | "raucle/v1") {
+                return err("unexpected JOSE header key");
+            }
+        }
+    }
+
+    // Canonical byte-equality (spec v1 §4.3, matches the Python reference): the
+    // signature binds the on-wire bytes, but a non-canonical header (unsorted
+    // keys / extra whitespace) would still verify without re-encoding and
+    // comparing — admitting byte-different receipts for the same content.
+    if canonical_encode(&header).map_err(|e| ProvError(e.0))? != b64u_decode(header_b)? {
+        return err("JOSE header is not canonical JSON (JCS)");
     }
 
     let sig_bytes = b64u_decode(sig_b)?;
@@ -242,8 +260,12 @@ pub fn verify(jws: &str, verifying_key: &VerifyingKey) -> Result<Receipt, ProvEr
         .verify(signing_input.as_bytes(), &sig)
         .map_err(|_| ProvError("signature invalid".into()))?;
 
-    let payload: Value = serde_json::from_slice(&b64u_decode(payload_b)?)
+    let payload_bytes = b64u_decode(payload_b)?;
+    let payload: Value = serde_json::from_slice(&payload_bytes)
         .map_err(|e| ProvError(format!("payload parse: {e}")))?;
+    if canonical_encode(&payload).map_err(|e| ProvError(e.0))? != payload_bytes {
+        return err("JWS payload is not canonical JSON (JCS)");
+    }
 
     validate_payload(&payload)?;
 
@@ -259,4 +281,51 @@ pub fn verify(jws: &str, verifying_key: &VerifyingKey) -> Result<Receipt, ProvEr
         payload,
         id,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ed25519_dalek::SigningKey;
+    use serde_json::json;
+
+    fn base_payload() -> Value {
+        json!({
+            "iat": 1700000001,
+            "agent_id": "agent:test.scanner",
+            "agent_key_id": "k_test01",
+            "operation": "user_input",
+            "parents": [],
+            "taint": [],
+        })
+    }
+
+    fn key() -> SigningKey {
+        SigningKey::from_bytes(&[7u8; 32])
+    }
+
+    #[test]
+    fn emit_verify_roundtrip() {
+        let sk = key();
+        let r = emit(&base_payload(), &sk).unwrap();
+        assert!(verify(&r.jws, &sk.verifying_key()).is_ok());
+    }
+
+    // Live bug #2 (§8.10): a correctly-signed JWS whose payload bytes are valid
+    // JSON but not JCS-canonical (here: a re-serialised pretty form) must be
+    // rejected — otherwise byte-different receipts verify for the same content.
+    #[test]
+    fn verify_rejects_non_canonical_payload() {
+        let sk = key();
+        let r = emit(&base_payload(), &sk).unwrap();
+        let parts: Vec<&str> = r.jws.split('.').collect();
+        let payload_bytes = b64u_decode(parts[1]).unwrap();
+        let value: Value = serde_json::from_slice(&payload_bytes).unwrap();
+        // serde_json::to_vec_pretty produces valid JSON with whitespace → not canonical.
+        let noncanon = serde_json::to_vec_pretty(&value).unwrap();
+        let signing_input = format!("{}.{}", parts[0], b64u(&noncanon));
+        let sig: Signature = sk.sign(signing_input.as_bytes());
+        let jws = format!("{}.{}", signing_input, b64u(&sig.to_bytes()));
+        assert!(verify(&jws, &sk.verifying_key()).is_err());
+    }
 }

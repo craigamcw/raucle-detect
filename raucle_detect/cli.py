@@ -327,6 +327,21 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Include receipts whose verdict did not change in the output",
     )
 
+    prov_migrate = prov_sub.add_parser(
+        "migrate-envelope",
+        help="Convert a legacy rich-envelope chain to the v0.17 minimal "
+        "{receipt_hash, jws} envelope (verifies each embedded JWS signature)",
+    )
+    prov_migrate.add_argument("chain", help="Path to the legacy chain JSONL")
+    prov_migrate.add_argument("--out", required=True, help="Path to write the migrated chain")
+    prov_migrate.add_argument(
+        "--pubkeys",
+        nargs="+",
+        required=True,
+        help="Capability-statement JSON files OR public-key PEM files that signed "
+        "the chain — migration verifies each receipt's signature before rewriting",
+    )
+
     # ---- Federated signed-IOC feeds (v0.8.0) -----------------------------
     feed_p = subparsers.add_parser(
         "feed",
@@ -850,6 +865,7 @@ def _cmd_provenance_verify(args: argparse.Namespace) -> int:
     from raucle_detect.provenance import CapabilityStatement, ProvenanceVerifier
 
     public_keys: dict[str, bytes] = {}
+    capabilities: dict[str, CapabilityStatement] = {}
     for src in args.pubkeys:
         path = Path(src)
         content = path.read_bytes()
@@ -858,6 +874,10 @@ def _cmd_provenance_verify(args: argparse.Namespace) -> int:
             d = json.loads(content)
             stmt = CapabilityStatement.from_dict(d)
             public_keys[stmt.key_id] = stmt.public_key_pem.encode("ascii")
+            # When a full statement is supplied, enforce its model/tool/
+            # sanitisation allowlists too — not just extract the public key
+            # (else the user's allowlists are silently ignored).
+            capabilities[stmt.key_id] = stmt
         except (json.JSONDecodeError, KeyError):
             # Raw PEM — derive key_id from the bytes
             import hashlib
@@ -865,7 +885,9 @@ def _cmd_provenance_verify(args: argparse.Namespace) -> int:
             key_id = hashlib.sha256(content).hexdigest()[:16]
             public_keys[key_id] = content
 
-    report = ProvenanceVerifier(public_keys=public_keys).verify_chain(args.path)
+    report = ProvenanceVerifier(
+        public_keys=public_keys, capabilities=capabilities or None
+    ).verify_chain(args.path)
 
     if args.format == "json":
         print(json.dumps(report.to_dict(), indent=2))
@@ -936,6 +958,34 @@ def _cmd_provenance_graph(args: argparse.Namespace) -> int:
         print(f"DOT graph written to {args.out}", file=sys.stderr)
     else:
         print(dot)
+    return 0
+
+
+def _cmd_provenance_migrate_envelope(args: argparse.Namespace) -> int:
+    from raucle_detect.provenance import CapabilityStatement, migrate_chain_envelope
+
+    # Load public keys exactly as `provenance verify` does (capability-statement
+    # JSON or raw PEM); migration verifies each receipt's signature.
+    public_keys: dict[str, bytes] = {}
+    for src in args.pubkeys:
+        content = Path(src).read_bytes()
+        try:
+            stmt = CapabilityStatement.from_dict(json.loads(content))
+            public_keys[stmt.key_id] = stmt.public_key_pem.encode("ascii")
+        except (json.JSONDecodeError, KeyError):
+            import hashlib
+
+            public_keys[hashlib.sha256(content).hexdigest()[:16]] = content
+
+    try:
+        count = migrate_chain_envelope(args.chain, args.out, public_keys)
+    except (ValueError, OSError) as exc:
+        print(f"migration failed: {exc}", file=sys.stderr)
+        return 1
+    print(
+        f"migrated {count} signature-verified receipt(s) to minimal envelope → {args.out}",
+        file=sys.stderr,
+    )
     return 0
 
 
@@ -1447,6 +1497,8 @@ def _dispatch(argv: list[str] | None = None) -> int:
         return _cmd_provenance_graph(args)
     elif args.command == "provenance" and args.provenance_command == "replay":
         return _cmd_provenance_replay(args)
+    elif args.command == "provenance" and args.provenance_command == "migrate-envelope":
+        return _cmd_provenance_migrate_envelope(args)
     elif args.command == "feed" and args.feed_command == "keygen":
         return _cmd_feed_keygen(args)
     elif args.command == "feed" and args.feed_command == "sign":

@@ -96,6 +96,12 @@ function enc(s: string): Uint8Array<ArrayBuffer> {
   return out
 }
 
+function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
+  return true
+}
+
 async function sha256Hex(s: string): Promise<string> {
   const digest = await subtle.digest('SHA-256', enc(s))
   return Buffer.from(digest).toString('hex')
@@ -214,17 +220,36 @@ export async function verify(
 
   if (header.alg !== 'EdDSA') throw new Error(`unsupported alg: ${header.alg}`)
   if (header.typ !== JWS_TYP) throw new Error(`unexpected typ: ${header.typ}`)
-  if (!Array.isArray(header.crit) || !header.crit.includes('raucle/v1')) {
-    throw new Error("crit must include 'raucle/v1'")
+  if (!Array.isArray(header.crit) || header.crit.length !== 1 || header.crit[0] !== 'raucle/v1') {
+    throw new Error("crit must be exactly ['raucle/v1']")
+  }
+  if (header['raucle/v1'] !== 'provenance') {
+    throw new Error("header 'raucle/v1' must be 'provenance'")
+  }
+  const allowedHeaderKeys = new Set(['alg', 'typ', 'kid', 'crit', 'raucle/v1'])
+  for (const k of Object.keys(header)) {
+    if (!allowedHeaderKeys.has(k)) throw new Error(`unexpected JOSE header key: ${k}`)
+  }
+
+  // Canonical byte-equality (spec v1 §4.3, matches the Python reference). The
+  // signature binds the on-wire bytes, but without re-encoding and comparing,
+  // a non-canonical encoding (unsorted keys / insignificant whitespace) would
+  // still verify — admitting byte-different receipts for the same logical
+  // content. Re-encode the parsed header/payload with the canonical encoder
+  // and require it to equal the decoded segment bytes.
+  if (!bytesEqual(canonicalEncode(header), b64uDecode(headerB))) {
+    throw new Error('JOSE header is not canonical JSON (JCS)')
   }
 
   const signingInput = enc(headerB + '.' + payloadB)
   const ok = await subtle.verify('Ed25519', publicKey, b64uDecode(sigB), signingInput)
   if (!ok) throw new Error('signature invalid')
 
-  const payloadObj = JSON.parse(
-    new TextDecoder().decode(b64uDecode(payloadB)),
-  ) as ReceiptPayload
+  const payloadBytes = b64uDecode(payloadB)
+  const payloadObj = JSON.parse(new TextDecoder().decode(payloadBytes)) as ReceiptPayload
+  if (!bytesEqual(canonicalEncode(payloadObj), payloadBytes)) {
+    throw new Error('JWS payload is not canonical JSON (JCS)')
+  }
   validatePayload(payloadObj)
 
   if (header.kid !== payloadObj.agent_key_id) {

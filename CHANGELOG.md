@@ -1,5 +1,89 @@
 # Changelog
 
+## 0.17.0 (2026-06-01) — fail-closed redesign (stricter by default)
+
+A structural pass that flips the prover/gate/verifier from "enumerate-bad" to
+**fail-closed**: anything the system does not explicitly model now hits a
+conservative verdict (gate → DENY, prover → UNDECIDED, mint/verify → reject)
+**by construction**, driven by a single executable **Modelled Language Registry**
+(`raucle_detect/registry.py`) with a CI drift guard. Designed across three
+cross-model (Codex) design-review passes and hardened across three cross-model
+code-review passes (6 fail-open blockers + 2 governance items closed) before
+release.
+
+### ⚠️ Breaking / stricter-by-default
+
+- **Provenance chain envelope is now minimal `{receipt_hash, jws}`.** The
+  previous format mirrored the whole payload into the envelope (unsigned,
+  unvalidated). The verifier now rejects any other top-level field (no wildcard
+  extension in v1). **Existing chain files with the old rich envelope will be
+  rejected** — re-emit them (the authoritative payload is inside the signed JWS).
+- **Canonical integers are bounded to the JS-safe range ±(2^53−1)** in all five
+  reference encoders, so values round-trip byte-identically across
+  Python/TS/Go/Rust/C#. Integers outside this range are rejected at
+  sign/verify. (Real timestamps and bounds are far inside this range.)
+- **Some inputs that previously returned `PROVEN` now return `UNDECIDED`:**
+  policies carrying keys the prover does not model (`allowed_values`,
+  `starts_with`), URL grammars/policies with unmodelled keys, and SQL templates
+  using unmodelled constructs (quoted identifiers, `LATERAL`/`UNNEST`/`VALUES`,
+  recursive CTEs, table functions). Narrow the grammar or accept UNDECIDED.
+- **Some malformed constraint shapes now raise at mint** instead of being
+  signed: non-list value sets (sets/tuples), non-JSON-scalar members, `bool`/
+  float numeric bounds, non-string `starts_with` prefixes, and field names that
+  collide under Unicode NFC.
+- **`CapabilityGate.check` denies a token citing a `parent_id` when no
+  `parent_resolver` is configured** (the chain cannot be verified → fail closed).
+- **`from_jws(strict=True)` now also validates per-receipt structure** (root
+  rule, required fields, sorted/unique parents+taint); pass
+  `validate_structure=False` for the chain-verifier path that reports per-line.
+
+### Security fixes (fail-open paths closed)
+
+- **Decorative proof inputs (§8.2):** the JSON prover ignored
+  `allowed_values`/`starts_with` while the gate enforced them, so a policy could
+  be PROVEN with those keys silently dropped. Unmodelled policy keys now force
+  UNDECIDED.
+- **URL prover fail-open:** unknown URL grammar/policy keys returned PROVEN; now
+  UNDECIDED.
+- **SQL unmodelled-construct net was conditional** on `allowed_tables`; it now
+  runs unconditionally, and unknown SQL grammar/policy keys force UNDECIDED.
+- **Reference-verifier canonical parity (§8.10):** the TS/Go/Rust/C# verifiers
+  now re-encode and byte-compare header+payload (JCS), matching Python — a
+  non-canonical receipt no longer verifies in the ports.
+- **JSONL envelope hardening:** duplicate-key rejection on the envelope wrapper
+  (not just the inner JWS) and rejection of unknown envelope fields.
+- **Unresolved attenuation chain DENY** (§8.7) and **mint value-domain
+  rejection** (§8.5), as above.
+
+### Scope & claims (read before citing)
+
+- **SQL:** the SQL component is a **finite SQL-template checker over a modelled
+  subset**, not a general "SQL prover". It proves properties over an enumerated
+  set of statement templates; anything outside the modelled construct surface
+  (quoted identifiers, `LATERAL`/`UNNEST`/`VALUES`, recursive CTEs, table
+  functions, …) returns UNDECIDED.
+- **`forbidden_values` is a best-effort denylist.** The gate enforces it on the
+  argument *names* the policy declares; it cannot see a tool's full parameter
+  schema, so a forbidden value supplied under a different parameter name is not
+  caught. For security-critical fields prefer the fail-closed positive
+  constraints — `allowed_values`, `required_present`, `max_value`/`min_value`.
+- **Strict proof mode is opt-in.** `CapabilityGate(proof_enforcement_mode=...)`
+  defaults to `"off"` for backward compatibility, so a token's
+  `policy_proof_hash` is *informational* unless an operator enables
+  `"lenient"`/`"strict"`. **Offline, proof-backed authorisation claims require
+  strict proof mode** — without it the gate does not consult or enforce the
+  cited proof.
+
+### Internal
+
+- **Modelled Language Registry** (`registry.py`): the executable source of truth
+  for constraint kinds, JSON-schema keywords, URL/SQL grammar+policy keys, the
+  SQL construct surface, and envelope fields. Runtime allowlists derive from it;
+  `tests/test_registry_drift.py` fails CI if any consumer's modelled set diverges
+  (exact `.get()`-literal extraction, not a heuristic scan).
+- Consolidated strict receipt verification into a single documented
+  `_validate_receipt_strict()` contract (§3.3).
+
 ## 0.16.4 (2026-06-01) — prover soundness + adapter scope (cross-model review)
 
 Findings from an independent cross-model (Codex) review, on top of the round-3

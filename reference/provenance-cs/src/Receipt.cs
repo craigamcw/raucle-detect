@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -134,8 +135,24 @@ public static class Receipt
         if (GetStr(header, "typ") != JwsTyp) throw new ProvException("unexpected typ");
         var critOk = header.TryGetProperty("crit", out var crit)
                      && crit.ValueKind == JsonValueKind.Array
-                     && crit.EnumerateArray().Any(x => x.ValueKind == JsonValueKind.String && x.GetString() == "raucle/v1");
-        if (!critOk) throw new ProvException("crit must include 'raucle/v1'");
+                     && crit.GetArrayLength() == 1
+                     && crit[0].ValueKind == JsonValueKind.String && crit[0].GetString() == "raucle/v1";
+        if (!critOk) throw new ProvException("crit must be exactly ['raucle/v1']");
+        if (GetStr(header, "raucle/v1") != "provenance")
+            throw new ProvException("header 'raucle/v1' must be 'provenance'");
+        var allowedHeaderKeys = new HashSet<string> { "alg", "typ", "kid", "crit", "raucle/v1" };
+        foreach (var prop in header.EnumerateObject())
+            if (!allowedHeaderKeys.Contains(prop.Name))
+                throw new ProvException($"unexpected JOSE header key: {prop.Name}");
+
+        // Canonical byte-equality (spec v1 §4.3, matches the Python reference):
+        // the signature binds the on-wire bytes, but a non-canonical header
+        // (unsorted keys / extra whitespace) would still verify without
+        // re-encoding and comparing — admitting byte-different receipts for the
+        // same logical content.
+        var canonHeader = Canonical.Encode(JVal.FromJsonElement(header));
+        if (!canonHeader.SequenceEqual(B64UrlDecode(headerB)))
+            throw new ProvException("JOSE header is not canonical JSON (JCS)");
 
         var signingInput = Encoding.ASCII.GetBytes(headerB + "." + payloadB);
         var verifier = new Ed25519Signer();
@@ -143,8 +160,11 @@ public static class Receipt
         verifier.BlockUpdate(signingInput, 0, signingInput.Length);
         if (!verifier.VerifySignature(B64UrlDecode(sigB))) throw new ProvException("signature invalid");
 
-        using var payloadDoc = JsonDocument.Parse(B64UrlDecode(payloadB));
+        var payloadBytes = B64UrlDecode(payloadB);
+        using var payloadDoc = JsonDocument.Parse(payloadBytes);
         var payload = (JObj)JVal.FromJsonElement(payloadDoc.RootElement);
+        if (!Canonical.Encode(payload).SequenceEqual(payloadBytes))
+            throw new ProvException("JWS payload is not canonical JSON (JCS)");
         Validate(payload);
 
         if (GetStr(header, "kid") != payload.Str("agent_key_id"))

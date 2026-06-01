@@ -30,8 +30,13 @@ export function canonicalString(value: unknown): string {
   if (value === null) return 'null'
   if (typeof value === 'boolean') return value ? 'true' : 'false'
   if (typeof value === 'number') {
-    if (!Number.isInteger(value)) {
-      throw new TypeError('canonical-JSON: only integer numbers are supported in v1')
+    // Number.isSafeInteger (not isInteger): rejects non-integers AND integers
+    // outside ±(2^53-1), which are lossy as IEEE-754 doubles and would not
+    // round-trip byte-identically against the Go/Rust/C# 64-bit ports (§8.10 #6).
+    if (!Number.isSafeInteger(value)) {
+      throw new TypeError(
+        'canonical-JSON: only safe integers (|n| <= 2^53-1) are supported in v1',
+      )
     }
     return String(value)
   }

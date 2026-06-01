@@ -77,6 +77,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from . import registry as _registry
+
 logger = logging.getLogger(__name__)
 
 
@@ -121,6 +123,96 @@ class Operation(str, Enum):
     agent assembles results from multiple tool calls or sub-agents."""
 
 
+#: Operations permitted to have empty parents (chain roots) — spec v1 §3/§6.
+_ROOTABLE_OPS = {Operation.USER_INPUT.value, Operation.GUARDRAIL_SCAN.value}
+
+#: Payload fields REQUIRED for each operation (spec v1 §4.2). A verifier MUST
+#: reject a receipt missing any required field for its operation type.
+_REQUIRED_FIELDS_BY_OP: dict[str, tuple[str, ...]] = {
+    Operation.USER_INPUT.value: ("input_hash",),
+    Operation.MODEL_CALL.value: ("input_hash", "output_hash", "model"),
+    Operation.TOOL_CALL.value: ("input_hash", "output_hash", "tool"),
+    Operation.RETRIEVAL.value: ("input_hash", "output_hash", "corpus"),
+    Operation.GUARDRAIL_SCAN.value: ("input_hash", "ruleset_hash", "guardrail_verdict"),
+    Operation.AGENT_HANDOFF.value: ("output_hash",),
+    Operation.SANITISATION.value: ("input_hash", "output_hash", "tool", "corpus"),
+    Operation.MERGE.value: ("output_hash",),
+}
+
+
+def _structural_errors(receipt: ProvenanceReceipt) -> list[str]:
+    """Per-receipt structural validity per spec v1 §3/§4.2/§6.
+
+    Checks the root rule (only ``user_input`` may have empty parents), the
+    ``merge`` arity rule (>= 2 parents), and the required-fields-per-operation
+    table. Returns a list of human-readable error strings (empty == valid).
+    """
+    errs: list[str] = []
+    op = receipt.operation.value
+    # Operations permitted to root a chain (empty parents): user_input, and a
+    # standalone guardrail_scan (an entry-point scan of incoming external
+    # content). Mid-chain operations (model_call/tool_call/retrieval/
+    # agent_handoff/sanitisation/merge) MUST cite >= 1 parent.
+    if not receipt.parents and op not in _ROOTABLE_OPS:
+        errs.append(
+            f"{op} receipt has empty parents but is not a permitted chain root "
+            f"(only user_input or guardrail_scan may root a chain)"
+        )
+    if op == Operation.MERGE.value and len(receipt.parents) < 2:
+        errs.append(f"merge receipt must have >= 2 parents, has {len(receipt.parents)}")
+    for fld in _REQUIRED_FIELDS_BY_OP.get(op, ()):
+        if not getattr(receipt, fld, ""):
+            errs.append(f"{op} receipt missing required field {fld!r}")
+    # Spec v1 §4.2: parents and taint MUST be sorted (lexicographic) and unique —
+    # part of the canonical contract; unsorted/duplicate entries indicate a
+    # non-conformant emitter.
+    for name in ("parents", "taint"):
+        seq = list(getattr(receipt, name, []) or [])
+        if seq != sorted(seq):
+            errs.append(f"{name} must be sorted lexicographically")
+        if len(seq) != len(set(seq)):
+            errs.append(f"{name} must not contain duplicates")
+    return errs
+
+
+def _validate_receipt_strict(receipt: ProvenanceReceipt) -> None:
+    """The single documented strict per-receipt contract (§3.3).
+
+    A receipt is fully valid only when ALL of the following hold. The first
+    five are enforced inside :meth:`ProvenanceReceipt.from_jws` with
+    ``strict=True`` (they need the raw JWS bytes); this function adds the
+    structural layer, so a standalone ``from_jws(strict=True)`` is structurally
+    complete and not merely cryptographically/canonically sound.
+
+    Enforced by ``from_jws(strict=True)`` (cryptographic / canonical / header):
+      1. JOSE header: exact ``alg``/``typ``/``crit``/``kid``/``raucle/v1``, no
+         extra keys.
+      2. Canonical (JCS) byte-equality of header and payload.
+      3. Payload ``typ`` literal and non-empty ``iss``.
+      4. Duplicate-key rejection in header and payload.
+      5. ``header.kid`` bound to ``payload.agent_key_id``.
+
+    Enforced here (structural, spec v1 §3/§4.2/§6):
+      6. Root rule (only ``user_input``/``guardrail_scan`` may have empty
+         parents); ``merge`` arity (>= 2 parents).
+      7. Required-fields-per-operation.
+      8. ``parents``/``taint`` sorted lexicographically and unique.
+
+    Raises
+    ------
+    ValueError
+        On the first structural violation (joined into one message).
+
+    Note: cross-receipt DAG invariants (topological order, taint monotonicity,
+    capability-statement conformance) are chain-level and remain in
+    :meth:`ProvenanceVerifier.verify_chain`; they require the whole graph and
+    cannot be checked from a single receipt.
+    """
+    errs = _structural_errors(receipt)
+    if errs:
+        raise ValueError("; ".join(errs))
+
+
 # ---------------------------------------------------------------------------
 # Utilities — canonical JSON, base64url, Ed25519
 # ---------------------------------------------------------------------------
@@ -135,12 +227,56 @@ def _b64url_decode(data: str) -> bytes:
     return base64.urlsafe_b64decode(data + padding)
 
 
+#: Portable integer range for v1 signed/hashed material. JavaScript numbers are
+#: IEEE-754 doubles, so the TS reference can only represent integers exactly up
+#: to 2^53-1; Go/Rust/C# use 64-bit ints. To guarantee a value round-trips
+#: byte-identically across ALL five implementations we restrict integers to the
+#: JS safe-integer range (the most restrictive). Python ints are unbounded, so
+#: without this a large Python-valid integer would sign here but be unrepresentable
+#: (or lossy) in the TS port — a cross-language canonical divergence (§8.10 #6).
+_MAX_SAFE_INT = 2**53 - 1
+_MIN_SAFE_INT = -(2**53 - 1)
+
+
+def _reject_floats(obj: Any) -> None:
+    """Raise if *obj* contains a float, or an integer outside the safe range.
+
+    The v1 payload schema uses only strings, integers, and arrays. Floats are
+    rejected (not serialised) so the canonical bytes stay identical across the
+    five reference implementations, and integers are bounded to the JS
+    safe-integer range so every value is exactly representable in all of them.
+    ``bool`` is an ``int`` subclass and is allowed (it serialises as
+    ``true``/``false``, not a number).
+    """
+    if isinstance(obj, float):
+        raise ValueError(
+            "canonical JSON: floats are not permitted in v1 signed/hashed material "
+            "(use integers; float canonicalisation is not cross-implementation stable)"
+        )
+    if isinstance(obj, bool):
+        pass  # bool is an int subclass but serialises as a JSON boolean
+    elif isinstance(obj, int) and not (_MIN_SAFE_INT <= obj <= _MAX_SAFE_INT):
+        raise ValueError(
+            f"canonical JSON: integer {obj} is outside the portable safe-integer "
+            f"range [{_MIN_SAFE_INT}, {_MAX_SAFE_INT}] (not representable in all "
+            f"reference implementations)"
+        )
+    if isinstance(obj, dict):
+        for v in obj.values():
+            _reject_floats(v)
+    elif isinstance(obj, (list, tuple)):
+        for v in obj:
+            _reject_floats(v)
+
+
 def _canonical_json(obj: Any) -> bytes:
     """Serialise *obj* with sorted keys, no whitespace, UTF-8 — for hashing.
 
-    allow_nan=False: NaN/Infinity are not valid JSON and would break
-    cross-implementation verification — reject rather than emit them.
+    allow_nan=False rejects NaN/Infinity; ``_reject_floats`` additionally rejects
+    *all* floats, matching the TS/Go/Rust/C# reference encoders so the signed
+    bytes are byte-identical across implementations.
     """
+    _reject_floats(obj)
     return json.dumps(
         obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
     ).encode("utf-8")
@@ -483,7 +619,9 @@ class ProvenanceReceipt:
     MAX_PAYLOAD_BYTES = 32 * 1024
 
     @classmethod
-    def from_jws(cls, jws: str, *, strict: bool = False) -> ProvenanceReceipt:
+    def from_jws(
+        cls, jws: str, *, strict: bool = False, validate_structure: bool = True
+    ) -> ProvenanceReceipt:
         """Parse a compact JWS string back into a receipt.
 
         Does NOT verify the signature — use :class:`ProvenanceVerifier`
@@ -518,6 +656,27 @@ class ProvenanceReceipt:
 
         if strict:
             cls._enforce_header(header_b64, expected_kid=payload.get("agent_key_id"))
+            # Spec v1 §4.2: the payload typ is a fixed literal and iss must be a
+            # non-empty issuer identifier. (The header typ is enforced in
+            # _enforce_header; the payload carries its own typ that MUST agree.)
+            if payload.get("typ") != _EXPECTED_TYP:
+                raise ValueError(f"payload typ {payload.get('typ')!r} must be {_EXPECTED_TYP!r}")
+            if not isinstance(payload.get("iss"), str) or not payload.get("iss"):
+                raise ValueError("payload missing required non-empty 'iss'")
+            # Spec v1 §4.3: header and payload are JCS-canonical (sorted keys, no
+            # insignificant whitespace). The signature binds the on-wire bytes,
+            # but without this a non-canonical encoding (spaces / unsorted keys)
+            # would still verify, breaking the canonical contract and admitting
+            # byte-different receipts for the same logical content (round-5 F3).
+            header_bytes = _b64url_decode(header_b64)
+            try:
+                header_obj = json.loads(header_bytes, object_pairs_hook=_reject_duplicate_keys)
+            except (ValueError, json.JSONDecodeError) as exc:
+                raise ValueError(f"malformed JOSE header: {exc}") from exc
+            if _canonical_json(header_obj) != header_bytes:
+                raise ValueError("JOSE header is not canonical JSON (JCS)")
+            if _canonical_json(payload) != payload_bytes:
+                raise ValueError("JWS payload is not canonical JSON (JCS)")
 
         receipt = cls(
             agent_id=payload["agent_id"],
@@ -537,6 +696,13 @@ class ProvenanceReceipt:
         )
         receipt.jws = jws
         receipt.receipt_hash = "sha256:" + _sha256_hex(jws.encode("ascii"))
+        # §3.3: a strict standalone parse is also structurally validated, so a
+        # malformed receipt (bad root rule, missing required field, unsorted
+        # parents/taint) is rejected here rather than silently parsing. The
+        # chain verifier opts out (validate_structure=False) so it can report
+        # each structural error per-line instead of raising on the first.
+        if strict and validate_structure:
+            _validate_receipt_strict(receipt)
         return receipt
 
     @classmethod
@@ -588,6 +754,13 @@ class ProvenanceReceipt:
             raise ValueError(
                 f"JOSE header 'raucle/v1' must be 'provenance', got {header.get('raucle/v1')!r}"
             )
+        # Spec v1 §4.1: reject any header key not in the fixed set. A vendor
+        # extension is only permitted if it is ALSO listed in crit (and crit must
+        # be exactly ['raucle/v1'] here, so in practice no extras are allowed).
+        allowed_header_keys = {"alg", "typ", "kid", "crit"} | set(header.get("crit") or [])
+        extra = set(header) - allowed_header_keys
+        if extra:
+            raise ValueError(f"unexpected JOSE header key(s): {sorted(extra)}")
 
     @staticmethod
     def _enforce_crit(header: dict[str, Any]) -> None:
@@ -676,11 +849,16 @@ class ProvenanceLogger:
                     continue
                 try:
                     raw = json.loads(line)
-                    h = raw.get("receipt_hash")
-                    taint = raw.get("taint", [])
-                    if h:
-                        self._taint_by_hash[h] = set(taint)
-                except (json.JSONDecodeError, KeyError):
+                    # Taint is read from the SIGNED JWS, never the envelope: the
+                    # minimal envelope no longer mirrors payload fields, and even
+                    # when it did those copies were unsigned/untrusted.
+                    jws = raw.get("jws")
+                    if not jws:
+                        continue
+                    receipt = ProvenanceReceipt.from_jws(jws)
+                    if receipt.receipt_hash:
+                        self._taint_by_hash[receipt.receipt_hash] = set(receipt.taint)
+                except (json.JSONDecodeError, KeyError, ValueError):
                     continue
 
     # ------------------------------------------------------------------
@@ -916,7 +1094,17 @@ class ProvenanceLogger:
 
     def _emit(self, receipt: ProvenanceReceipt) -> str:
         receipt.sign(self._agent)
-        self._file.write(json.dumps(receipt.to_dict(), ensure_ascii=False) + "\n")
+        # §8.1 minimal envelope: write ONLY {receipt_hash, jws}. The JWS already
+        # carries the canonical, signed payload — mirroring payload fields into
+        # the envelope (the old to_dict() format) created unsigned, unvalidated
+        # duplicates a reader could be tricked into trusting. The verifier
+        # rejects any other top-level field.
+        self._file.write(
+            json.dumps(
+                {"receipt_hash": receipt.receipt_hash, "jws": receipt.jws}, ensure_ascii=False
+            )
+            + "\n"
+        )
         self._file.flush()
         self._taint_by_hash[receipt.receipt_hash] = set(receipt.taint)
         return receipt.receipt_hash
@@ -1041,8 +1229,26 @@ class ProvenanceVerifier:
                 if not line:
                     continue
                 try:
-                    raw = json.loads(line)
-                    receipt = ProvenanceReceipt.from_jws(raw["jws"], strict=True)
+                    # Reject duplicate keys in the JSONL envelope wrapper too —
+                    # not just the inner JWS payload. A wrapper like
+                    # {"jws": <evil>, "jws": <good>, "receipt_hash": ...} would
+                    # otherwise let two parsers disagree on which receipt the
+                    # line carries (envelope smuggling, §8.10 #3).
+                    raw = json.loads(line, object_pairs_hook=_reject_duplicate_keys)
+                    # §8.1 envelope dimension: the wrapper carries exactly
+                    # {receipt_hash, jws}. Reject any other top-level field
+                    # (unless a registered x-raucle- versioned extension) — an
+                    # unknown field is envelope malleability we never validate.
+                    extra = _registry.unknown_envelope_fields(set(raw))
+                    if extra:
+                        raise ValueError(f"unknown envelope field(s): {sorted(extra)}")
+                    # validate_structure=False: the chain verifier reports each
+                    # structural error per-line below (via _structural_errors)
+                    # rather than raising on the first, so callers see the full
+                    # set of problems in one report.
+                    receipt = ProvenanceReceipt.from_jws(
+                        raw["jws"], strict=True, validate_structure=False
+                    )
                 except (json.JSONDecodeError, ValueError, KeyError) as exc:
                     report.errors.append(f"line {line_no}: malformed record: {exc}")
                     report.valid = False
@@ -1063,6 +1269,13 @@ class ProvenanceVerifier:
                     )
                     report.valid = False
 
+                # Structural validity per operation (spec v1 §4.2/§6): required
+                # fields, root rule, merge arity. A tool_call with no parents and
+                # no output_hash, etc., is malformed and must be rejected.
+                for serr in _structural_errors(receipt):
+                    report.errors.append(f"line {line_no}: {serr}")
+                    report.valid = False
+
                 # Capability conformance (verifier-side, when statements supplied)
                 if self._caps:
                     stmt = self._caps.get(receipt.agent_key_id)
@@ -1075,6 +1288,20 @@ class ProvenanceVerifier:
                         report.errors.append(
                             f"line {line_no}: no capability statement supplied for "
                             f"agent_key_id={receipt.agent_key_id} — unknown key rejected"
+                        )
+                        report.valid = False
+                    elif not self._verify_statement(stmt, receipt.agent_key_id):
+                        # Authenticity: a supplied capability statement is only
+                        # trusted if its self-signature verifies under the key the
+                        # verifier holds out-of-band for this agent. Without this
+                        # a forged statement (bogus signature, or widened
+                        # allowed_tools/models signed by an attacker key) would be
+                        # trusted and authorise tools the agent was never granted
+                        # (round-4 F2). Reject and do NOT consult its allowlists.
+                        report.capability_violations += 1
+                        report.errors.append(
+                            f"line {line_no}: capability statement for "
+                            f"{receipt.agent_key_id} failed signature/key-binding verification"
                         )
                         report.valid = False
                     else:
@@ -1197,6 +1424,35 @@ class ProvenanceVerifier:
         except Exception:
             return False
 
+    def _verify_statement(self, stmt: CapabilityStatement, agent_key_id: str) -> bool:
+        """Authenticate a supplied capability statement before trusting it.
+
+        A statement is only honoured if (a) its ``key_id`` matches the
+        agent_key_id it is registered under AND is the SHA-256 prefix of its own
+        ``public_key_pem`` (binding key_id to key), and (b) its signature
+        verifies over ``body()`` under the key the verifier holds out-of-band for
+        this agent. Verifying under the TRUSTED key — not the statement's
+        embedded key — is what defeats forgery: an attacker can self-sign a
+        widened statement with their own keypair, but it will not verify under
+        the agent's real public key. (round-4 F2)
+        """
+        if stmt.key_id != agent_key_id:
+            return False
+        try:
+            derived = _sha256_hex(stmt.public_key_pem.encode("ascii"))[:16]
+        except Exception:
+            return False
+        if derived != stmt.key_id:
+            return False
+        key = self._keys.get(agent_key_id)
+        if key is None:
+            return False
+        try:
+            key.verify(base64.b64decode(stmt.signature), _canonical_json(stmt.body()))
+            return True
+        except Exception:
+            return False
+
     def _check_taint(
         self,
         receipt: ProvenanceReceipt,
@@ -1274,3 +1530,72 @@ class ProvenanceVerifier:
                     continue
                 out[r.receipt_hash] = r
         return out
+
+
+def migrate_chain_envelope(
+    in_path: str | Path,
+    out_path: str | Path,
+    public_keys: dict[str, bytes],
+) -> int:
+    """Offline one-off converter: rewrite a legacy rich-envelope chain to the
+    v0.17 minimal ``{receipt_hash, jws}`` envelope.
+
+    The v0.17 verifier intentionally accepts ONLY the minimal envelope (no
+    dual-format tolerance — that would re-introduce the malleability the minimal
+    envelope removes). This converter is the migration path. For each line it:
+
+    1. parses the embedded JWS under the strict, structurally-complete contract;
+    2. **verifies the Ed25519 signature** against *public_keys* (keyed by
+       ``agent_key_id``) — a corrupted or unknown-key receipt is rejected, not
+       silently rewritten; ``from_jws`` alone does NOT check signatures;
+    3. recomputes the content-addressed ``receipt_hash`` from the JWS (never
+       trusting the old envelope copy) and writes the minimal record.
+
+    It is a separate, explicit, offline step — not part of any live verification
+    path. Fails loudly (raising) on the first line whose JWS is missing, does not
+    parse strictly, or fails signature verification, so a bad legacy chain is
+    surfaced rather than migrated.
+
+    Parameters
+    ----------
+    public_keys
+        ``{agent_key_id: public_key_pem}`` — the keys that signed the chain.
+        Required: migration verifies signatures, so the keys must be supplied.
+
+    Returns the number of records converted.
+    """
+    in_path = Path(in_path)
+    out_path = Path(out_path)
+    verifier = ProvenanceVerifier(public_keys=public_keys)
+    count = 0
+    with open(in_path, encoding="utf-8") as fin, open(out_path, "w", encoding="utf-8") as fout:
+        for line_no, line in enumerate(fin, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                raw = json.loads(line, object_pairs_hook=_reject_duplicate_keys)
+            except ValueError as exc:
+                raise ValueError(f"line {line_no}: malformed JSON: {exc}") from exc
+            jws = raw.get("jws") if isinstance(raw, dict) else None
+            if not jws:
+                raise ValueError(f"line {line_no}: record has no 'jws' field; cannot migrate")
+            # Strict, structurally-complete parse — a legacy line that cannot be
+            # parsed is surfaced, not silently rewritten.
+            receipt = ProvenanceReceipt.from_jws(jws, strict=True)
+            # Signature verification (from_jws does not do this): only migrate a
+            # receipt whose signature actually checks out under a trusted key.
+            if not verifier._verify_signature(receipt):
+                raise ValueError(
+                    f"line {line_no}: signature verification failed for "
+                    f"agent_key_id={receipt.agent_key_id} — refusing to migrate"
+                )
+            fout.write(
+                json.dumps(
+                    {"receipt_hash": receipt.receipt_hash, "jws": receipt.jws},
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+            count += 1
+    return count

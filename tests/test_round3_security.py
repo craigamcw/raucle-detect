@@ -81,8 +81,12 @@ def test_forbid_query_keys_closed_grammar_proves_or_refutes():
 
 # --- provenance verifier hardening (#4 expiry, #5 agent_id, #6 kid) ----------
 def _stmt(idn, **ov):
+    import base64
+
+    from raucle_detect.provenance import _canonical_json
+
     s = idn.statement
-    return CapabilityStatement(
+    stmt = CapabilityStatement(
         agent_id=ov.get("agent_id", s.agent_id),
         key_id=s.key_id,
         public_key_pem=s.public_key_pem,
@@ -90,6 +94,9 @@ def _stmt(idn, **ov):
         allowed_tools=list(s.allowed_tools),
         expires_at=ov.get("expires_at"),
     )
+    # Self-sign so the verifier (which now authenticates statements) trusts it.
+    stmt.signature = base64.b64encode(idn.sign(_canonical_json(stmt.body()))).decode("ascii")
+    return stmt
 
 
 def _chain(tmp_path):
@@ -297,3 +304,431 @@ def test_langchain_blacklist_helper():
     assert lc._blacklist_on_named_field(T({"forbidden_field_combinations": [["a", "b"]]})) is True
     assert lc._blacklist_on_named_field(T({"allowed_values": {"to": ["ok"]}})) is False
     assert lc._blacklist_on_named_field(T({})) is False
+
+
+# === Codex run-2 (current-main cross-model) regressions ======================
+
+
+# --- F1: malformed caller agent_id must not pass the descendant prefix check --
+def test_gate_rejects_malformed_caller_agent_id():
+    pytest.importorskip("cryptography")
+    from raucle_detect.capability import CapabilityGate, CapabilityIssuer
+
+    iss = CapabilityIssuer.generate("issuer")
+    tok = iss.mint(agent_id="agent:a", tool="t")
+    g = CapabilityGate(trusted_issuers={iss.key_id: iss.public_key_pem})
+    assert g.check(tok, tool="t", agent_id="agent:a..evil").allowed is False
+    assert g.check(tok, tool="t", agent_id="agent:a.").allowed is False
+    assert g.check(tok, tool="t", agent_id="agent:a.good").allowed is True  # real descendant
+    assert g.check(tok, tool="t", agent_id="agent:a").allowed is True  # self
+
+
+# --- F2: SQL prover must check the FULL qualified table name -----------------
+def test_sql_schema_qualified_table_not_proven_when_only_schema_allowed():
+    from raucle_detect.prove import SQLClauseProver
+
+    p = SQLClauseProver()
+    assert (
+        p.prove(
+            {"templates": ["SELECT * FROM public.secret"]}, {"allowed_tables": ["public"]}
+        ).status
+        == "REFUTED"
+    )
+    assert (
+        p.prove(
+            {"templates": ["SELECT * FROM public.secret"]}, {"allowed_tables": ["public.secret"]}
+        ).status
+        == "PROVEN"
+    )
+
+
+# --- F3: verifier rejects structurally invalid receipts ----------------------
+def test_verifier_rejects_tool_call_without_parents_or_output_hash(tmp_path):
+    from raucle_detect.provenance import (
+        AgentIdentity,
+        Operation,
+        ProvenanceReceipt,
+        ProvenanceVerifier,
+    )
+
+    idn = AgentIdentity.generate(agent_id="agent:x")
+    r = ProvenanceReceipt(
+        agent_id="agent:x",
+        agent_key_id=idn.key_id,
+        operation=Operation.TOOL_CALL,
+        parents=[],
+        tool="send_email",
+    )
+    r.sign(idn)
+    c = tmp_path / "c.jsonl"
+    c.write_text(json.dumps({"receipt_hash": r.receipt_hash, "jws": r.jws}) + "\n")
+    rep = ProvenanceVerifier(public_keys={idn.key_id: idn.public_key_pem()}).verify_chain(c)
+    assert rep.valid is False
+
+
+# --- F4: canonical JSON rejects floats (cross-impl parity with TS/Go/Rust/C#) -
+def test_provenance_canonical_json_rejects_floats():
+    from raucle_detect.provenance import _canonical_json
+
+    with pytest.raises(ValueError, match="float"):
+        _canonical_json({"x": 1.0})
+    # integers / bools / strings still serialise
+    assert _canonical_json({"a": 1, "b": True}) == b'{"a":1,"b":true}'
+
+
+# --- F6: wildcard host pattern does not match the apex -----------------------
+def test_url_wildcard_does_not_match_apex():
+    from raucle_detect.prove import URLPolicyProver
+
+    u = URLPolicyProver()
+    g = {"schemes": ["https"], "path_prefixes": ["/"], "query_keys_closed": True}
+    assert (
+        u.prove({**g, "hosts": ["example.com"]}, {"host_allowlist": ["*.example.com"]}).status
+        == "REFUTED"
+    )
+    assert (
+        u.prove({**g, "hosts": ["api.example.com"]}, {"host_allowlist": ["*.example.com"]}).status
+        == "PROVEN"
+    )
+
+
+# === Codex run-3 (current-main) regressions =================================
+
+
+def test_jsonschema_patternproperties_not_proven():
+    """patternProperties can admit a field additionalProperties:false appears to
+    forbid, so the prover must NOT certify PROVEN (round-3 run-3 F1)."""
+    pytest.importorskip("z3")
+    from raucle_detect.prove import JSONSchemaProver
+
+    s = {
+        "type": "object",
+        "properties": {},
+        "patternProperties": {"^role$": {"type": "string"}},
+        "additionalProperties": False,
+    }
+    assert (
+        JSONSchemaProver().prove(s, {"forbidden_values": {"role": ["admin"]}}).status == "UNDECIDED"
+    )
+
+
+def test_capability_token_rejects_float_bounds():
+    """cap:v1 numeric constraints are integer-only (run-3 F5)."""
+    pytest.importorskip("cryptography")
+    from raucle_detect.capability import CapabilityIssuer
+
+    iss = CapabilityIssuer.generate("issuer")
+    with pytest.raises(ValueError, match="float"):
+        iss.mint(agent_id="agent:a", tool="pay", constraints={"max_value": {"amount": 1.5}})
+    # integer bound still mints
+    iss.mint(agent_id="agent:a", tool="pay", constraints={"max_value": {"amount": 100}})
+
+
+def test_verifier_rejects_unsorted_taint_and_bad_payload_typ(tmp_path):
+    """Manually-crafted JWS with unsorted taint (bypassing sign()'s sort) and a
+    tampered payload typ must be rejected (run-3 F3)."""
+    pytest.importorskip("cryptography")
+    import hashlib
+
+    from raucle_detect.provenance import (
+        _EXPECTED_TYP,
+        AgentIdentity,
+        ProvenanceVerifier,
+        _b64url_encode,
+        _canonical_json,
+    )
+
+    idn = AgentIdentity.generate(agent_id="agent:x")
+    header = {
+        "alg": "EdDSA",
+        "typ": _EXPECTED_TYP,
+        "kid": idn.key_id,
+        "crit": ["raucle/v1"],
+        "raucle/v1": "provenance",
+    }
+
+    def _make(payload):
+        hb = _b64url_encode(_canonical_json(header))
+        pb = _b64url_encode(_canonical_json(payload))
+        sig = idn.sign((hb + "." + pb).encode("ascii"))
+        jws = hb + "." + pb + "." + _b64url_encode(sig)
+        rh = "sha256:" + hashlib.sha256(jws.encode()).hexdigest()
+        p = tmp_path / "c.jsonl"
+        p.write_text(json.dumps({"receipt_hash": rh, "jws": jws}) + "\n")
+        return p
+
+    base = {
+        "iss": "raucle-detect/provenance",
+        "typ": _EXPECTED_TYP,
+        "iat": 1,
+        "agent_id": "agent:x",
+        "agent_key_id": idn.key_id,
+        "operation": "user_input",
+        "parents": [],
+        "input_hash": "sha256:" + "0" * 64,
+    }
+    v = ProvenanceVerifier(public_keys={idn.key_id: idn.public_key_pem()})
+    # unsorted taint
+    assert v.verify_chain(_make({**base, "taint": ["z", "a"]})).valid is False
+    # bad payload typ (strict from_jws rejects → malformed record)
+    assert v.verify_chain(_make({**base, "taint": [], "typ": "evil"})).valid is False
+
+
+def test_forbidden_values_catches_value_in_collection_arg():
+    """A forbidden value hidden in a list/dict argument must still be denied
+    (capability-constraint bypass: forbidden_values only checked scalar ==)."""
+    pytest.importorskip("cryptography")
+    from raucle_detect.capability import CapabilityGate, CapabilityIssuer
+
+    iss = CapabilityIssuer.generate("issuer")
+    g = CapabilityGate(trusted_issuers={iss.key_id: iss.public_key_pem})
+    tok = iss.mint(
+        agent_id="agent:a",
+        tool="send_email",
+        constraints={"forbidden_values": {"to": ["attacker@evil"]}},
+    )
+    assert g.check(tok, tool="send_email", args={"to": "attacker@evil"}).allowed is False
+    assert g.check(tok, tool="send_email", args={"to": ["attacker@evil"]}).allowed is False
+    assert (
+        g.check(tok, tool="send_email", args={"to": ["ok@good", "attacker@evil"]}).allowed is False
+    )
+    assert (
+        g.check(tok, tool="send_email", args={"to": {"primary": "attacker@evil"}}).allowed is False
+    )
+    # legit calls (scalar or collection without the forbidden value) still allowed
+    assert g.check(tok, tool="send_email", args={"to": "ok@good"}).allowed is True
+    assert g.check(tok, tool="send_email", args={"to": ["a@good", "b@good"]}).allowed is True
+
+
+def test_verifier_rejects_forged_capability_statement(tmp_path):
+    """A capability statement with a bogus/invalid signature (or one not signed
+    by the trusted key) must be rejected, not trusted to widen allowed_tools
+    (round-4 F2)."""
+    pytest.importorskip("cryptography")
+    from raucle_detect.provenance import (
+        AgentIdentity,
+        CapabilityStatement,
+        Operation,
+        ProvenanceReceipt,
+        ProvenanceVerifier,
+    )
+
+    idn = AgentIdentity.generate(agent_id="agent:a", allowed_tools=["safe"])
+    ui = ProvenanceReceipt(
+        agent_id="agent:a",
+        agent_key_id=idn.key_id,
+        operation=Operation.USER_INPUT,
+        parents=[],
+        input_hash="sha256:" + "2" * 64,
+    )
+    ui.sign(idn)
+    tc = ProvenanceReceipt(
+        agent_id="agent:a",
+        agent_key_id=idn.key_id,
+        operation=Operation.TOOL_CALL,
+        parents=[ui.receipt_hash],
+        input_hash="sha256:" + "0" * 64,
+        output_hash="sha256:" + "1" * 64,
+        tool="evil",
+    )
+    tc.sign(idn)
+    c = tmp_path / "c.jsonl"
+    c.write_text(
+        json.dumps({"receipt_hash": ui.receipt_hash, "jws": ui.jws})
+        + "\n"
+        + json.dumps({"receipt_hash": tc.receipt_hash, "jws": tc.jws})
+        + "\n"
+    )
+    forged = CapabilityStatement(
+        agent_id="agent:a",
+        key_id=idn.key_id,
+        public_key_pem=idn.public_key_pem(),
+        allowed_tools=["evil", "safe"],
+        signature="bogus",
+    )
+    rep = ProvenanceVerifier(
+        public_keys={idn.key_id: idn.public_key_pem()}, capabilities={idn.key_id: forged}
+    ).verify_chain(c)
+    assert rep.valid is False
+    assert any("signature/key-binding" in e for e in rep.errors)
+
+
+# === Codex run-5 (current-main) regressions =================================
+
+
+def test_scalar_forbidden_values_rejected_at_mint():
+    """A scalar (string) forbidden_values value must be rejected, not sorted
+    into characters (which silently disables the blacklist) — round-5 F1."""
+    pytest.importorskip("cryptography")
+    from raucle_detect.capability import CapabilityIssuer
+
+    iss = CapabilityIssuer.generate("issuer")
+    with pytest.raises(ValueError, match="must be a list"):
+        iss.mint(
+            agent_id="agent:a", tool="send", constraints={"forbidden_values": {"role": "admin"}}
+        )
+    with pytest.raises(ValueError, match="must be a list"):
+        iss.mint(agent_id="agent:a", tool="send", constraints={"allowed_values": {"role": "admin"}})
+
+
+def test_audit_loads_strict_rejects_duplicate_keys():
+    """Audit chain records with duplicate keys are a JSON ambiguity (last-key
+    wins here, first-key elsewhere) and must be rejected — round-5 F2."""
+    from raucle_detect.audit import _loads_strict
+
+    with pytest.raises(ValueError, match="duplicate key"):
+        _loads_strict('{"event":{"a":1},"index":0,"event":{"b":2}}')
+    # well-formed record still parses
+    assert _loads_strict('{"index":0,"event":{"a":1}}')["index"] == 0
+
+
+def test_strict_verify_rejects_non_canonical_jws(tmp_path):
+    """A JWS whose payload bytes are valid-but-non-canonical (whitespace /
+    unsorted keys) must not verify — the receipt contract is JCS-canonical
+    (round-5 F3)."""
+    pytest.importorskip("cryptography")
+    import hashlib
+
+    from raucle_detect.provenance import (
+        _EXPECTED_TYP,
+        AgentIdentity,
+        ProvenanceVerifier,
+        _b64url_encode,
+        _canonical_json,
+    )
+
+    idn = AgentIdentity.generate(agent_id="agent:x")
+    hdr = {
+        "alg": "EdDSA",
+        "typ": _EXPECTED_TYP,
+        "kid": idn.key_id,
+        "crit": ["raucle/v1"],
+        "raucle/v1": "provenance",
+    }
+    payload = {
+        "iss": "raucle-detect/provenance",
+        "typ": _EXPECTED_TYP,
+        "iat": 1,
+        "agent_id": "agent:x",
+        "agent_key_id": idn.key_id,
+        "operation": "user_input",
+        "parents": [],
+        "taint": [],
+        "input_hash": "sha256:" + "0" * 64,
+    }
+    hb = _b64url_encode(_canonical_json(hdr))
+    pb = _b64url_encode(
+        json.dumps(payload, separators=(", ", ": ")).encode()
+    )  # non-canonical spaces
+    sig = idn.sign((hb + "." + pb).encode("ascii"))
+    jws = hb + "." + pb + "." + _b64url_encode(sig)
+    rh = "sha256:" + hashlib.sha256(jws.encode()).hexdigest()
+    c = tmp_path / "c.jsonl"
+    c.write_text(json.dumps({"receipt_hash": rh, "jws": jws}) + "\n")
+    rep = ProvenanceVerifier(public_keys={idn.key_id: idn.public_key_pem()}).verify_chain(c)
+    assert rep.valid is False
+
+
+# === Codex run-6 (current-main) regressions =================================
+
+
+def test_sql_grammar_allowed_tables_cannot_broaden_policy():
+    """grammar.allowed_tables must not broaden the policy allowlist (round-6 F1)."""
+    from raucle_detect.prove import SQLClauseProver, UnsupportedGrammar
+
+    p = SQLClauseProver()
+    # both present: policy dominates, grammar's broader entry ignored
+    assert (
+        p.prove(
+            {"templates": ["SELECT * FROM secret"], "allowed_tables": ["secret"]},
+            {"allowed_tables": ["public"], "forbidden_tokens": []},
+        ).status
+        == "REFUTED"
+    )
+    # grammar-only is a misplaced-key footgun → raises (no silent unrestricted PROVEN)
+    with pytest.raises(UnsupportedGrammar):
+        p.prove(
+            {"templates": ["SELECT * FROM secret"], "allowed_tables": ["secret"]},
+            {"forbidden_tokens": []},
+        )
+
+
+def test_sql_non_select_table_access_undecided():
+    """Table-bearing forms the FROM/JOIN extractor can't cover → UNDECIDED, not
+    a false PROVEN (round-6 F2)."""
+    from raucle_detect.prove import SQLClauseProver
+
+    p = SQLClauseProver()
+    assert (
+        p.prove({"templates": ["COPY secret TO STDOUT"]}, {"allowed_tables": ["public"]}).status
+        == "UNDECIDED"
+    )
+    assert (
+        p.prove(
+            {"templates": ["SELECT * INTO evil FROM public"]},
+            {"allowed_tables": ["public"], "forbidden_tokens": []},
+        ).status
+        == "UNDECIDED"
+    )
+
+
+def test_gate_rejects_broadened_attenuation_chain():
+    """A child citing a parent but carrying BROADER constraints is rejected by
+    the chain walk (round-6 F3)."""
+    pytest.importorskip("cryptography")
+    import raucle_detect.capability as cap
+    from raucle_detect.capability import CapabilityGate, CapabilityIssuer
+
+    iss = CapabilityIssuer.generate("issuer")
+    parent = iss.mint(
+        agent_id="agent:a", tool="t", constraints={"allowed_values": {"role": ["user"]}}
+    )
+    forged = iss.mint(
+        agent_id="agent:a", tool="t", constraints={"allowed_values": {"role": ["user", "admin"]}}
+    )
+    forged.parent_id = parent.token_id
+    forged.token_id = "cap:" + cap._sha256_hex(cap._canonical_json(forged.body()))[:24]
+    forged.signature = cap._b64(iss._priv.sign(cap._canonical_json(forged.body())))
+    by_id = {parent.token_id: parent, forged.token_id: forged}
+    g = CapabilityGate(trusted_issuers={iss.key_id: iss.public_key_pem}, parent_resolver=by_id.get)
+    dec = g.check(forged, tool="t", args={"role": "admin"})
+    assert dec.allowed is False
+    assert "attenuation" in dec.reason
+
+
+def test_strict_verify_rejects_extra_jose_header(tmp_path):
+    """Header with a key outside the fixed set is rejected (round-6 F6)."""
+    pytest.importorskip("cryptography")
+    from raucle_detect.provenance import (
+        _EXPECTED_TYP,
+        AgentIdentity,
+        ProvenanceReceipt,
+        _b64url_encode,
+        _canonical_json,
+    )
+
+    idn = AgentIdentity.generate(agent_id="agent:x")
+    hdr = {
+        "alg": "EdDSA",
+        "typ": _EXPECTED_TYP,
+        "kid": idn.key_id,
+        "crit": ["raucle/v1"],
+        "raucle/v1": "provenance",
+        "extra": "x",
+    }
+    pl = {
+        "iss": "raucle-detect/provenance",
+        "typ": _EXPECTED_TYP,
+        "iat": 1,
+        "agent_id": "agent:x",
+        "agent_key_id": idn.key_id,
+        "operation": "user_input",
+        "parents": [],
+        "taint": [],
+        "input_hash": "sha256:" + "0" * 64,
+    }
+    hb = _b64url_encode(_canonical_json(hdr))
+    pb = _b64url_encode(_canonical_json(pl))
+    jws = hb + "." + pb + "." + _b64url_encode(idn.sign((hb + "." + pb).encode("ascii")))
+    with pytest.raises(ValueError, match="header key"):
+        ProvenanceReceipt.from_jws(jws, strict=True)

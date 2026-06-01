@@ -40,8 +40,15 @@ and `Gate.check` to cover these is tracked future work.
 
 **Composition (`Composition.lean`)** assumes prover soundness as an explicit
 `axiom prover_soundness` — the Z3 provers in `prove.py` are NOT themselves
-verified in Lean. Theorem 3 therefore establishes that attenuation preserves a
-cited proof's policy *given* that axiom; it does not prove the prover correct.
+verified in Lean. Theorem 3 concludes, for a call in a tool's modelled call
+language under a PROVEN proof for that tool's `(schema, P)` and a gate that
+accepts it: (1) the call satisfies the policy `P` — via `prover_soundness`
+(load-bearing) — and (2) the call satisfies the token's runtime constraints —
+via `gate_soundness`. The binding that the *cited* proof pertains to this
+tool's `(schema, P)` is an operational strict-mode runtime check
+(`capability.py::_check_proof_binding`), taken as a hypothesis here and not
+mechanised; the prover itself is not proved correct (it is the axiom). See
+`STATUS.md` for the exact claim.
 
 ## Trust assumptions
 

@@ -257,3 +257,23 @@ test('spec vectors: verify + byte-identical re-emit', async () => {
     assert.equal(emitted.id, v.expected_receipt_hash, `${v.name}: emitted id differs`)
   }
 })
+
+// Live bug #2 (§8.10): a correctly-signed JWS whose payload bytes are valid
+// JSON but not JCS-canonical (here pretty-printed) must be rejected — otherwise
+// byte-different receipts for the same logical content would verify.
+test('verify rejects non-canonical payload bytes', async () => {
+  const { privateKey, publicKey } = await genKey()
+  const r = await emit(basePayload(), privateKey)
+  const [headerB, payloadB] = r.jws.split('.')
+  const b64u = (b: Uint8Array) =>
+    Buffer.from(b).toString('base64').replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '')
+  const b64uDecode = (s: string) =>
+    new Uint8Array(Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64'))
+  const obj = JSON.parse(new TextDecoder().decode(b64uDecode(payloadB)))
+  const noncanon = new TextEncoder().encode(JSON.stringify(obj, null, 2)) // whitespace
+  const signingInput = `${headerB}.${b64u(noncanon)}`
+  const sig = new Uint8Array(
+    await subtle.sign('Ed25519', privateKey, new TextEncoder().encode(signingInput)),
+  )
+  await assert.rejects(() => verify(`${signingInput}.${b64u(sig)}`, publicKey), /canonical/)
+})

@@ -2,9 +2,12 @@
 
 The 2026 AI-security industry runs on the phrase *"we tested it against
 10,000 attacks."*  That is not a guarantee, that is statistics over a
-sample.  For bounded input sub-languages -- tool-call JSON, URL strings,
-read-only SQL -- we can do dramatically better: produce an actual proof
-that **no string in the grammar** bypasses a given policy.
+sample.  For bounded input sub-languages -- tool-call JSON, URL strings --
+we can do dramatically better: produce an actual proof that **no string in
+the grammar** bypasses a given policy. For SQL the scope is narrower: a
+finite-template checker over a modelled subset (see ``SQLClauseProver``),
+which returns ``UNDECIDED`` for any construct it does not model rather than
+claiming a proof it cannot make.
 
 This module ships three first-cut provers, each producing a signed
 ``ProofResult`` artifact whose hash can be embedded in a v0.5.0
@@ -16,9 +19,11 @@ verdict receipt or chained into the v0.4.0 audit log:
 - ``URLPolicyProver`` -- given a URL allowlist (scheme + host glob +
   path prefix) and an extra rule (e.g. "no secrets in query"), emit
   ``PROVEN`` or a counterexample URL.
-- ``SQLClauseProver`` -- given a bounded read-only-ish SQL policy
-  (forbidden tokens, declared tables, no statement chaining), emit
-  ``PROVEN`` or a counterexample query.
+- ``SQLClauseProver`` -- a **finite SQL-template checker over a modelled
+  subset** (NOT a general SQL prover): given a bounded policy (forbidden
+  tokens, declared tables, no statement chaining) over an enumerated set of
+  statement templates, emit ``PROVEN`` / ``REFUTED`` (counterexample) /
+  ``UNDECIDED`` (template uses a construct outside the modelled subset).
 
 The proof artifacts are not "the policy is safe in general" -- they
 are "the policy is safe **over the declared grammar**".  That is the
@@ -68,6 +73,8 @@ import json
 import re
 from dataclasses import dataclass, field
 from typing import Any
+
+from . import registry as _registry
 
 
 def _canonical_json(obj: Any) -> bytes:
@@ -167,14 +174,14 @@ class JSONSchemaProver:
       b present is a violation)
 
     .. note::
-       ``allowed_values`` (whitelists) is a **gate-time** capability
-       constraint (see :func:`raucle_detect.capability._check_constraints`)
-       and is intentionally **not** part of this prover's policy grammar.
-       This prover proves the *absence of violations* (forbidden values /
-       bounds / combinations); a positive whitelist is enforced at the gate,
-       not discharged as an SMT proof here. Whitelist keys passed in a
-       ``prove`` policy are ignored — express them as capability constraints.
-       The same applies to ``starts_with`` (string-prefix) constraints.
+       ``allowed_values`` (whitelists) and ``starts_with`` (string-prefix) are
+       **gate-time** capability constraints (see
+       :func:`raucle_detect.capability._check_constraints`) that this prover
+       does **not** model. They are NOT silently ignored: a policy carrying any
+       key outside the registry's ``PROVER_ENCODABLE_KEYS`` downgrades a
+       would-be PROVEN to **UNDECIDED** (§8.2 — never a proof that omitted part
+       of the policy). Express positive whitelists/prefixes as capability
+       constraints enforced at the gate.
     """
 
     timeout_ms: int = 5000
@@ -191,6 +198,41 @@ class JSONSchemaProver:
             )
 
         notes: list[str] = []
+
+        # Keywords that change which objects are valid but that this prover does
+        # NOT model. If any are present we cannot soundly certify PROVEN —
+        # e.g. patternProperties / propertyNames can admit fields that
+        # `additionalProperties: false` otherwise appears to forbid, and
+        # allOf/anyOf/oneOf/$ref reshape the value space. We still run the solver
+        # (a REFUTED counterexample stays valid) but downgrade any would-be
+        # PROVEN to UNDECIDED. (Soundness fix: a `{"role":"admin"}` object is
+        # schema-valid under patternProperties `^role$` even with
+        # additionalProperties:false, so a blacklist on `role` is not provable.)
+        # Modelled schema keywords come from the registry (§8.1) so the drift
+        # test pins them; an unmodelled keyword downgrades PROVEN → UNDECIDED.
+        unmodelled = sorted(set(schema) - _registry.JSON_SCHEMA_OBJECT_KEYS)
+        if unmodelled:
+            notes.append(
+                f"schema uses keyword(s) this prover does not model {unmodelled}; "
+                f"PROVEN downgraded to UNDECIDED (cannot certify completeness)"
+            )
+
+        # Policy-language whitelist (§8.2 — "decorative proof inputs"). The
+        # prover only encodes the constraint kinds flagged ``prover_encodable``
+        # in the Modelled Language Registry. A policy carrying any other key
+        # (e.g. ``allowed_values`` / ``starts_with``, which the gate DOES
+        # enforce but this prover does NOT model) would otherwise be certified
+        # PROVEN while silently ignoring that key — a proof that omitted part of
+        # the policy, then bound into the token's policy_proof_hash. Fail closed:
+        # any unmodelled policy key downgrades a would-be PROVEN to UNDECIDED.
+        unmodelled_policy = sorted(_registry.unmodelled_policy_keys(set(policy)))
+        if unmodelled_policy:
+            unmodelled = sorted(set(unmodelled) | set(unmodelled_policy))
+            notes.append(
+                f"policy uses constraint key(s) this prover does not model "
+                f"{unmodelled_policy}; PROVEN downgraded to UNDECIDED "
+                f"(cannot certify a policy whose keys it ignores)"
+            )
         # Build Z3 variables per declared property.
         z3_vars: dict[str, Any] = {}
         presence: dict[str, Any] = {}
@@ -303,7 +345,9 @@ class JSONSchemaProver:
 
         check = solver.check()
         if str(check) == "unsat":
-            status = "PROVEN"
+            # Cannot certify completeness when the schema uses keywords we don't
+            # model (patternProperties/composition/$ref) — fail safe.
+            status = "UNDECIDED" if unmodelled else "PROVEN"
             counter = None
         elif str(check) == "sat":
             status = "REFUTED"
@@ -392,6 +436,13 @@ class URLPolicyProver:
         if not schemes or not hosts:
             raise UnsupportedGrammar("grammar must declare non-empty schemes and hosts")
 
+        # §8.1/§8.2 fail-closed: a grammar or policy key this prover does not
+        # model cannot be certified — it may impose an obligation or expand the
+        # URL space we never checked. Downgrade any would-be PROVEN to UNDECIDED
+        # (a REFUTED counterexample below stays valid). Registry-backed so the
+        # drift test pins the modelled surface.
+        unmodelled_url = sorted(_registry.unmodelled_url_keys(set(grammar), set(policy)))
+
         # require_https
         if policy.get("require_https"):
             for s in schemes:
@@ -404,7 +455,13 @@ class URLPolicyProver:
         # that is forbidden is a concrete REFUTED counterexample; but the absence
         # of one over an open key set cannot be PROVEN (a forbidden key remains
         # appendable). So forbid_query_keys over an open grammar is UNDECIDED.
-        undecidable = False
+        undecidable = bool(unmodelled_url)
+        if unmodelled_url:
+            notes.append(
+                f"URL grammar/policy uses key(s) this prover does not model "
+                f"{unmodelled_url}; PROVEN downgraded to UNDECIDED "
+                f"(cannot certify a dimension it does not check)"
+            )
         forbidden_q = set(policy.get("forbid_query_keys", []))
         for q in query_keys:
             if q in forbidden_q:
@@ -476,12 +533,19 @@ class URLPolicyProver:
 
 
 def _host_matches(host: str, pattern: str) -> bool:
-    """Match a host against an optionally wildcarded pattern (``*.example.com``)."""
+    """Match a host against an optionally wildcarded pattern.
+
+    ``*.example.com`` matches a strict subdomain (``api.example.com``) but NOT
+    the apex (``example.com``) — consistent with RFC 6125 / TLS / cookie wildcard
+    semantics. Matching the apex would let the prover return PROVEN for apex
+    access under a subdomain-only allowlist (overbroad). To permit the apex,
+    list it explicitly alongside the wildcard.
+    """
     if pattern == host:
         return True
     if pattern.startswith("*."):
-        suffix = pattern[1:]  # ".example.com"
-        return host.endswith(suffix) or host == pattern[2:]
+        suffix = pattern[1:]  # ".example.com" — requires at least one label before it
+        return host.endswith(suffix) and host != suffix[1:]
     return False
 
 
@@ -514,14 +578,39 @@ _DEFAULT_FORBIDDEN_TOKENS = (
 
 _STATEMENT_CHAIN_RE = re.compile(r";\s*\S")
 
+# §8.4 — SQL constructs the regex FROM/JOIN extractor does NOT model soundly.
+# Their presence in a template makes static table-isolation unverifiable, so a
+# would-be PROVEN is downgraded to UNDECIDED (fail-closed) rather than risk a
+# false PROVEN. This enumerates the "reject → UNDECIDED" side of §8.4:
+#   - quoted/back-quoted identifiers (a quoted name can contain whitespace,
+#     keywords, or dots that defeat the identifier/clause regexes);
+#   - LATERAL / table functions / UNNEST / VALUES table sources;
+#   - recursive or otherwise non-trivial CTEs (name shadowing);
+#   - TABLESAMPLE / PIVOT / UNPIVOT dialect forms.
+# A plain SELECT/WITH over FROM/JOIN with bare identifiers stays in the modelled
+# (PROVEN-eligible) set. sqlglot is intentionally NOT adopted here: a parser
+# whose AST diverges from the target DB's own dialect is itself a soundness
+# risk (§8.4); the conservative-UNDECIDED net is sound without it.
+# Built from the registry's SQL construct surface (§8.4) so the modelled set is
+# registry-owned and the drift test can pin it.
+_UNMODELLED_SQL_RE = re.compile("|".join(_registry.SQL_UNMODELLED_CONSTRUCTS), re.IGNORECASE)
+
 
 @dataclass
 class SQLClauseProver:
-    """Prove a bounded SQL policy over an enumerable set of candidate queries.
+    """A **finite SQL-template checker over a modelled subset** — not a general
+    SQL prover.
 
-    Unlike the JSON prover this is *enumeration with SMT-style reasoning*,
-    not full grammar inference -- modelling an arbitrary SQL grammar in SMT
-    is well outside this scope.  The honest claim is: given a finite set
+    It checks a bounded policy across an enumerated set of statement *templates*
+    using a regex extractor; it does **not** parse arbitrary SQL. Templates that
+    use constructs outside the modelled subset (quoted identifiers,
+    ``LATERAL``/``UNNEST``/``VALUES``, recursive CTEs, table functions, and
+    other dialect forms — see ``registry.SQL_UNMODELLED_CONSTRUCTS``) yield
+    UNDECIDED, never a false PROVEN. Highest assurance for table isolation comes
+    from validating against the target DB's own parser under a no-execute role;
+    this checker is a portable, dependency-light approximation that fails closed.
+
+    The honest claim is: given a finite set
     of statement *templates* and the columns/tables they touch, prove the
     policy holds for every template.
 
@@ -553,11 +642,31 @@ class SQLClauseProver:
 
         forbidden = {t.upper() for t in policy.get("forbidden_tokens", _DEFAULT_FORBIDDEN_TOKENS)}
         allow_chain = policy.get("allow_statement_chaining", False)
+        # allowed_tables is a POLICY constraint and the policy allowlist must
+        # DOMINATE. Earlier this unioned in grammar.allowed_tables, letting
+        # attacker-controlled grammar BROADEN the policy allowlist (round-6 F1).
+        # Now the grammar's copy is ignored entirely. But if it appears ONLY in
+        # the grammar (and not the policy), that is a caller mistake that would
+        # otherwise yield an unrestricted PROVEN — reject it loudly (round-4 F3).
+        if "allowed_tables" in grammar and "allowed_tables" not in policy:
+            raise UnsupportedGrammar(
+                "allowed_tables is a policy constraint, not grammar metadata — "
+                "pass it in the policy argument, not the grammar"
+            )
         allowed_tables = {t.lower() for t in policy.get("allowed_tables", [])}
 
         notes: list[str] = []
         counter: dict[str, Any] | None = None
         undecidable = False
+
+        # §8.1 fail-closed: unknown SQL grammar/policy keys cannot be certified.
+        unmodelled_sql = sorted(_registry.unmodelled_sql_keys(set(grammar), set(policy)))
+        if unmodelled_sql:
+            undecidable = True
+            notes.append(
+                f"SQL grammar/policy uses key(s) this prover does not model "
+                f"{unmodelled_sql}; PROVEN downgraded to UNDECIDED"
+            )
 
         for tmpl in templates:
             upper = tmpl.upper()
@@ -573,7 +682,37 @@ class SQLClauseProver:
                 counter = {"template": tmpl, "violation": "statement chaining via ';'"}
                 break
 
+            # §8.4: SQL constructs the regex extractor cannot model soundly →
+            # UNDECIDED, UNCONDITIONALLY (not only when allowed_tables is set).
+            # Without this guard a query like `SELECT * FROM UNNEST(xs)` or one
+            # using quoted identifiers / recursive CTEs would return PROVEN even
+            # though the prover does not actually understand it.
+            if _UNMODELLED_SQL_RE.search(tmpl):
+                undecidable = True
+                notes.append(
+                    f"unmodelled SQL construct in {tmpl!r} (quoted identifier / "
+                    f"LATERAL / UNNEST / VALUES / recursive CTE / dialect form); "
+                    f"completeness not verifiable (UNDECIDED)"
+                )
+                continue
+
             if allowed_tables:
+                # The FROM/JOIN extractor is only SOUND for plain SELECT queries.
+                # Other table-bearing forms reference tables without a FROM/JOIN
+                # (COPY ... TO, SELECT ... INTO, MERGE INTO), so we cannot verify
+                # table isolation by scanning FROM/JOIN — mark UNDECIDED rather
+                # than emit a false PROVEN (round-6 F2). (These are also forbidden
+                # under the default token list; this guard holds even when a
+                # caller overrides forbidden_tokens to be permissive.)
+                if not re.match(r"\s*(WITH\b|SELECT\b)", upper) or re.search(
+                    r"\b(COPY|INTO|MERGE)\b", upper
+                ):
+                    undecidable = True
+                    notes.append(
+                        f"table-bearing statement form in {tmpl!r} not covered by the "
+                        f"FROM/JOIN extractor; table isolation not verifiable (UNDECIDED)"
+                    )
+                    continue
                 # Extract every table referenced after a FROM/JOIN, including
                 # comma-separated lists (a bare `FROM a, b` join). Capture the
                 # whole clause up to the next SQL keyword, split on commas, and
@@ -590,13 +729,20 @@ class SQLClauseProver:
                         piece = piece.strip()
                         if not piece:
                             continue
-                        if piece.startswith("("):
-                            # subquery / derived table — the crude extractor
-                            # cannot statically resolve it; refuse to claim PROVEN.
+                        if "(" in piece:
+                            # subquery / derived table / table function — the
+                            # crude extractor cannot statically resolve a paren
+                            # anywhere in the reference (leading "(subquery)" OR
+                            # a table function like func(arg)); refuse PROVEN.
                             undecidable = True
                             notes.append(f"unparsable table reference in {tmpl!r} (UNDECIDED)")
                             continue
-                        m = re.match(r"([A-Z_][A-Z0-9_]*)", piece)
+                        # Capture the FULL dotted/qualified name (e.g.
+                        # schema.table), not just the leading identifier — else
+                        # `FROM public.secret` would be checked as table
+                        # `public` and pass an allowlist of ['public'] while
+                        # actually reading `public.secret` (soundness bug).
+                        m = re.match(r"([A-Z_][A-Z0-9_]*(?:\.[A-Z_][A-Z0-9_]*)*)", piece)
                         if m:
                             table_refs.append(m.group(1))
                         else:

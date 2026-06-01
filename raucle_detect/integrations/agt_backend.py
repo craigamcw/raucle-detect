@@ -211,7 +211,16 @@ class RauclePolicyBackend:
 
 
 def _agent_id_matches(token_agent_id: str, requested_agent_id: str) -> bool:
-    """Allow exact match or hierarchical extension (e.g. ``agent:x.region-1``)."""
+    """Allow exact match or hierarchical extension (e.g. ``agent:x.region-1``).
+
+    The requested id must be a *well-formed* agent_id before the prefix check —
+    otherwise 'agent:x..evil' and 'agent:x.' (both ``startswith('agent:x.')``)
+    would be accepted as descendants despite being malformed.
+    """
+    from raucle_detect.capability import _AGENT_ID_RE
+
+    if not _AGENT_ID_RE.match(requested_agent_id):
+        return False
     if token_agent_id == requested_agent_id:
         return True
     return requested_agent_id.startswith(token_agent_id + ".")

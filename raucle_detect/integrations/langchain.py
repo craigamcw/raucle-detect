@@ -216,6 +216,7 @@ class RaucleCallbackHandler(BaseCallbackHandler):
         token_resolver: TokenResolver | None = None,
         raise_on_deny: bool = True,
         lean_theorem_id: str = "vcd.gate_soundness",
+        require_agent_id: bool = False,
     ) -> None:
         if not _HAS_LANGCHAIN:
             raise RuntimeError(
@@ -228,6 +229,12 @@ class RaucleCallbackHandler(BaseCallbackHandler):
         self._resolver = token_resolver or _default_resolver
         self._raise_on_deny = raise_on_deny
         self._lean_theorem_id = lean_theorem_id
+        # When True, deny if no independent caller agent_id is available in the
+        # call metadata (so the token's agent scope is always checked against a
+        # real caller). Default False is bearer-mode: with no caller id the
+        # holder of the in-force token is trusted and the agent scope check is
+        # skipped (the gate cannot check an identity it was not given).
+        self._require_agent_id = require_agent_id
 
     # LangChain calls this BEFORE the tool executes. Raising blocks the call.
     def on_tool_start(
@@ -252,6 +259,14 @@ class RaucleCallbackHandler(BaseCallbackHandler):
 
         if token is None:
             decision = GateDecision(allowed=False, reason="no in-force capability token")
+        elif self._require_agent_id and bound_agent_id is None:
+            # Strict mode: no independent caller identity means the token's agent
+            # scope cannot be enforced against the caller — fail closed rather
+            # than fall back to trusting the token holder (round-3 run-2 #F2).
+            decision = GateDecision(
+                allowed=False,
+                reason="require_agent_id is set but no caller agent_id in metadata",
+            )
         elif not isinstance(call_args, dict) and _blacklist_on_named_field(token):
             # Opaque string tool input: we cannot map it to the constrained
             # field names, so wrapping it as {"input": ...} would make a

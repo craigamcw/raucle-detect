@@ -69,9 +69,12 @@ import logging
 import math
 import os
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from . import registry as _registry
 
 if TYPE_CHECKING:
     from raucle_detect.prove import ProofResult
@@ -84,9 +87,32 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+def _reject_floats(obj: Any) -> None:
+    """Raise on any float in signed token material.
+
+    cap:v1 numeric constraints are integers (see the standards doc). Floats are
+    rejected — not serialised — so token canonicalisation stays deterministic and
+    integer-only, consistent with the provenance receipt encoder. ``bool`` is an
+    ``int`` subclass and is allowed. (Only used on the token body, never on call
+    arguments, so float call-arg values still compare against integer bounds.)
+    """
+    if isinstance(obj, float):
+        raise ValueError(
+            "capability token: float numeric values are not permitted (cap:v1 "
+            "constraints are integer-only)"
+        )
+    if isinstance(obj, dict):
+        for v in obj.values():
+            _reject_floats(v)
+    elif isinstance(obj, (list, tuple)):
+        for v in obj:
+            _reject_floats(v)
+
+
 def _canonical_json(obj: Any) -> bytes:
-    # allow_nan=False: NaN/Infinity are not valid JSON and would break
-    # cross-implementation parsing/verification — reject rather than emit them.
+    # allow_nan rejects NaN/Infinity; _reject_floats rejects ALL floats so signed
+    # token material is integer-only and deterministic (parity with provenance).
+    _reject_floats(obj)
     return json.dumps(
         obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
     ).encode("utf-8")
@@ -158,11 +184,19 @@ class Capability:
     Constraint schema mirrors :class:`raucle_detect.prove.JSONSchemaProver`'s
     policy keys:
 
-    - ``forbidden_values`` -- ``{field: [bad, ...]}``
+    - ``forbidden_values`` -- ``{field: [bad, ...]}`` (**best-effort denylist**)
     - ``max_value`` / ``min_value`` -- ``{field: bound}``
     - ``required_present`` -- ``[field, ...]``
     - ``forbidden_field_combinations`` -- ``[[a, b], ...]``
     - ``allowed_values`` -- ``{field: [ok, ...]}`` (whitelist)
+
+    .. warning::
+       ``forbidden_values`` is a **best-effort denylist**: the gate enforces it
+       on the argument *names* the policy declares and cannot see the tool's full
+       parameter schema, so a forbidden value supplied under a different
+       parameter name is not caught. For security-critical fields prefer the
+       fail-closed positive constraints — ``allowed_values`` (whitelist),
+       ``required_present``, and ``max_value``/``min_value`` bounds.
     """
 
     token_id: str
@@ -234,17 +268,92 @@ class Capability:
         return cls.from_dict(json.loads(Path(path).read_text()))
 
 
-_KNOWN_CONSTRAINT_KEYS = frozenset(
-    {
-        "forbidden_values",
-        "allowed_values",
-        "starts_with",
-        "max_value",
-        "min_value",
-        "required_present",
-        "forbidden_field_combinations",
-    }
-)
+# Derived from the Modelled Language Registry (§8.1) — the single source of
+# truth. Do not hand-maintain this set; add a constraint kind in registry.py
+# (which forces every semantic column to be filled in). The drift test
+# (tests/test_registry_drift.py) fails if this diverges from the registry.
+_KNOWN_CONSTRAINT_KEYS = _registry.KNOWN_CONSTRAINT_KEYS
+
+
+def _require_json_scalar(kind: str, field: str, v: Any) -> None:
+    """Reject a value-list member that is not a JSON scalar (§8.5).
+
+    Permitted: ``str``, ``int``, ``bool``. Rejected: floats (not cross-impl
+    stable), ``None``, ``bytes``, and any nested container (list/dict/set/tuple)
+    — none of which are valid, comparable members of a constraint value set.
+    ``bool`` is permitted (an ``int`` subclass) since it serialises as a JSON
+    boolean and compares unambiguously.
+    """
+    # bool is an int subclass, so (str, int) already admits True/False.
+    if isinstance(v, (str, int)):
+        return
+    raise ValueError(
+        f"{kind}[{field!r}] contains {type(v).__name__} {v!r}; members must be "
+        f"JSON scalars (str/int/bool) — floats, None, bytes and nested "
+        f"containers are not permitted (§8.5)"
+    )
+
+
+def _validate_field_keys(kind: str, mapping: dict[str, Any]) -> None:
+    """Field-name (constraint key) validation (§8.5).
+
+    Keys must be non-empty strings, and must remain distinct after Unicode NFC
+    normalisation — otherwise two visually/semantically equal field names (e.g.
+    a precomposed vs decomposed accented form) could collide at the tool
+    boundary while appearing distinct in the signed token.
+    """
+    seen: dict[str, str] = {}
+    for key in mapping:
+        if not isinstance(key, str) or not key:
+            raise ValueError(f"{kind} field name must be a non-empty string, got {key!r} (§8.5)")
+        norm = unicodedata.normalize("NFC", key)
+        if norm in seen and seen[norm] != key:
+            raise ValueError(
+                f"{kind} field names {seen[norm]!r} and {key!r} collide under "
+                f"Unicode NFC normalisation (§8.5)"
+            )
+        seen[norm] = key
+
+
+def _require_int_bound(kind: str, field: str, bound: Any) -> None:
+    """Reject a numeric-bound value that is not a real integer (§8.5).
+
+    ``bool`` is an ``int`` subclass in Python, so ``True``/``False`` would
+    otherwise be accepted as a bound and compared numerically (``True == 1``) —
+    an ambiguous, error-prone token. Floats are rejected here too with a clear
+    message (the canonical encoder also rejects them at sign-time, but a
+    validator error at mint is far more actionable). Strings/None/collections
+    are likewise rejected.
+    """
+    if isinstance(bound, bool) or not isinstance(bound, int):
+        raise ValueError(
+            f"{kind}[{field!r}] bound must be an integer, got "
+            f"{type(bound).__name__} {bound!r} (§8.5 — cap:v1 bounds are "
+            f"integer-only; bool is not a number)"
+        )
+
+
+def _as_value_list(kind: str, field: str, v: Any) -> list[Any]:
+    """Validate that a value-set constraint is a real list/tuple, not a scalar.
+
+    A bare string would otherwise be ``sorted()`` into its characters — e.g.
+    ``forbidden_values={'role': 'admin'}`` becomes ``['a','d','i','m','n']`` and
+    the intended value ``'admin'`` is no longer blacklisted. Reject the malformed
+    shape at mint/normalise rather than silently weakening (and signing) the
+    policy.
+    """
+    # §8.5: accept ONLY a JSON array (list). A set/frozenset is unordered (its
+    # serialisation is non-deterministic) and a tuple/bytes/str is not a JSON
+    # array — none may be silently coerced into signed token material.
+    if not isinstance(v, list):
+        raise ValueError(
+            f"{kind}[{field!r}] must be a list (JSON array) of values, got "
+            f"{type(v).__name__} {v!r} — wrap a single value in a list, e.g. [{v!r}] "
+            f"(sets/tuples/strings are not accepted; §8.5)"
+        )
+    for member in v:
+        _require_json_scalar(kind, field, member)
+    return list(v)
 
 
 def _normalise_constraints(c: dict[str, Any]) -> dict[str, Any]:
@@ -268,22 +377,81 @@ def _normalise_constraints(c: dict[str, Any]) -> dict[str, Any]:
         )
     out: dict[str, Any] = {}
     if "forbidden_values" in c:
-        out["forbidden_values"] = {k: sorted(v) for k, v in c["forbidden_values"].items()}
+        _validate_field_keys("forbidden_values", c["forbidden_values"])
+        out["forbidden_values"] = {
+            k: sorted(_as_value_list("forbidden_values", k, v))
+            for k, v in c["forbidden_values"].items()
+        }
     if "allowed_values" in c:
-        out["allowed_values"] = {k: sorted(v) for k, v in c["allowed_values"].items()}
+        _validate_field_keys("allowed_values", c["allowed_values"])
+        out["allowed_values"] = {
+            k: sorted(_as_value_list("allowed_values", k, v))
+            for k, v in c["allowed_values"].items()
+        }
     if "starts_with" in c:
+        _validate_field_keys("starts_with", c["starts_with"])
+        for fld, prefix in c["starts_with"].items():
+            if not isinstance(prefix, str):
+                raise ValueError(
+                    f"starts_with[{fld!r}] prefix must be a string, got "
+                    f"{type(prefix).__name__} {prefix!r} (§8.5)"
+                )
         out["starts_with"] = dict(c["starts_with"])
     if "max_value" in c:
+        _validate_field_keys("max_value", c["max_value"])
+        for fld, bound in c["max_value"].items():
+            _require_int_bound("max_value", fld, bound)
         out["max_value"] = dict(c["max_value"])
     if "min_value" in c:
+        _validate_field_keys("min_value", c["min_value"])
+        for fld, bound in c["min_value"].items():
+            _require_int_bound("min_value", fld, bound)
         out["min_value"] = dict(c["min_value"])
     if "required_present" in c:
-        out["required_present"] = sorted(c["required_present"])
+        out["required_present"] = sorted(_require_field_name_list("required_present", c))
     if "forbidden_field_combinations" in c:
-        out["forbidden_field_combinations"] = sorted(
-            sorted(combo) for combo in c["forbidden_field_combinations"]
-        )
+        combos = c["forbidden_field_combinations"]
+        if not isinstance(combos, list):
+            raise ValueError(
+                "forbidden_field_combinations must be a list of field-name lists (§8.5)"
+            )
+        norm_combos = []
+        for combo in combos:
+            if not isinstance(combo, list):
+                raise ValueError(
+                    f"forbidden_field_combinations entry {combo!r} must be a list of "
+                    f"field names (§8.5)"
+                )
+            for fld in combo:
+                if not isinstance(fld, str) or not fld:
+                    raise ValueError(
+                        f"forbidden_field_combinations field name must be a non-empty "
+                        f"string, got {fld!r} (§8.5)"
+                    )
+            norm_combos.append(sorted(combo))
+        out["forbidden_field_combinations"] = sorted(norm_combos)
     return out
+
+
+def _require_field_name_list(kind: str, c: dict[str, Any]) -> list[str]:
+    """Validate a field-name list constraint (required_present): a JSON list of
+    non-empty strings, distinct under Unicode NFC (§8.5)."""
+    val = c[kind]
+    if not isinstance(val, list):
+        raise ValueError(
+            f"{kind} must be a JSON list of field names, got {type(val).__name__} (§8.5)"
+        )
+    seen: dict[str, str] = {}
+    for fld in val:
+        if not isinstance(fld, str) or not fld:
+            raise ValueError(f"{kind} field name must be a non-empty string, got {fld!r} (§8.5)")
+        norm = unicodedata.normalize("NFC", fld)
+        if norm in seen and seen[norm] != fld:
+            raise ValueError(
+                f"{kind} field names {seen[norm]!r} and {fld!r} collide under Unicode NFC (§8.5)"
+            )
+        seen[norm] = fld
+    return val
 
 
 # ---------------------------------------------------------------------------
@@ -649,6 +817,39 @@ def _merge_narrowing(parent: dict[str, Any], extra: dict[str, Any]) -> dict[str,
     return _normalise_constraints(out)
 
 
+def _attenuation_violation(child: Capability, parent: Capability) -> str | None:
+    """Return why *child* is NOT a valid attenuation of *parent*, or None if valid.
+
+    Attenuation soundness (Theorem 1) is enforced at mint by ``attenuate`` — but
+    a verifier walking a presented chain must re-check it independently, else a
+    mis-minted or hostile child that merely *cites* a parent_id could carry
+    BROADER permissions than its parent and still pass (round-6 F3). A valid
+    child has: the same tool; an agent_id equal to or a dot-delimited descendant
+    of the parent's; expiry no later than the parent's; not_before no earlier;
+    and constraints at least as tight as the parent on every dimension.
+
+    The constraint check reuses the narrowing meet: ``child ⊑ parent`` exactly
+    when merging the parent with the child yields the child unchanged (the merge
+    takes the tighter bound per dimension, so a looser child would be tightened
+    back toward the parent and differ).
+    """
+    if child.tool != parent.tool:
+        return f"child tool {child.tool!r} != parent tool {parent.tool!r}"
+    if not (child.agent_id == parent.agent_id or child.agent_id.startswith(parent.agent_id + ".")):
+        return f"child agent_id {child.agent_id!r} is not a descendant of {parent.agent_id!r}"
+    if child.expires_at > parent.expires_at:
+        return "child token outlives its parent"
+    if child.not_before < parent.not_before:
+        return "child not_before precedes its parent"
+    try:
+        merged = _merge_narrowing(parent.constraints, child.constraints)
+    except ValueError as exc:
+        return f"child constraints broaden the parent: {exc}"
+    if merged != _normalise_constraints(child.constraints):
+        return "child constraints are not a narrowing of the parent's"
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Gate
 # ---------------------------------------------------------------------------
@@ -677,10 +878,15 @@ class CapabilityGate:
         Mapping of ``key_id -> public_key_pem``. Tokens signed by any other
         key are rejected. There is no global root.
     parent_resolver
-        Optional callable ``(token_id) -> Capability | None`` used when a
-        token carries ``parent_id`` and the gate is configured to verify
-        the full chain. Default behaviour is to verify the immediate
-        signature and trust the attenuation invariants enforced at mint.
+        Callable ``(token_id) -> Capability | None`` that resolves a token's
+        ancestors so the gate can re-verify the whole attenuation chain
+        (signatures, narrowing, revocation depth) independently of mint.
+
+        **Fail-closed (§8.7):** a token that carries a ``parent_id`` but is
+        presented to a gate with **no** ``parent_resolver`` is DENIED — the gate
+        cannot verify the chain, so it does not trust that the issuer minted it
+        correctly. Supply a resolver to use attenuated/derived tokens. Root
+        tokens (no ``parent_id``) are unaffected.
     """
 
     def __init__(
@@ -813,16 +1019,21 @@ class CapabilityGate:
         # token's, or be a *dot-delimited descendant* of it. The delimiter is
         # required so that 'agent:billing' does NOT authorise 'agent:billing-evil'
         # (a bare prefix check would — CVE-class privilege escalation).
-        if (
-            agent_id is not None
-            and agent_id != token.agent_id
-            and not agent_id.startswith(token.agent_id + ".")
-        ):
-            return GateDecision(
-                False,
-                f"agent_id {agent_id!r} does not match token's {token.agent_id!r}",
-                token.token_id,
-            )
+        if agent_id is not None:
+            # Validate the caller-supplied agent_id BEFORE the prefix check. A
+            # malformed id (trailing dot, '..', illegal chars) must not slip
+            # through: 'agent:a..evil' and 'agent:a.' both startswith 'agent:a.'
+            # yet are not valid dot-delimited descendants of 'agent:a'.
+            if not _AGENT_ID_RE.match(agent_id):
+                return GateDecision(
+                    False, f"malformed caller agent_id {agent_id!r}", token.token_id
+                )
+            if agent_id != token.agent_id and not agent_id.startswith(token.agent_id + "."):
+                return GateDecision(
+                    False,
+                    f"agent_id {agent_id!r} does not match token's {token.agent_id!r}",
+                    token.token_id,
+                )
 
         # 7) Argument constraints. Fail closed: any unexpected error while
         # evaluating constraints is a DENY, never a propagated exception — the
@@ -844,8 +1055,20 @@ class CapabilityGate:
             if proof_decision is not None:
                 return proof_decision
 
-        # 8) Optional chain verification.
+        # 8) Chain verification. A token that cites a parent_id MUST have its
+        # ancestry verified; with no parent_resolver configured the gate cannot
+        # do so and must fail closed rather than silently trust that the issuer
+        # minted the chain correctly (§8.7 — unresolved-chain DENY). Otherwise a
+        # hostile child citing a parent_id it never had to justify slips through
+        # whenever the deployment forgot to wire a resolver.
         chain: list[str] = []
+        if token.parent_id and self._resolver is None:
+            return GateDecision(
+                False,
+                f"token cites parent {token.parent_id!r} but no parent_resolver "
+                f"is configured to verify the chain (deny)",
+                token.token_id,
+            )
         if token.parent_id and self._resolver is not None:
             current = token
             while current.parent_id:
@@ -881,6 +1104,17 @@ class CapabilityGate:
                     return GateDecision(
                         False,
                         f"ancestor token {parent.token_id} is revoked",
+                        token.token_id,
+                        chain,
+                    )
+                # Attenuation soundness: every link must be a valid narrowing of
+                # its parent — a child that cites a parent but broadens tool /
+                # agent scope / expiry / constraints is rejected (round-6 F3).
+                att = _attenuation_violation(current, parent)
+                if att is not None:
+                    return GateDecision(
+                        False,
+                        f"invalid attenuation of {parent.token_id}: {att}",
                         token.token_id,
                         chain,
                     )
@@ -991,6 +1225,26 @@ def _is_number(v: Any) -> bool:
     return False
 
 
+def _flatten_scalars(val: Any) -> Any:
+    """Yield every scalar contained in *val*, recursing into list/tuple/set/dict.
+
+    A ``forbidden_values`` blacklist must catch a forbidden value wherever it
+    appears in an argument — including hidden inside a collection. Without this,
+    ``to=["attacker@evil"]`` (a list) or ``to={"x":"attacker@evil"}`` (a dict)
+    would slip past a scalar ``args[fld] in bads`` check (capability-constraint
+    bypass). Dict keys are included too (fail-safe).
+    """
+    if isinstance(val, dict):
+        for k, v in val.items():
+            yield k
+            yield from _flatten_scalars(v)
+    elif isinstance(val, (list, tuple, set, frozenset)):
+        for v in val:
+            yield from _flatten_scalars(v)
+    else:
+        yield val
+
+
 def _check_constraints(c: dict[str, Any], args: dict[str, Any]) -> str | None:
     """Return a non-empty reason string on violation, or None on pass.
 
@@ -1010,42 +1264,76 @@ def _check_constraints(c: dict[str, Any], args: dict[str, Any]) -> str | None:
     security-critical fields; binding the gate to the tool's declared schema is
     tracked as a future hardening.
     """
-    # Blacklist: a present, forbidden value is a violation. (Absent ⇒ no
-    # forbidden value present; see caveat above re: aliasing.)
-    for fld, bads in c.get("forbidden_values", {}).items():
-        if fld in args and args[fld] in bads:
-            return f"{fld}={args[fld]!r} is in forbidden_values"
+    # Registry-driven fail-closed guard: any constraint kind that is not in the
+    # Modelled Language Registry must DENY rather than be silently ignored. The
+    # mint/normalise path already rejects unknown keys, but the gate is the
+    # trust boundary and re-checks independently (defence in depth).
+    for kind in c:
+        if kind not in _registry.CONSTRAINT_REGISTRY:
+            return f"unmodelled constraint kind {kind!r} reached the gate (deny)"
 
-    # Whitelist: field MUST be present and in the allowed set.
+    # Collection-arg semantics are EXACT per §8.6 (registry rows). The shared
+    # principle: a collection value can never be used to smuggle a value past a
+    # check — blacklists deny on ANY contained scalar (exists), positive/bound
+    # constraints require ALL contained scalars to satisfy (for-all).
+
+    # forbidden_values — EXISTS_DENY: a present, forbidden scalar anywhere in the
+    # argument (incl. nested in a list/dict, keys included) is a violation.
+    for fld, bads in c.get("forbidden_values", {}).items():
+        if fld not in args:
+            continue
+        for scalar in _flatten_scalars(args[fld]):
+            if scalar in bads:
+                return f"{fld}={scalar!r} is in forbidden_values"
+
+    # allowed_values — FORALL_ALLOW: field MUST be present and EVERY contained
+    # scalar must be in the allowed set. An empty collection carries no checkable
+    # value and is denied (cannot demonstrate the constraint is satisfied).
     for fld, oks in c.get("allowed_values", {}).items():
         if fld not in args:
             return f"allowed_values field {fld!r} is absent from the call"
-        if args[fld] not in oks:
-            return f"{fld}={args[fld]!r} is not in allowed_values"
+        scalars = list(_flatten_scalars(args[fld]))
+        if not scalars:
+            return f"allowed_values field {fld!r} carries no value to check"
+        for scalar in scalars:
+            if scalar not in oks:
+                return f"{fld} contains {scalar!r} which is not in allowed_values"
 
-    # Prefix: field MUST be present and a string with the prefix.
+    # starts_with — STRING_ONLY: field MUST be present and be a string with the
+    # prefix. Any non-string (including any collection) is denied.
     for fld, prefix in c.get("starts_with", {}).items():
         if fld not in args:
             return f"starts_with field {fld!r} is absent from the call"
         if not (isinstance(args[fld], str) and args[fld].startswith(prefix)):
             return f"{fld}={args[fld]!r} does not start with {prefix!r}"
 
-    # Numeric bounds: field MUST be present and numeric (not bool).
+    # max_value / min_value — FORALL_NUMERIC: field MUST be present and EVERY
+    # contained scalar must be a finite non-bool number satisfying the bound.
     for fld, bound in c.get("max_value", {}).items():
         if fld not in args:
             return f"max_value field {fld!r} is absent from the call"
-        if not _is_number(args[fld]):
-            return f"{fld}={args[fld]!r} is not a number (max_value)"
-        if args[fld] > bound:
-            return f"{fld}={args[fld]!r} exceeds max_value {bound!r}"
+        scalars = list(_flatten_scalars(args[fld]))
+        if not scalars:
+            return f"max_value field {fld!r} carries no value to check"
+        for scalar in scalars:
+            if not _is_number(scalar):
+                return f"{fld} contains {scalar!r} which is not a number (max_value)"
+            if scalar > bound:
+                return f"{fld} contains {scalar!r} exceeding max_value {bound!r}"
     for fld, bound in c.get("min_value", {}).items():
         if fld not in args:
             return f"min_value field {fld!r} is absent from the call"
-        if not _is_number(args[fld]):
-            return f"{fld}={args[fld]!r} is not a number (min_value)"
-        if args[fld] < bound:
-            return f"{fld}={args[fld]!r} below min_value {bound!r}"
+        scalars = list(_flatten_scalars(args[fld]))
+        if not scalars:
+            return f"min_value field {fld!r} carries no value to check"
+        for scalar in scalars:
+            if not _is_number(scalar):
+                return f"{fld} contains {scalar!r} which is not a number (min_value)"
+            if scalar < bound:
+                return f"{fld} contains {scalar!r} below min_value {bound!r}"
 
+    # required_present / forbidden_field_combinations — PRESENCE: only the
+    # field's presence matters; the value (collection or not) is irrelevant.
     for fld in c.get("required_present", []):
         if fld not in args:
             return f"required field {fld!r} missing"
