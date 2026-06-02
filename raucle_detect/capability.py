@@ -256,13 +256,38 @@ class Capability:
         # (defence in depth): mint() enforces these, but a token reaches the gate
         # as untrusted JSON, and the cap-verifier reference rejects the same
         # malformed shapes — so the gate path must too, not just trust the field.
-        _validate_agent_id(d.get("agent_id", ""))
-        _validate_tool(d.get("tool", ""))
+        # Every check raises ValueError (never KeyError/TypeError) so a malformed
+        # token fails closed with a clear reason instead of crashing the caller.
+        def _req_str(name: str) -> str:
+            v = d.get(name)
+            if not isinstance(v, str) or not v:
+                raise ValueError(
+                    f"capability token: {name} must be a non-empty string, got "
+                    f"{type(v).__name__} {v!r}"
+                )
+            return v
+
+        for _f in ("token_id", "agent_id", "tool", "issuer", "key_id"):
+            _req_str(_f)
+        _validate_agent_id(d["agent_id"])
+        _validate_tool(d["tool"])
         if not isinstance(d.get("constraints"), dict):
             raise ValueError(
                 "capability token: constraints must be present and a JSON object "
                 "(Capability.body always signs a constraints object, possibly empty)"
             )
+        # parent_id is the chain link: it MUST be either absent/null (a root) or
+        # a non-empty string token-id. A falsy-but-non-null value ("" / [] / {})
+        # would otherwise slip past the gate's chain check (truthiness) and skip
+        # attenuation verification.
+        _pid = d.get("parent_id")
+        if _pid is not None and (not isinstance(_pid, str) or not _pid):
+            raise ValueError(
+                f"capability token: parent_id must be a non-empty string or null, "
+                f"got {type(_pid).__name__} {_pid!r}"
+            )
+        if "signature" in d and not isinstance(d["signature"], str):
+            raise ValueError("capability token: signature must be a string")
 
         def _ts(name: str) -> int:
             # Timestamps are signed material and MUST be canonical integers.
@@ -1079,7 +1104,7 @@ class CapabilityGate:
         # parent, is refused.
         if token.token_id in self._revoked:
             return GateDecision(False, f"token {token.token_id} is revoked", token.token_id)
-        if token.parent_id and token.parent_id in self._revoked:
+        if token.parent_id is not None and token.parent_id in self._revoked:
             return GateDecision(False, f"parent token {token.parent_id} is revoked", token.token_id)
 
         # 4) Time bounds.
@@ -1141,14 +1166,14 @@ class CapabilityGate:
         # hostile child citing a parent_id it never had to justify slips through
         # whenever the deployment forgot to wire a resolver.
         chain: list[str] = []
-        if token.parent_id and self._resolver is None:
+        if token.parent_id is not None and self._resolver is None:
             return GateDecision(
                 False,
                 f"token cites parent {token.parent_id!r} but no parent_resolver "
                 f"is configured to verify the chain (deny)",
                 token.token_id,
             )
-        if token.parent_id and self._resolver is not None:
+        if token.parent_id is not None and self._resolver is not None:
             current = token
             while current.parent_id:
                 parent = self._resolver(current.parent_id)
