@@ -184,8 +184,66 @@ def _build_vectors() -> dict:
     return vectors
 
 
+def _canonicalization_vectors() -> list[dict]:
+    """Pure JCS + SHA-256 vectors over EXPOSED preimage objects, so a peer
+    implementation can byte-diff §4 canonicalisation directly (interop, e.g. the
+    A2A/APS action_ref preimage) without reverse-engineering a receipt body.
+
+    Each vector exposes the input object, the canonical UTF-8 JCS string, and its
+    SHA-256 hex. Uses the SAME `_canonical_json` (§4.3 restricted subset) the
+    receipts use.
+    """
+    import unicodedata
+
+    from raucle_detect.provenance import _canonical_json, _sha256_hex
+
+    def vec(name: str, desc: str, obj: dict) -> dict:
+        jcs = _canonical_json(obj)  # bytes, §4.3 canonical form
+        return {
+            "name": name,
+            "description": desc,
+            "input_object": obj,
+            "expected_canonical_utf8": jcs.decode("utf-8"),
+            "expected_canonical_sha256": "sha256:" + _sha256_hex(jcs),
+        }
+
+    # APS action_ref preimage shape: 4 fields, all strings / arrays of strings.
+    # scopeRequired pre-sorted by Unicode code point and NFC-normalised per the
+    # action_ref definition (that ordering is a producer step, not JCS).
+    scopes = sorted(unicodedata.normalize("NFC", s) for s in ["commerce.read", "commerce.write"])
+    action_ref = {
+        "actionType": "commerce_preflight",
+        "agentId": "did:aps:z6MkExampleAgentIdInCanonicalMultibaseForm",
+        "scopeRequired": scopes,
+        "timestamp": "2026-04-08T12:00:00Z",
+    }
+
+    return [
+        vec(
+            "canon_action_ref_aps",
+            "APS §4.1 action_ref preimage (4 string/array-of-string fields; no numbers, "
+            "so the ±(2^53-1) integer bound is moot — restricted subset == full RFC 8785 here)",
+            action_ref,
+        ),
+        vec(
+            "canon_non_ascii_strings",
+            "Non-ASCII strings MUST be raw UTF-8, never \\uXXXX-escaped (§4.3.4). "
+            "Mix of Latin-1, CJK, and emoji to exercise multi-byte UTF-8.",
+            {"corpus": "café — naïve — 日本語 — 🔒", "taint": ["external_user", "naïveté"]},
+        ),
+        vec(
+            "canon_boundary_integer",
+            "Safe-integer boundary 2^53-1 = 9007199254740991 (§4.3.6). This value "
+            "round-trips byte-identically everywhere; 2^53 (9007199254740992) is "
+            "out of the signed-material domain and MUST be rejected at sign/verify.",
+            {"amount": 9007199254740991, "currency": "USD"},
+        ),
+    ]
+
+
 def main() -> int:
     vectors = _build_vectors()
+    vectors["canonicalization_vectors"] = _canonicalization_vectors()
     print(json.dumps(vectors, indent=2, sort_keys=True))
     return 0
 
