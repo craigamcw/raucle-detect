@@ -56,9 +56,11 @@ def _b64url_decode(data: str) -> bytes:
 
 
 def _canonical_json(obj: Any) -> bytes:
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
-        "utf-8"
-    )
+    from ._canon import reorder_keys_utf16  # UTF-16 key ordering (shared)
+
+    return json.dumps(
+        reorder_keys_utf16(obj), sort_keys=False, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
 
 
 def _sha256_hex(data: bytes) -> str:

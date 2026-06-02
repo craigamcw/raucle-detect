@@ -136,7 +136,9 @@ def _value_sort_key(v: Any):
     would otherwise raise on a mixed list)."""
     if isinstance(v, str):
         return (0, v.encode("utf-16-be"))
-    return (1, v)
+    # bool is an int subclass: rank by type name first so True/1 (equal as ints)
+    # never collide and produce a non-deterministic signed order (codex R6 P2).
+    return (1, type(v).__name__, v)
 
 
 def _canonical_json(obj: Any) -> bytes:

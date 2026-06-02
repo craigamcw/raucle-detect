@@ -41,10 +41,36 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 
+def _utf16_key(s):
+    """RFC 8785 / JCS §3.2.3 ordering: by UTF-16 code unit (UTF-16-BE byte
+    comparison == unsigned-16-bit code-unit comparison)."""
+    return s.encode("utf-16-be")
+
+
+def _value_sort_key(v):
+    """Deterministic key for allow/deny list values: strings by UTF-16 code
+    unit; non-strings ranked by type name then value (bool never collides with
+    an equal int)."""
+    if isinstance(v, str):
+        return (0, v.encode("utf-16-be"))
+    return (1, type(v).__name__, v)
+
+
+def _reorder_keys_utf16(obj):
+    """Recursively reorder object keys by UTF-16 code unit, preserving arrays."""
+    if isinstance(obj, dict):
+        return {k: _reorder_keys_utf16(obj[k]) for k in sorted(obj, key=_utf16_key)}
+    if isinstance(obj, (list, tuple)):
+        return [_reorder_keys_utf16(v) for v in obj]
+    return obj
+
+
 def canonical_json(obj) -> bytes:
-    """Sorted keys, no whitespace, UTF-8, ensure_ascii=False."""
+    """Canonical JSON: object keys ordered by UTF-16 code unit (§4.3.1 / RFC
+    8785), no whitespace, UTF-8, ensure_ascii=False. Matches the raucle_detect
+    capability signer so token_ids/signatures are byte-identical."""
     return json.dumps(
-        obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        _reorder_keys_utf16(obj), sort_keys=False, separators=(",", ":"), ensure_ascii=False
     ).encode("utf-8")
 
 
@@ -106,17 +132,24 @@ def _normalise_constraints(c: dict) -> dict:
     """Normalisation logic mirroring raucle_detect.capability._normalise_constraints."""
     out: dict = {}
     if "forbidden_values" in c:
-        out["forbidden_values"] = {k: sorted(v) for k, v in c["forbidden_values"].items()}
+        out["forbidden_values"] = {
+            k: sorted(v, key=_value_sort_key) for k, v in c["forbidden_values"].items()
+        }
     if "allowed_values" in c:
-        out["allowed_values"] = {k: sorted(v) for k, v in c["allowed_values"].items()}
+        out["allowed_values"] = {
+            k: sorted(v, key=_value_sort_key) for k, v in c["allowed_values"].items()
+        }
     if "max_value" in c:
         out["max_value"] = dict(c["max_value"])
     if "min_value" in c:
         out["min_value"] = dict(c["min_value"])
     if "required_present" in c:
-        out["required_present"] = sorted(c["required_present"])
+        out["required_present"] = sorted(c["required_present"], key=_utf16_key)
     if "forbidden_combos" in c:
-        out["forbidden_combos"] = sorted(sorted(combo) for combo in c["forbidden_combos"])
+        out["forbidden_combos"] = sorted(
+            (sorted(combo, key=_utf16_key) for combo in c["forbidden_combos"]),
+            key=lambda combo: [_utf16_key(x) for x in combo],
+        )
     return out
 
 

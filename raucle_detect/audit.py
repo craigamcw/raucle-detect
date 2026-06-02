@@ -158,8 +158,14 @@ def _canonical_json(obj: Any) -> bytes:
     permitting them here would let caller-controlled event data produce signed
     bytes that the sibling implementations cannot verify (round-3 #13).
     """
+    from ._canon import reorder_keys_utf16  # UTF-16 key ordering (shared)
+
     return json.dumps(
-        obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+        reorder_keys_utf16(obj),
+        sort_keys=False,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
     ).encode("utf-8")
 
 

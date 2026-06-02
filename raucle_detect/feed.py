@@ -68,10 +68,17 @@ logger = logging.getLogger(__name__)
 
 
 def _canonical_json(obj: Any) -> bytes:
-    # allow_nan=False: NaN/Infinity are not valid JSON and break cross-language
-    # signature verification (round-3 #13).
+    # UTF-16 code-unit key ordering (shared _canon helper) for cross-language
+    # byte-identity. allow_nan=False: NaN/Infinity are not valid JSON and break
+    # cross-language signature verification (round-3 #13).
+    from ._canon import reorder_keys_utf16
+
     return json.dumps(
-        obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+        reorder_keys_utf16(obj),
+        sort_keys=False,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
     ).encode("utf-8")
 
 
