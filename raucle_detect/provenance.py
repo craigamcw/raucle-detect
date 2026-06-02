@@ -78,6 +78,8 @@ from pathlib import Path
 from typing import Any
 
 from . import registry as _registry
+from ._canon import reorder_keys_utf16 as _reorder_keys_utf16
+from ._canon import utf16_key as _utf16_key
 
 logger = logging.getLogger(__name__)
 
@@ -267,36 +269,6 @@ def _reject_floats(obj: Any) -> None:
     elif isinstance(obj, (list, tuple)):
         for v in obj:
             _reject_floats(v)
-
-
-def _utf16_key(s: str) -> bytes:
-    """Sort key giving RFC 8785 (JCS) object-key ordering: by UTF-16 code unit.
-
-    Encoding to UTF-16 *big-endian* makes a plain byte comparison equivalent to
-    comparing the sequence of unsigned 16-bit code units, which is exactly what
-    JCS §3.2.3, JavaScript ``a < b``, and .NET ``StringComparer.Ordinal`` do.
-    This differs from Python's native ``sort_keys=True`` (Unicode code-point
-    order) only for non-BMP (astral) characters, where a surrogate pair (lead
-    unit U+D800..U+DBFF) sorts *before* BMP code points ≥ U+E000. Unifying on
-    this ordering is what keeps the Python/Go/Rust/TS/C# reference encoders
-    byte-identical for objects with non-BMP keys (BMP keys are unaffected).
-    """
-    return s.encode("utf-16-be")
-
-
-def _reorder_keys_utf16(obj: Any) -> Any:
-    """Recursively reorder object keys by UTF-16 code unit (JCS), preserving
-    array order. Returns a structurally equal value with canonically-ordered
-    dict keys, to be serialised with ``sort_keys=False``."""
-    if isinstance(obj, dict):
-        return {k: _reorder_keys_utf16(obj[k]) for k in sorted(obj, key=_utf16_key)}
-    if isinstance(obj, (list, tuple)):
-        # Tuples are serialised as JSON arrays by json.dumps and are descended by
-        # _reject_floats, so they MUST be recursed here too — otherwise a dict
-        # nested inside a tuple would keep Python's native code-point key order
-        # and bypass the UTF-16 canonical ordering (codex round-3).
-        return [_reorder_keys_utf16(v) for v in obj]
-    return obj
 
 
 def _canonical_json(obj: Any) -> bytes:
