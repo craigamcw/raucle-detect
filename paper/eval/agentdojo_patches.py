@@ -38,6 +38,10 @@ _EXTRA_MODELS = [
     ("gpt-oss:120b", "ollama"),
     ("gemma3:27b", "ollama"),
     ("gemma3", "ollama"),
+    # Diversity panel (latest frontier, multi-provider + closed-frontier).
+    ("gemini-3-flash-preview", "ollama"),
+    ("minimax-m3", "ollama"),
+    ("nemotron-3-super", "ollama"),
 ]
 
 
@@ -113,6 +117,10 @@ def _patch_model_names() -> None:
         "gemma3":            "Gemma",
         "gemma4":            "Gemma",
         "minimax-m2":        "MiniMax",
+        "minimax-m3":        "MiniMax",
+        "gemini-3-flash-preview": "Gemini",
+        "gemini-3":          "Gemini",
+        "nemotron-3-super":  "Nemotron",
         "cogito-2":          "Cogito",
         "devstral":          "AI assistant",
         "ministral-3":       "Mistral",
@@ -150,6 +158,25 @@ def _patch_get_llm() -> None:
             api_key=key,
             base_url="https://ollama.com/v1",
         )
+        # Version-drift fix: newer AgentDojo/OpenAI-SDK emit the system prompt
+        # with role "developer" (OpenAI's o1+ convention). Ollama Cloud's
+        # OpenAI-compatible endpoint only accepts system/user/assistant/tool/
+        # function and 400s on "developer". Rewrite developer->system on the
+        # way out. No-op on older AgentDojo (which already sends "system").
+        _orig_create = client.chat.completions.create
+
+        def _create(*a, **kw):
+            msgs = kw.get("messages")
+            if msgs:
+                kw["messages"] = [
+                    ({**m, "role": "system"}
+                     if isinstance(m, dict) and m.get("role") == "developer"
+                     else m)
+                    for m in msgs
+                ]
+            return _orig_create(*a, **kw)
+
+        client.chat.completions.create = _create
         return OpenAILLM(client, model)
 
     ap_mod.get_llm = patched_get_llm
