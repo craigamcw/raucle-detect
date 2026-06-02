@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.18.0 (2026-06-02) — cross-language canonicalisation fix (B7) + interop vectors
+
+A correctness release centred on a real **cross-language signing bug** found by
+cross-model (Codex) review and hardened out across ~20 find→fix→verify rounds.
+
+### Fixed — cross-language byte-identity (security/correctness)
+
+- **Non-BMP object-key ordering diverged across the five reference encoders.**
+  Python/Go/Rust sorted object keys (and `parents`/`taint`) by Unicode **code
+  point**; TypeScript/C# by **UTF-16 code unit**. Identical for BMP/ASCII (so
+  every shipped vector passed) but divergent for non-BMP (astral) keys — any
+  signed object with an emoji/astral key would hash to different bytes across
+  languages. All five are now unified on **UTF-16 code-unit ordering**
+  (RFC 8785 / JCS §3.2.3), the spec's normative rule (§4.3.1). **Byte-neutral
+  for all existing BMP material — no signature/ID churn.**
+- All Python signed-material canonicalisers (`provenance`, `capability`,
+  `prove`, `audit`, `feed`, `verdicts`) and the OWASP `cap-verifier` share one
+  UTF-16 canonicaliser (`raucle_detect/_canon.py`).
+
+### Added
+
+- **`canonicalization_vectors`** and **`invalid_canonicalization_vectors`** in
+  the published v1 test vectors (exposed JCS preimage + `expected_canonical_hex`
+  + SHA-256; floats / out-of-range integers that MUST be rejected), incl. an
+  A2A/APS `action_ref`-shaped interop vector.
+- **`reference/canon_conformance.py`** — drives all five encoders and proves
+  5-language byte-identity on the published vectors, non-BMP probes, and
+  invalid-rejection.
+
+### Hardened — capability gate / cap-verifier parity (fail-closed)
+
+- Verifiers reject unsorted/duplicate `parents`/`taint`; `Capability.from_dict`
+  validates all signed string fields, `parent_id` shape, and timestamps (no
+  coercion) and rejects non-object input — every failure fails closed with
+  `ValueError`.
+- The OWASP `cap-verifier` reference brought to single-token parity with the
+  gate (numeric/NaN/safe-int, unknown kinds, bool bounds, agent-id regex, NFC
+  field names, constraint shapes, attenuation-chain deny, empty-field rejection).
+
+### Docs
+
+- Spec §13 now cites the authoritative GitHub vectors URL (always current;
+  pin a tag for a stable snapshot).
+
 ## 0.17.0 (2026-06-01) — fail-closed redesign (stricter by default)
 
 A structural pass that flips the prover/gate/verifier from "enumerate-bad" to
