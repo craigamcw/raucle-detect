@@ -163,13 +163,13 @@ def _structural_errors(receipt: ProvenanceReceipt) -> list[str]:
     for fld in _REQUIRED_FIELDS_BY_OP.get(op, ()):
         if not getattr(receipt, fld, ""):
             errs.append(f"{op} receipt missing required field {fld!r}")
-    # Spec v1 §4.2: parents and taint MUST be sorted (lexicographic) and unique —
-    # part of the canonical contract; unsorted/duplicate entries indicate a
-    # non-conformant emitter.
+    # Spec v1 §4.2/§4.3.1: parents and taint MUST be sorted by UTF-16 code unit
+    # and unique — part of the canonical contract; unsorted/duplicate entries
+    # indicate a non-conformant emitter.
     for name in ("parents", "taint"):
         seq = list(getattr(receipt, name, []) or [])
         if seq != sorted(seq, key=_utf16_key):
-            errs.append(f"{name} must be sorted lexicographically")
+            errs.append(f"{name} must be sorted in UTF-16 code-unit order (§4.3.1)")
         if len(seq) != len(set(seq)):
             errs.append(f"{name} must not contain duplicates")
     return errs
@@ -196,7 +196,7 @@ def _validate_receipt_strict(receipt: ProvenanceReceipt) -> None:
       6. Root rule (only ``user_input``/``guardrail_scan`` may have empty
          parents); ``merge`` arity (>= 2 parents).
       7. Required-fields-per-operation.
-      8. ``parents``/``taint`` sorted lexicographically and unique.
+      8. ``parents``/``taint`` sorted by UTF-16 code unit (§4.3.1) and unique.
 
     Raises
     ------
@@ -1072,7 +1072,10 @@ class ProvenanceLogger:
         )
         # Stash the claim in a structured way via the corpus field — slightly
         # abusive but avoids inventing a new payload field for one operation.
-        receipt.corpus = "removed:" + ",".join(sorted(removed_taints))
+        # UTF-16 code-unit order (§4.3.1) — corpus is signed payload material,
+        # so its sort must match the rest of the canonical contract even though
+        # this producer is currently the only one that constructs it.
+        receipt.corpus = "removed:" + ",".join(sorted(removed_taints, key=_utf16_key))
         return self._emit(receipt)
 
     def record_merge(

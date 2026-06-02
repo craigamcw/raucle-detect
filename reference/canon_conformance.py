@@ -33,6 +33,10 @@ ROOT = Path(__file__).resolve().parent.parent
 REF = ROOT / "reference"
 VECTORS = ROOT / "docs" / "spec" / "provenance" / "v1" / "test-vectors.json"
 
+# Make the Python reference importable when run as `python reference/...`
+# from a fresh checkout (no PYTHONPATH required).
+sys.path.insert(0, str(ROOT))
+
 
 def _run_lines(cmd: list[str], cwd: Path, reqs: list[dict]) -> list[dict]:
     stdin = "\n".join(json.dumps(r) for r in reqs) + "\n"
@@ -43,15 +47,16 @@ def _run_lines(cmd: list[str], cwd: Path, reqs: list[dict]) -> list[dict]:
 
 
 def _rejects(cmd: list[str], cwd: Path, obj) -> bool:
-    """True iff the canonical encoder REJECTS `obj` (non-zero exit / no hex out).
-    Used for invalid_canonicalization_vectors (floats / out-of-range integers)."""
+    """True ONLY if the canonical encoder genuinely REJECTS `obj` — i.e. exits
+    non-zero. A clean (exit 0) run is treated as acceptance regardless of
+    output: emitting a hex line clearly accepted invalid input, and a clean run
+    with NO output is a silent/broken port that must NOT be scored as a reject
+    (otherwise an encoder that does nothing would pass the invalid-vector
+    check). Both cases therefore fail the contract. Used for the
+    invalid_canonicalization_vectors (floats / out-of-range integers)."""
     stdin = json.dumps({"obj": obj}) + "\n"
     proc = subprocess.run(cmd, cwd=cwd, input=stdin, capture_output=True, text=True)
-    if proc.returncode != 0:
-        return True
-    # A clean exit that still produced a hex line means it ACCEPTED invalid
-    # input — that is a conformance failure.
-    return not any(l.strip() and "hex" in l for l in proc.stdout.splitlines())
+    return proc.returncode != 0
 
 
 def _build(lang: str) -> None:
