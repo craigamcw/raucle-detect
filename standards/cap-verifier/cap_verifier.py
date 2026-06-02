@@ -248,6 +248,16 @@ def _normalise_constraints(c: dict) -> dict:
         rp = c["required_present"]
         if not isinstance(rp, list) or not all(isinstance(x, str) and x for x in rp):
             raise ValueError("required_present must be a list of non-empty field-name strings")
+        # Field names must stay distinct under NFC (mirrors capability's
+        # _require_field_name_list), like the mapping-constraint keys.
+        seen: dict = {}
+        for name in rp:
+            norm = unicodedata.normalize("NFC", name)
+            if norm in seen and seen[norm] != name:
+                raise ValueError(
+                    f"required_present field names {seen[norm]!r} and {name!r} collide under Unicode NFC"
+                )
+            seen[norm] = name
         out["required_present"] = sorted(rp, key=_utf16_key)
     if "forbidden_field_combinations" in c:
         combos = c["forbidden_field_combinations"]
@@ -280,14 +290,50 @@ def verify_token(
     args: dict | None = None,
     now: int | None = None,
 ) -> tuple[bool, str, str | None]:
-    """Run the eight cap:v1 checks. Returns (allowed, reason, deny_check)."""
+    """Run the eight cap:v1 checks. Returns (allowed, reason, deny_check).
+
+    Fail-closed wrapper: ANY unexpected error on attacker-controlled token JSON
+    is converted to a DENY, so a malformed token can never crash the verifier
+    (or be mistaken for an allow)."""
+    try:
+        return _verify_token_impl(
+            token, pubkey_pem, tool=tool, agent_id=agent_id, args=args, now=now
+        )
+    except Exception as exc:  # noqa: BLE001 — fail-closed on any malformed input
+        return False, f"malformed token: {type(exc).__name__}: {exc}", "format"
+
+
+def _verify_token_impl(
+    token: dict,
+    pubkey_pem: str,
+    *,
+    tool: str | None = None,
+    agent_id: str | None = None,
+    args: dict | None = None,
+    now: int | None = None,
+) -> tuple[bool, str, str | None]:
     from cryptography.hazmat.primitives import serialization
     ts = now if now is not None else int(time.time())
 
-    # Field-shape sanity
-    if not _AGENT_ID_RE.match(token.get("agent_id", "")):
+    # Field-shape sanity: the body fields the gate ALWAYS signs must be present
+    # with the right JSON types, else this is invalid signed material (DENY).
+    if not isinstance(token, dict):
+        return False, "token must be a JSON object", "format"
+    for f in ("agent_id", "tool", "issuer", "key_id", "signature", "token_id"):
+        if not isinstance(token.get(f), str):
+            return False, f"{f} must be a string", "format"
+    for f in ("issued_at", "not_before", "expires_at"):
+        if isinstance(token.get(f), bool) or not isinstance(token.get(f), int):
+            return False, f"{f} must be an integer", "format"
+    if token.get("parent_id") is not None and not isinstance(token["parent_id"], str):
+        return False, "parent_id must be a string or null", "format"
+    # The gate always signs a `constraints` object (possibly empty); a token
+    # lacking it is malformed signed material.
+    if not isinstance(token.get("constraints"), dict):
+        return False, "constraints must be present and an object", "format"
+    if not _AGENT_ID_RE.match(token["agent_id"]):
         return False, "agent_id malformed", "format"
-    if not _TOOL_RE.match(token.get("tool", "")):
+    if not _TOOL_RE.match(token["tool"]):
         return False, "tool malformed", "format"
 
     # Canonicalisation rejects non-integer / non-finite numeric material (cap:v1
