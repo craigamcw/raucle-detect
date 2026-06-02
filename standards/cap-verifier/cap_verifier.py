@@ -166,23 +166,48 @@ def _require_int_bound(kind: str, fld: str, bound) -> None:
         )
 
 
+def _require_value_list(kind: str, fld: str, v):
+    """A value-set constraint MUST be a list of JSON scalars (str/int/bool) —
+    not a bare string (which would sort into characters), not a float/None/
+    container member. Mirrors capability._as_value_list + _require_json_scalar."""
+    if not isinstance(v, list):
+        raise ValueError(
+            f"{kind}[{fld!r}] must be a list (JSON array), got {type(v).__name__} {v!r}"
+        )
+    for m in v:
+        if not isinstance(m, (str, int)):  # bool is an int subclass (allowed)
+            raise ValueError(
+                f"{kind}[{fld!r}] member {m!r} is not a JSON scalar (str/int/bool)"
+            )
+    return sorted(v, key=_value_sort_key)
+
+
 def _normalise_constraints(c: dict) -> dict:
     """Normalisation logic mirroring raucle_detect.capability._normalise_constraints.
-    Raises ValueError on invalid signed material (unknown kinds, non-int numeric
-    bounds) so verify_token denies such a token rather than silently accepting it."""
+    Raises ValueError on invalid signed material (unknown kinds, malformed value
+    shapes, non-int numeric bounds) so verify_token denies such a token rather
+    than silently accepting it — the gate rejects these at sign/normalise time."""
     for kind in c:
         if kind not in _KNOWN_CONSTRAINT_KINDS:
             raise ValueError(f"unknown constraint kind {kind!r}")
     out: dict = {}
     if "forbidden_values" in c:
         out["forbidden_values"] = {
-            k: sorted(v, key=_value_sort_key) for k, v in c["forbidden_values"].items()
+            k: _require_value_list("forbidden_values", k, v)
+            for k, v in c["forbidden_values"].items()
         }
     if "allowed_values" in c:
         out["allowed_values"] = {
-            k: sorted(v, key=_value_sort_key) for k, v in c["allowed_values"].items()
+            k: _require_value_list("allowed_values", k, v)
+            for k, v in c["allowed_values"].items()
         }
     if "starts_with" in c:
+        for fld, prefix in c["starts_with"].items():
+            if not isinstance(prefix, str):
+                raise ValueError(
+                    f"starts_with[{fld!r}] prefix must be a string, got "
+                    f"{type(prefix).__name__} {prefix!r}"
+                )
         out["starts_with"] = dict(c["starts_with"])
     if "max_value" in c:
         for fld, bound in c["max_value"].items():
@@ -193,10 +218,22 @@ def _normalise_constraints(c: dict) -> dict:
             _require_int_bound("min_value", fld, bound)
         out["min_value"] = dict(c["min_value"])
     if "required_present" in c:
-        out["required_present"] = sorted(c["required_present"], key=_utf16_key)
+        rp = c["required_present"]
+        if not isinstance(rp, list) or not all(isinstance(x, str) and x for x in rp):
+            raise ValueError("required_present must be a list of non-empty field-name strings")
+        out["required_present"] = sorted(rp, key=_utf16_key)
     if "forbidden_field_combinations" in c:
+        combos = c["forbidden_field_combinations"]
+        if not isinstance(combos, list):
+            raise ValueError("forbidden_field_combinations must be a list of field-name lists")
+        for combo in combos:
+            if not isinstance(combo, list) or not all(isinstance(x, str) and x for x in combo):
+                raise ValueError(
+                    f"forbidden_field_combinations entry {combo!r} must be a list of "
+                    f"non-empty field-name strings"
+                )
         out["forbidden_field_combinations"] = sorted(
-            (sorted(combo, key=_utf16_key) for combo in c["forbidden_field_combinations"]),
+            (sorted(combo, key=_utf16_key) for combo in combos),
             key=lambda combo: [_utf16_key(x) for x in combo],
         )
     return out
