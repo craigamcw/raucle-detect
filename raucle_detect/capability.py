@@ -75,6 +75,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import registry as _registry
+from ._canon import reorder_keys_utf16 as _reorder_keys_utf16
+from ._canon import utf16_key as _utf16_key
+from ._canon import value_sort_key as _value_sort_key
 
 if TYPE_CHECKING:
     from raucle_detect.prove import ProofResult
@@ -107,38 +110,6 @@ def _reject_floats(obj: Any) -> None:
     elif isinstance(obj, (list, tuple)):
         for v in obj:
             _reject_floats(v)
-
-
-def _utf16_key(s: str) -> bytes:
-    """Sort key giving RFC 8785 (JCS §3.2.3) object-key ordering: by UTF-16 code
-    unit. Encoding to UTF-16 big-endian makes a byte comparison equal a code-unit
-    comparison — matching JavaScript ``a < b`` and .NET ``StringComparer.Ordinal``,
-    and the provenance canonicaliser. Differs from Python's native code-point
-    ordering only for non-BMP keys (a surrogate pair sorts before BMP ≥ U+E000)."""
-    return s.encode("utf-16-be")
-
-
-def _reorder_keys_utf16(obj: Any) -> Any:
-    """Recursively reorder object keys by UTF-16 code unit (JCS), preserving
-    array order; tuples are treated as arrays (parity with _reject_floats)."""
-    if isinstance(obj, dict):
-        return {k: _reorder_keys_utf16(obj[k]) for k in sorted(obj, key=_utf16_key)}
-    if isinstance(obj, (list, tuple)):
-        return [_reorder_keys_utf16(v) for v in obj]
-    return obj
-
-
-def _value_sort_key(v: Any):
-    """Deterministic sort key for allowlist/denylist VALUES, which may be strings
-    or integers. Strings sort among themselves by UTF-16 code unit (§4.3.1, parity
-    with object-key ordering); non-strings keep numeric/stable order. The leading
-    type-rank keeps the two groups from being compared against each other (which
-    would otherwise raise on a mixed list)."""
-    if isinstance(v, str):
-        return (0, v.encode("utf-16-be"))
-    # bool is an int subclass: rank by type name first so True/1 (equal as ints)
-    # never collide and produce a non-deterministic signed order (codex R6 P2).
-    return (1, type(v).__name__, v)
 
 
 def _canonical_json(obj: Any) -> bytes:
@@ -803,7 +774,13 @@ def _vid(v: Any):
     """JSON identity for value-list dedup. ``bool`` is an ``int`` subclass, so a
     plain ``set`` collapses ``True`` and ``1`` (distinct JSON values) into one,
     silently dropping a constraint value. Keying on (type-name, value) keeps them
-    distinct (codex R7 P2)."""
+    distinct (codex R7 P2). Non-hashable members (dict/list — never valid in a
+    value list) are keyed by repr so dedup does not raise TypeError before
+    _normalise_constraints emits the proper validation error (codex R8 P3)."""
+    try:
+        hash(v)
+    except TypeError:
+        return (type(v).__name__, repr(v))
     return (type(v).__name__, v)
 
 

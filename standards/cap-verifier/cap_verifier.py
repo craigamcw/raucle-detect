@@ -141,6 +141,8 @@ def _normalise_constraints(c: dict) -> dict:
         out["allowed_values"] = {
             k: sorted(v, key=_value_sort_key) for k, v in c["allowed_values"].items()
         }
+    if "starts_with" in c:
+        out["starts_with"] = dict(c["starts_with"])
     if "max_value" in c:
         out["max_value"] = dict(c["max_value"])
     if "min_value" in c:
@@ -226,32 +228,82 @@ def verify_token(
     return True, "ok", None
 
 
+def _flatten_scalars(val):
+    """Yield every scalar in *val*, recursing into list/tuple/set/dict (dict keys
+    included). Mirrors raucle_detect.capability._flatten_scalars so a forbidden
+    value hidden inside a collection cannot slip past."""
+    if isinstance(val, dict):
+        for k, v in val.items():
+            yield k
+            yield from _flatten_scalars(v)
+    elif isinstance(val, (list, tuple, set, frozenset)):
+        for v in val:
+            yield from _flatten_scalars(v)
+    else:
+        yield val
+
+
+def _is_number(v) -> bool:
+    """A finite, non-bool int/float (bool is excluded though it subclasses int)."""
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
 def _check_constraints(c: dict, args: dict) -> str | None:
+    """Faithful port of raucle_detect.capability CapabilityGate constraint
+    semantics: forbidden = EXISTS_DENY over flattened scalars; allowed/starts_with/
+    max/min REQUIRE the field present (absence denies) and check every flattened
+    scalar; empty collections deny; numeric bounds require finite non-bool numbers;
+    required_present + forbidden_field_combinations are presence checks."""
+    # forbidden_values — EXISTS_DENY (incl. nested in collections).
     for fld, bads in c.get("forbidden_values", {}).items():
-        if fld in args:
-            val = args[fld]
-            vals = val if isinstance(val, list) else [val]
-            for v in vals:
-                if v in bads:
-                    return f"{fld}={v!r} in forbidden_values"
+        if fld not in args:
+            continue
+        for scalar in _flatten_scalars(args[fld]):
+            if scalar in bads:
+                return f"{fld}={scalar!r} in forbidden_values"
+    # allowed_values — field MUST be present; empty denies; every scalar in set.
     for fld, oks in c.get("allowed_values", {}).items():
-        if fld in args:
-            val = args[fld]
-            vals = val if isinstance(val, list) else [val]
-            for v in vals:
-                if v not in oks:
-                    return f"{fld}={v!r} not in allowed_values"
+        if fld not in args:
+            return f"allowed_values field {fld!r} is absent from the call"
+        scalars = list(_flatten_scalars(args[fld]))
+        if not scalars:
+            return f"allowed_values field {fld!r} carries no value to check"
+        for scalar in scalars:
+            if scalar not in oks:
+                return f"{fld}={scalar!r} not in allowed_values"
+    # starts_with — field MUST be present and be a string with the prefix.
+    for fld, prefix in c.get("starts_with", {}).items():
+        if fld not in args:
+            return f"starts_with field {fld!r} is absent from the call"
+        if not (isinstance(args[fld], str) and args[fld].startswith(prefix)):
+            return f"{fld}={args[fld]!r} does not start with {prefix!r}"
+    # max_value / min_value — field MUST be present; every scalar a number in bound.
     for fld, bound in c.get("max_value", {}).items():
-        if fld in args and args[fld] > bound:
-            return f"{fld}={args[fld]} > max_value {bound}"
+        if fld not in args:
+            return f"max_value field {fld!r} is absent from the call"
+        scalars = list(_flatten_scalars(args[fld]))
+        if not scalars:
+            return f"max_value field {fld!r} carries no value to check"
+        for scalar in scalars:
+            if not _is_number(scalar):
+                return f"{fld} contains {scalar!r} which is not a number (max_value)"
+            if scalar > bound:
+                return f"{fld}={scalar!r} > max_value {bound}"
     for fld, bound in c.get("min_value", {}).items():
-        if fld in args and args[fld] < bound:
-            return f"{fld}={args[fld]} < min_value {bound}"
+        if fld not in args:
+            return f"min_value field {fld!r} is absent from the call"
+        scalars = list(_flatten_scalars(args[fld]))
+        if not scalars:
+            return f"min_value field {fld!r} carries no value to check"
+        for scalar in scalars:
+            if not _is_number(scalar):
+                return f"{fld} contains {scalar!r} which is not a number (min_value)"
+            if scalar < bound:
+                return f"{fld}={scalar!r} < min_value {bound}"
+    # required_present / forbidden_field_combinations — PRESENCE only.
     for fld in c.get("required_present", []):
         if fld not in args:
             return f"required field {fld!r} missing"
-    # PRESENCE check: a combination is forbidden iff every field in it is present
-    # (mirrors raucle_detect.capability gate semantics).
     for combo in c.get("forbidden_field_combinations", []):
         if all(field in args for field in combo):
             return f"forbidden field combination {combo!r} all present"
