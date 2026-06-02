@@ -329,6 +329,9 @@ _EXPECTED_TYP = "provenance-receipt/v1"
 #: The critical-header marker every genuine receipt carries. Verifiers must
 #: understand every entry in ``crit``; this is the only one we understand.
 _UNDERSTOOD_CRIT = {"raucle/v1"}
+#: Prefix marking a sanitisation receipt's ``corpus`` removed-taint claim
+#: (``"removed:<tag1>,<tag2>,…"``), used at both build and verify time.
+_REMOVED_PREFIX = "removed:"
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -1075,7 +1078,7 @@ class ProvenanceLogger:
         # The removed tags are a set (verifiers parse order-independently, §4.2);
         # producers SHOULD emit them in UTF-16 code-unit order (§4.3.1) for
         # canonical determinism, which we do here.
-        receipt.corpus = "removed:" + ",".join(sorted(removed_taints, key=_utf16_key))
+        receipt.corpus = _REMOVED_PREFIX + ",".join(sorted(removed_taints, key=_utf16_key))
         return self._emit(receipt)
 
     def record_merge(
@@ -1511,8 +1514,8 @@ class ProvenanceVerifier:
         if receipt.operation == Operation.SANITISATION:
             # Sanitisation may remove specific tags listed in `corpus` field.
             removed = set()
-            if receipt.corpus.startswith("removed:"):
-                removed = set(filter(None, receipt.corpus[len("removed:") :].split(",")))
+            if receipt.corpus.startswith(_REMOVED_PREFIX):
+                removed = set(filter(None, receipt.corpus[len(_REMOVED_PREFIX) :].split(",")))
 
             # TAINT-LAUNDER: a SANITISATION receipt is only as trustworthy as
             # the authority granted to the signing key. When capability

@@ -28,8 +28,12 @@ def value_sort_key(v: Any):
     Strings sort by UTF-16 code unit; non-strings are ranked by type name first
     (so ``bool`` — an ``int`` subclass — never collides with an equal ``int``,
     e.g. ``True`` vs ``1``) and then by value within the same type."""
+    # Uniform 3-tuple shape (rank, type-name, comparable): strings compare by
+    # their UTF-16 bytes, non-strings by value; the leading rank keeps the two
+    # groups apart so cross-type members never compare. Ordering is unchanged
+    # from the prior 2-/3-tuple form (byte-neutral).
     if isinstance(v, str):
-        return (0, v.encode("utf-16-be"))
+        return (0, "str", v.encode("utf-16-be"))
     return (1, type(v).__name__, v)
 
 

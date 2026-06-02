@@ -59,6 +59,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from ._canon import utf16_key as _u16  # UTF-16 ordering for signed value lists
+
 logger = logging.getLogger(__name__)
 
 
@@ -80,9 +82,6 @@ def _canonical_json(obj: Any) -> bytes:
         ensure_ascii=False,
         allow_nan=False,
     ).encode("utf-8")
-
-
-from ._canon import utf16_key as _u16  # UTF-16 ordering for signed value lists
 
 
 def _sha256_hex(data: bytes) -> str:
