@@ -66,12 +66,33 @@ def _reorder_keys_utf16(obj):
     return obj
 
 
+def _reject_floats(obj) -> None:
+    """Reject any float in signed token material (cap:v1 numeric constraints are
+    integer-only), mirroring raucle_detect.capability._reject_floats. bool is an
+    int subclass and is allowed. Float bounds / NaN would otherwise serialize and
+    verify here while the real gate denies them."""
+    if isinstance(obj, float):
+        raise ValueError(
+            "capability token: float numeric values are not permitted "
+            "(cap:v1 constraints are integer-only)"
+        )
+    if isinstance(obj, dict):
+        for v in obj.values():
+            _reject_floats(v)
+    elif isinstance(obj, (list, tuple)):
+        for v in obj:
+            _reject_floats(v)
+
+
 def canonical_json(obj) -> bytes:
     """Canonical JSON: object keys ordered by UTF-16 code unit (§4.3.1 / RFC
-    8785), no whitespace, UTF-8, ensure_ascii=False. Matches the raucle_detect
-    capability signer so token_ids/signatures are byte-identical."""
+    8785), no whitespace, UTF-8, ensure_ascii=False, integer-only (floats and
+    NaN/Infinity rejected). Matches the raucle_detect capability signer so
+    token_ids/signatures are byte-identical and the same material is rejected."""
+    _reject_floats(obj)
     return json.dumps(
-        _reorder_keys_utf16(obj), sort_keys=False, separators=(",", ":"), ensure_ascii=False
+        _reorder_keys_utf16(obj), sort_keys=False, separators=(",", ":"),
+        ensure_ascii=False, allow_nan=False,
     ).encode("utf-8")
 
 
@@ -182,7 +203,13 @@ def verify_token(
     if not _TOOL_RE.match(token.get("tool", "")):
         return False, "tool malformed", "format"
 
-    body_bytes = canonical_json(token_body(token))
+    # Canonicalisation rejects non-integer / non-finite numeric material (cap:v1
+    # is integer-only), exactly as the minting signer does — a token carrying a
+    # float/NaN bound is invalid signed material and must DENY, not crash.
+    try:
+        body_bytes = canonical_json(token_body(token))
+    except ValueError as exc:
+        return False, f"invalid signed material: {exc}", "format"
 
     # Check 1: issuer pinning (caller passes the pubkey explicitly here;
     # in a fuller deployment this would look up key_id in a trusted map).
