@@ -66,8 +66,13 @@ function check(value: unknown): void {
   )
     return
   if (typeof value === 'number') {
-    if (!Number.isInteger(value)) {
-      throw new TypeError('canonical-JSON: floats are not supported in v1')
+    // Number.isSafeInteger (not isInteger): reject floats AND integers outside
+    // ±(2^53-1), matching canonicalString() and the Go/Rust/C#/Python ports, so
+    // this validator never accepts material the encoder would reject.
+    if (!Number.isSafeInteger(value)) {
+      throw new TypeError(
+        'canonical-JSON: only safe integers (|n| <= 2^53-1) are supported in v1',
+      )
     }
     return
   }

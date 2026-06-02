@@ -56,9 +56,14 @@ def _b64url_decode(data: str) -> bytes:
 
 
 def _canonical_json(obj: Any) -> bytes:
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
-        "utf-8"
-    )
+    from ._canon import reorder_keys_utf16  # UTF-16 key ordering (shared)
+
+    return json.dumps(
+        reorder_keys_utf16(obj), sort_keys=False, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+
+
+from ._canon import utf16_key as _u16  # UTF-16 ordering for signed value lists
 
 
 def _sha256_hex(data: bytes) -> str:
@@ -81,11 +86,11 @@ def hash_ruleset(rules: list[dict[str, Any]]) -> str:
             {
                 "id": r.get("id", ""),
                 "score": r.get("score", 0.0),
-                "patterns": sorted(r.get("patterns", [])),
+                "patterns": sorted(r.get("patterns", []), key=_u16),
             }
             for r in rules
         ],
-        key=lambda r: r["id"],
+        key=lambda r: _u16(r["id"]),
     )
     return _sha256_hex(_canonical_json(projection))
 

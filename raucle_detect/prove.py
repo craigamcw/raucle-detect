@@ -75,12 +75,21 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from . import registry as _registry
+from ._canon import utf16_key as _canon_utf16_key
 
 
 def _canonical_json(obj: Any) -> bytes:
-    # allow_nan=False: NaN/Infinity are not valid JSON — reject, never emit.
+    # UTF-16 code-unit key ordering (shared _canon helper) so a strict-mode
+    # policy_hash binds byte-identically to the capability token even for non-BMP
+    # policy keys. allow_nan=False: NaN/Infinity are not valid JSON.
+    from ._canon import reorder_keys_utf16
+
     return json.dumps(
-        obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+        reorder_keys_utf16(obj),
+        sort_keys=False,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
     ).encode("utf-8")
 
 
@@ -130,7 +139,7 @@ class ProofResult:
             "grammar_hash": self.grammar_hash,
             "policy_hash": self.policy_hash,
             "counterexample": self.counterexample,
-            "notes": sorted(self.notes),
+            "notes": sorted(self.notes, key=_canon_utf16_key),
             "timeout_ms": self.timeout_ms,
         }
 

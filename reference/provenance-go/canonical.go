@@ -15,7 +15,25 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf16"
 )
+
+// lessUTF16 orders two strings by UTF-16 code unit (RFC 8785 / JCS §3.2.3),
+// matching the TypeScript (a < b) and C# (StringComparer.Ordinal) reference
+// encoders. Go's sort.Strings compares UTF-8 bytes (Unicode code-point order),
+// which diverges from JCS for non-BMP keys: a surrogate pair (lead unit
+// U+D800..U+DBFF) must sort before BMP code points >= U+E000. BMP keys are
+// unaffected. Keeping this ordering is what makes the five reference encoders
+// byte-identical for objects with non-BMP keys.
+func lessUTF16(a, b string) bool {
+	ua, ub := utf16.Encode([]rune(a)), utf16.Encode([]rune(b))
+	for i := 0; i < len(ua) && i < len(ub); i++ {
+		if ua[i] != ub[i] {
+			return ua[i] < ub[i]
+		}
+	}
+	return len(ua) < len(ub)
+}
 
 // canonicalEncode renders a value into canonical-JSON bytes
 // (RFC 8785 JCS, minimal subset): sorted object keys, no insignificant
@@ -31,6 +49,11 @@ func canonicalEncode(v any) ([]byte, error) {
 	}
 	return []byte(sb.String()), nil
 }
+
+// CanonicalEncode is an exported wrapper over the package's canonical-JSON
+// encoder, used by the cross-language canonicalisation conformance harness
+// (reference/canon_conformance.py) to byte-diff §4.3 directly.
+func CanonicalEncode(v any) ([]byte, error) { return canonicalEncode(v) }
 
 // Portable safe-integer range (§8.10 #6): the TS port stores numbers as
 // IEEE-754 doubles, exact only to ±(2^53-1). Bounding every integer here keeps
@@ -103,7 +126,7 @@ func canonicalWrite(sb *strings.Builder, v any) error {
 		for k := range t {
 			keys = append(keys, k)
 		}
-		sort.Strings(keys)
+		sort.Slice(keys, func(i, j int) bool { return lessUTF16(keys[i], keys[j]) })
 		sb.WriteByte('{')
 		for i, k := range keys {
 			if i > 0 {

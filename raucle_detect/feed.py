@@ -68,11 +68,21 @@ logger = logging.getLogger(__name__)
 
 
 def _canonical_json(obj: Any) -> bytes:
-    # allow_nan=False: NaN/Infinity are not valid JSON and break cross-language
-    # signature verification (round-3 #13).
+    # UTF-16 code-unit key ordering (shared _canon helper) for cross-language
+    # byte-identity. allow_nan=False: NaN/Infinity are not valid JSON and break
+    # cross-language signature verification (round-3 #13).
+    from ._canon import reorder_keys_utf16
+
     return json.dumps(
-        obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+        reorder_keys_utf16(obj),
+        sort_keys=False,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
     ).encode("utf-8")
+
+
+from ._canon import utf16_key as _u16  # UTF-16 ordering for signed value lists
 
 
 def _sha256_hex(data: bytes) -> str:
@@ -128,12 +138,12 @@ class SignedIOC:
             "kind": self.kind,
             "pattern": self.pattern,
             "severity": self.severity,
-            "categories": sorted(self.categories),
+            "categories": sorted(self.categories, key=_u16),
             "description": self.description,
             "issuer": self.issuer,
             "key_id": self.key_id,
             "issued_at": self.issued_at,
-            "revokes": sorted(self.revokes),
+            "revokes": sorted(self.revokes, key=_u16),
             "expires_at": self.expires_at,
         }
 
@@ -196,7 +206,7 @@ class Feed:
     version: str = "raucle-feed/v1"
 
     def compute_merkle_root(self) -> str:
-        hashes = sorted(i.content_hash for i in self.iocs)
+        hashes = sorted((i.content_hash for i in self.iocs), key=_u16)
         if not hashes:
             return "sha256:" + _sha256_hex(b"")
         return "sha256:" + _sha256_hex(_canonical_json(hashes))
