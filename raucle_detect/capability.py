@@ -273,8 +273,7 @@ class Capability:
             v = d.get(name)
             if isinstance(v, bool) or not isinstance(v, int):
                 raise ValueError(
-                    f"capability token: {name} must be an integer, got "
-                    f"{type(v).__name__} {v!r}"
+                    f"capability token: {name} must be an integer, got {type(v).__name__} {v!r}"
                 )
             return v
 

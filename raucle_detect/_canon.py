@@ -11,6 +11,7 @@ byte-identity of signed material. These helpers centralise the correct
 For BMP characters UTF-16 order == code-point order, so this is byte-neutral
 for all existing ASCII/BMP material.
 """
+
 from __future__ import annotations
 
 from typing import Any
