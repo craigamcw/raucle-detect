@@ -252,6 +252,18 @@ class Capability:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Capability:
+        # Independently re-validate signed-token shape at the parse boundary
+        # (defence in depth): mint() enforces these, but a token reaches the gate
+        # as untrusted JSON, and the cap-verifier reference rejects the same
+        # malformed shapes — so the gate path must too, not just trust the field.
+        _validate_agent_id(d.get("agent_id", ""))
+        _validate_tool(d.get("tool", ""))
+        if not isinstance(d.get("constraints"), dict):
+            raise ValueError(
+                "capability token: constraints must be present and a JSON object "
+                "(Capability.body always signs a constraints object, possibly empty)"
+            )
+
         def _ts(name: str) -> int:
             # Timestamps are signed material and MUST be canonical integers.
             # Do NOT coerce floats/strings via int() (a non-canonical encoding
