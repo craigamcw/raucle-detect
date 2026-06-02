@@ -13,7 +13,7 @@ This directory holds normative specification documents for the Raucle protocol f
 - Specs follow versioned URLs (`/spec/<name>/v<N>`). A spec at a given version is **immutable except for non-breaking clarifications**.
 - Breaking changes are issued as the next major version (`v2`, `v3`, …) and SHOULD include a migration path from the previous version.
 - The canonical published URL for each spec is `https://raucle.com/spec/<name>/v<N>` — that URL is the authoritative copy.
-- Test vectors for each spec are published alongside it at `https://raucle.com/spec/<name>/v<N>/test-vectors.json`.
+- Test vectors for each spec are published in this repository alongside the spec document (`docs/spec/<name>/v<N>/test-vectors.json`), which is the authoritative, always-current source; pin a release tag for a stable snapshot.
 
 ## Contributing
 

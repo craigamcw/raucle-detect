@@ -86,6 +86,13 @@ def parse_changelog(text: str, version: str) -> ReleaseNotes:
     collecting = False
     bullets: list[str] = []
     raw: list[str] = []
+    current: str | None = None  # bullet being accumulated (may wrap lines)
+
+    def _flush() -> None:
+        nonlocal current
+        if current is not None:
+            bullets.append(current.strip())
+            current = None
 
     for line in lines:
         header_match = _VERSION_HEADER_RE.match(line)
@@ -103,11 +110,21 @@ def parse_changelog(text: str, version: str) -> ReleaseNotes:
         raw.append(line)
         subsection = _SUBSECTION_RE.match(line)
         if subsection:
+            _flush()
             notes.section_titles.append(subsection.group(1).strip())
             continue
         bullet = _BULLET_RE.match(line)
         if bullet:
-            bullets.append(bullet.group(1).strip())
+            _flush()
+            current = bullet.group(1).strip()
+        elif current is not None and line.strip():
+            # A wrapped continuation line of the current bullet (indented, no
+            # marker). Join it so a multi-line bullet isn't truncated to its
+            # first physical line in the website feature list.
+            current += " " + line.strip()
+        elif not line.strip():
+            _flush()
+    _flush()
 
     if not raw:
         raise SystemExit(f"error: version {version!r} not found in CHANGELOG")

@@ -21,10 +21,11 @@ cross-model (Codex) review and hardened out across ~20 find→fix→verify round
 
 ### Added
 
-- **`canonicalization_vectors`** and **`invalid_canonicalization_vectors`** in
-  the published v1 test vectors (exposed JCS preimage + `expected_canonical_hex`
-  + SHA-256; floats / out-of-range integers that MUST be rejected), incl. an
-  A2A/APS `action_ref`-shaped interop vector.
+- **New interop test vectors** — `canonicalization_vectors` and
+  `invalid_canonicalization_vectors` in the published v1 set, including an
+  A2A/APS `action_ref`-shaped vector. Each exposes the JCS preimage,
+  `expected_canonical_hex`, and SHA-256; the invalid set covers floats and
+  out-of-range integers that MUST be rejected.
 - **`reference/canon_conformance.py`** — drives all five encoders and proves
   5-language byte-identity on the published vectors, non-BMP probes, and
   invalid-rejection.

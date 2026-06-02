@@ -108,6 +108,23 @@ class TestParseChangelog:
         assert "AgentIdentity" in joined
         assert "`" not in joined
 
+    def test_wrapped_bullet_is_joined_not_truncated(self):
+        """Regression: a bullet that wraps across physical lines must be joined,
+        not truncated to its first line (which produced mid-sentence fragments
+        in the website feature list)."""
+        changelog = (
+            "## 0.6.0 (2026-05-20)\n\n"
+            "### New Features\n\n"
+            "- **Streaming verifier** — validates receipts incrementally as they\n"
+            "  arrive, so a long chain never has to be buffered whole in memory.\n"
+        )
+        notes = sync_website.parse_changelog(changelog, "0.6.0")
+        joined = " ".join(notes.headline_features)
+        # The continuation line ("arrive, so a long chain…") must be present —
+        # i.e. the bullet was joined, not cut at "as they".
+        assert "buffered whole in memory" in joined
+        assert not joined.rstrip().endswith("as they")
+
 
 class TestRendering:
     def test_version_badge_html_escaped(self):
