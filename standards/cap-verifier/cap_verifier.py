@@ -29,6 +29,7 @@ import argparse
 import base64
 import hashlib
 import json
+import math
 import re
 import sys
 import time
@@ -244,8 +245,27 @@ def _flatten_scalars(val):
 
 
 def _is_number(v) -> bool:
-    """A finite, non-bool int/float (bool is excluded though it subclasses int)."""
-    return isinstance(v, (int, float)) and not isinstance(v, bool)
+    """A finite, non-bool int/float. bool is excluded (subclasses int); non-finite
+    floats (NaN/+inf/-inf) are rejected exactly like the gate — a NaN compares
+    False to every bound and would otherwise slip past both max_value and
+    min_value (GATE-NaN parity)."""
+    if isinstance(v, bool):
+        return False
+    if isinstance(v, int):
+        return True
+    if isinstance(v, float):
+        return math.isfinite(v)
+    return False
+
+
+# Constraint kinds the cap:v1 profile understands. Anything else MUST fail
+# closed at the gate (defence in depth), mirroring CapabilityGate's registry
+# guard — an unmodelled kind that reached a signed token must DENY, not be
+# silently ignored.
+_KNOWN_CONSTRAINT_KINDS = frozenset({
+    "forbidden_values", "allowed_values", "starts_with",
+    "max_value", "min_value", "required_present", "forbidden_field_combinations",
+})
 
 
 def _check_constraints(c: dict, args: dict) -> str | None:
@@ -254,6 +274,12 @@ def _check_constraints(c: dict, args: dict) -> str | None:
     max/min REQUIRE the field present (absence denies) and check every flattened
     scalar; empty collections deny; numeric bounds require finite non-bool numbers;
     required_present + forbidden_field_combinations are presence checks."""
+    # Fail-closed: any constraint kind outside the cap:v1 vocabulary that reached
+    # a signed token must DENY, never be silently ignored (mirrors the gate's
+    # registry guard — defence in depth at the trust boundary).
+    for kind in c:
+        if kind not in _KNOWN_CONSTRAINT_KINDS:
+            return f"unmodelled constraint kind {kind!r} reached the gate (deny)"
     # forbidden_values — EXISTS_DENY (incl. nested in collections).
     for fld, bads in c.get("forbidden_values", {}).items():
         if fld not in args:
