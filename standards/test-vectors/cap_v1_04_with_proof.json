@@ -6,13 +6,15 @@
     }
   },
   "expires_at": 1747227600,
+  "grammar_hash": null,
   "issued_at": 1747224000,
   "issuer": "vectors.example",
   "key_id": "f0ff50dacf109dea",
   "not_before": 1747224000,
   "parent_id": null,
+  "policy_hash": null,
   "policy_proof_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-  "signature": "Anc4ja7jGqZXXyYPCLiBIoDfjUD93jVxtEL-na2YbUMLzRY-eTCNP0EDdnT6oM2WWl1Jz7i0H06p7zZ6yIt7Dw",
-  "token_id": "cap:31178dd46c2536f2c32ef33a",
+  "signature": "5uSjQeDRkpVeWGsfw-jmgzjW6wynUAYfenazR8zhtjcK2KjmL5p3tztRAk9XKYjKenRWwMBYdM3-yrYxxOnzAQ",
+  "token_id": "cap:0d1ff004d1657d67038c48b3",
   "tool": "transfer_funds"
 }

@@ -147,6 +147,19 @@ export function validatePayload(p: ReceiptPayload): void {
   if (p.operation !== 'user_input' && p.parents.length === 0) {
     throw new Error(`${p.operation} requires at least one parent`)
   }
+  // §4.2/§4.3.1: parents and taint MUST be sorted in UTF-16 code-unit order
+  // and unique. byCodeUnit gives UTF-16 ordering; a strictly-increasing check
+  // enforces sorted AND unique at once.
+  for (const name of ['parents', 'taint'] as const) {
+    const arr = p[name] ?? []
+    for (let i = 1; i < arr.length; i++) {
+      if (byCodeUnit(arr[i - 1], arr[i]) >= 0) {
+        throw new Error(
+          `${name} must be sorted in UTF-16 code-unit order and unique (§4.3.1)`,
+        )
+      }
+    }
+  }
 }
 
 /**

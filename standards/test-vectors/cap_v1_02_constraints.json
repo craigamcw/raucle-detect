@@ -13,13 +13,15 @@
     }
   },
   "expires_at": 1747227600,
+  "grammar_hash": null,
   "issued_at": 1747224000,
   "issuer": "vectors.example",
   "key_id": "f0ff50dacf109dea",
   "not_before": 1747224000,
   "parent_id": null,
+  "policy_hash": null,
   "policy_proof_hash": null,
-  "signature": "etXzXVsHxmJ755I9ZiGy6jt9QGqFpdTnZ7tmkGyWNs87zF73e6vrc1jNOa0MYrbjnTrkXsG_frhRyovKNIryAw",
-  "token_id": "cap:8049f073963f3b2f07cd9ab3",
+  "signature": "PfG0EZ2_mq1zGVgKdBvj-p1Xys5mIUhv2fuwIJSOJlZ6xXcA9MZ_Vb4gWE-2ICeDQxqoA6asYM_LQesHiYoFBQ",
+  "token_id": "cap:79b21673d4e9fb8427ab94cb",
   "tool": "transfer_funds"
 }

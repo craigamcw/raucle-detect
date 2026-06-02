@@ -73,7 +73,7 @@ A capability token is a content-addressed, Ed25519-signed JSON object with the f
 
 Used for `token_id` computation and signature input. Rules:
 
-1. Object keys sorted lexicographically.
+1. Object keys sorted by UTF-16 code unit (the ordering of [RFC 8785 §3.2.3](https://www.rfc-editor.org/rfc/rfc8785#section-3.2.3)): keys are compared as sequences of unsigned 16-bit UTF-16 code units. This coincides with Unicode code-point order for BMP characters and differs only for non-BMP (astral) characters; specifying it precisely (rather than a vague "lexicographic") is required for cross-language byte-identity. String values in allow/deny lists are ordered the same way.
 2. No whitespace between tokens. Use `",", ":"` separators.
 3. UTF-8 encoding throughout. Unicode escapes (`\uXXXX`) not used unless the character is a JSON control character.
 4. Integer values rendered without leading zeros, sign, or trailing decimal.

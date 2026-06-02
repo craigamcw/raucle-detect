@@ -75,6 +75,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import registry as _registry
+from ._canon import reorder_keys_utf16 as _reorder_keys_utf16
+from ._canon import utf16_key as _utf16_key
+from ._canon import value_sort_key as _value_sort_key
 
 if TYPE_CHECKING:
     from raucle_detect.prove import ProofResult
@@ -111,10 +114,16 @@ def _reject_floats(obj: Any) -> None:
 
 def _canonical_json(obj: Any) -> bytes:
     # allow_nan rejects NaN/Infinity; _reject_floats rejects ALL floats so signed
-    # token material is integer-only and deterministic (parity with provenance).
+    # token material is integer-only and deterministic. Object keys are ordered by
+    # UTF-16 code unit (§4.3.1 / RFC 8785), not Python's native code-point order,
+    # for cross-language byte-identity parity with the provenance canonicaliser.
     _reject_floats(obj)
     return json.dumps(
-        obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+        _reorder_keys_utf16(obj),
+        sort_keys=False,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
     ).encode("utf-8")
 
 
@@ -243,6 +252,67 @@ class Capability:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Capability:
+        # The token must be a JSON object; a non-object (list/str/number/null)
+        # is invalid signed material and must fail closed with a ValueError, not
+        # an AttributeError on the .get() calls below.
+        if not isinstance(d, dict):
+            raise ValueError(f"capability token: must be a JSON object, got {type(d).__name__}")
+
+        # Independently re-validate signed-token shape at the parse boundary
+        # (defence in depth): mint() enforces these, but a token reaches the gate
+        # as untrusted JSON, and the cap-verifier reference rejects the same
+        # malformed shapes — so the gate path must too, not just trust the field.
+        # Every check raises ValueError (never KeyError/TypeError) so a malformed
+        # token fails closed with a clear reason instead of crashing the caller.
+        def _req_str(name: str) -> str:
+            v = d.get(name)
+            if not isinstance(v, str) or not v:
+                raise ValueError(
+                    f"capability token: {name} must be a non-empty string, got "
+                    f"{type(v).__name__} {v!r}"
+                )
+            return v
+
+        for _f in ("token_id", "agent_id", "tool", "issuer", "key_id"):
+            _req_str(_f)
+        _validate_agent_id(d["agent_id"])
+        _validate_tool(d["tool"])
+        if not isinstance(d.get("constraints"), dict):
+            raise ValueError(
+                "capability token: constraints must be present and a JSON object "
+                "(Capability.body always signs a constraints object, possibly empty)"
+            )
+        # parent_id is the chain link: it MUST be either absent/null (a root) or
+        # a non-empty string token-id. A falsy-but-non-null value ("" / [] / {})
+        # would otherwise slip past the gate's chain check (truthiness) and skip
+        # attenuation verification.
+        _pid = d.get("parent_id")
+        if _pid is not None and (not isinstance(_pid, str) or not _pid):
+            raise ValueError(
+                f"capability token: parent_id must be a non-empty string or null, "
+                f"got {type(_pid).__name__} {_pid!r}"
+            )
+        # A parsed token is signed material: signature MUST be present and a
+        # string (matches the cap-verifier reference, which type-checks it as a
+        # required field). An empty string is tolerated here — the signature
+        # check denies it on verify — but a missing/non-string value fails closed
+        # at the parse boundary rather than defaulting to "".
+        if not isinstance(d.get("signature"), str):
+            raise ValueError("capability token: signature must be present and a string")
+
+        def _ts(name: str) -> int:
+            # Timestamps are signed material and MUST be canonical integers.
+            # Do NOT coerce floats/strings via int() (a non-canonical encoding
+            # would re-sign to different bytes, and would also disagree with the
+            # cap-verifier reference, which rejects non-int timestamps) and do
+            # NOT crash on a missing/None value — reject fail-closed instead.
+            v = d.get(name)
+            if isinstance(v, bool) or not isinstance(v, int):
+                raise ValueError(
+                    f"capability token: {name} must be an integer, got {type(v).__name__} {v!r}"
+                )
+            return v
+
         return cls(
             token_id=d["token_id"],
             agent_id=d["agent_id"],
@@ -250,14 +320,14 @@ class Capability:
             constraints=d.get("constraints", {}),
             issuer=d["issuer"],
             key_id=d["key_id"],
-            issued_at=int(d["issued_at"]),
-            not_before=int(d["not_before"]),
-            expires_at=int(d["expires_at"]),
+            issued_at=_ts("issued_at"),
+            not_before=_ts("not_before"),
+            expires_at=_ts("expires_at"),
             parent_id=d.get("parent_id"),
             policy_proof_hash=d.get("policy_proof_hash"),
             grammar_hash=d.get("grammar_hash"),
             policy_hash=d.get("policy_hash"),
-            signature=d.get("signature", ""),
+            signature=d["signature"],
         )
 
     def save(self, path: str | Path) -> None:
@@ -379,13 +449,13 @@ def _normalise_constraints(c: dict[str, Any]) -> dict[str, Any]:
     if "forbidden_values" in c:
         _validate_field_keys("forbidden_values", c["forbidden_values"])
         out["forbidden_values"] = {
-            k: sorted(_as_value_list("forbidden_values", k, v))
+            k: sorted(_as_value_list("forbidden_values", k, v), key=_value_sort_key)
             for k, v in c["forbidden_values"].items()
         }
     if "allowed_values" in c:
         _validate_field_keys("allowed_values", c["allowed_values"])
         out["allowed_values"] = {
-            k: sorted(_as_value_list("allowed_values", k, v))
+            k: sorted(_as_value_list("allowed_values", k, v), key=_value_sort_key)
             for k, v in c["allowed_values"].items()
         }
     if "starts_with" in c:
@@ -408,7 +478,9 @@ def _normalise_constraints(c: dict[str, Any]) -> dict[str, Any]:
             _require_int_bound("min_value", fld, bound)
         out["min_value"] = dict(c["min_value"])
     if "required_present" in c:
-        out["required_present"] = sorted(_require_field_name_list("required_present", c))
+        out["required_present"] = sorted(
+            _require_field_name_list("required_present", c), key=_utf16_key
+        )
     if "forbidden_field_combinations" in c:
         combos = c["forbidden_field_combinations"]
         if not isinstance(combos, list):
@@ -428,8 +500,13 @@ def _normalise_constraints(c: dict[str, Any]) -> dict[str, Any]:
                         f"forbidden_field_combinations field name must be a non-empty "
                         f"string, got {fld!r} (§8.5)"
                     )
-            norm_combos.append(sorted(combo))
-        out["forbidden_field_combinations"] = sorted(norm_combos)
+            norm_combos.append(sorted(combo, key=_utf16_key))
+        # Sort the outer list of combos by their UTF-16-ordered field names too,
+        # so the signed canonical form is deterministic and code-point/UTF-16
+        # consistent for non-BMP field names.
+        out["forbidden_field_combinations"] = sorted(
+            norm_combos, key=lambda combo: [_utf16_key(x) for x in combo]
+        )
     return out
 
 
@@ -754,23 +831,61 @@ class CapabilityIssuer:
         return child
 
 
+def _vid(v: Any):
+    """JSON identity for value-list dedup. ``bool`` is an ``int`` subclass, so a
+    plain ``set`` collapses ``True`` and ``1`` (distinct JSON values) into one,
+    silently dropping a constraint value. Keying on (type-name, value) keeps them
+    distinct (codex R7 P2). Non-hashable members (dict/list — never valid in a
+    value list) are keyed by repr so dedup does not raise TypeError before
+    _normalise_constraints emits the proper validation error (codex R8 P3)."""
+    try:
+        hash(v)
+    except TypeError:
+        return (type(v).__name__, repr(v))
+    return (type(v).__name__, v)
+
+
+def _union_values(a, b):
+    """Order-insensitive union preserving JSON-distinct values (no bool/int
+    collapse). Final ordering is applied by _normalise_constraints."""
+    seen: dict = {}
+    for v in list(a) + list(b):
+        seen.setdefault(_vid(v), v)
+    return list(seen.values())
+
+
+def _intersect_values(a, b):
+    """Intersection preserving JSON-distinct values (no bool/int collapse)."""
+    b_ids = {_vid(v) for v in b}
+    seen: dict = {}
+    for v in a:
+        if _vid(v) in b_ids:
+            seen.setdefault(_vid(v), v)
+    return list(seen.values())
+
+
 def _merge_narrowing(parent: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
-    """Combine two constraint sets, taking the tighter bound on every key."""
+    """Combine two constraint sets, taking the tighter bound on every key.
+
+    Final value-list ordering is canonicalised by _normalise_constraints (UTF-16),
+    so the intermediate operations here only need to preserve the correct SET of
+    values — which means avoiding Python ``set`` for value lists (it collapses
+    bool/int, see _vid)."""
     import copy
 
     out: dict[str, Any] = copy.deepcopy(parent)
 
     for fld, vals in extra.get("forbidden_values", {}).items():
         out.setdefault("forbidden_values", {})
-        out["forbidden_values"][fld] = sorted(set(out["forbidden_values"].get(fld, [])) | set(vals))
+        out["forbidden_values"][fld] = _union_values(out["forbidden_values"].get(fld, []), vals)
 
     for fld, vals in extra.get("allowed_values", {}).items():
         out.setdefault("allowed_values", {})
         if fld in out["allowed_values"]:
             # Intersection = tighter
-            out["allowed_values"][fld] = sorted(set(out["allowed_values"][fld]) & set(vals))
+            out["allowed_values"][fld] = _intersect_values(out["allowed_values"][fld], vals)
         else:
-            out["allowed_values"][fld] = sorted(set(vals))
+            out["allowed_values"][fld] = _union_values(vals, [])
 
     for fld, prefix in extra.get("starts_with", {}).items():
         out.setdefault("starts_with", {})
@@ -1000,7 +1115,7 @@ class CapabilityGate:
         # parent, is refused.
         if token.token_id in self._revoked:
             return GateDecision(False, f"token {token.token_id} is revoked", token.token_id)
-        if token.parent_id and token.parent_id in self._revoked:
+        if token.parent_id is not None and token.parent_id in self._revoked:
             return GateDecision(False, f"parent token {token.parent_id} is revoked", token.token_id)
 
         # 4) Time bounds.
@@ -1062,14 +1177,14 @@ class CapabilityGate:
         # hostile child citing a parent_id it never had to justify slips through
         # whenever the deployment forgot to wire a resolver.
         chain: list[str] = []
-        if token.parent_id and self._resolver is None:
+        if token.parent_id is not None and self._resolver is None:
             return GateDecision(
                 False,
                 f"token cites parent {token.parent_id!r} but no parent_resolver "
                 f"is configured to verify the chain (deny)",
                 token.token_id,
             )
-        if token.parent_id and self._resolver is not None:
+        if token.parent_id is not None and self._resolver is not None:
             current = token
             while current.parent_id:
                 parent = self._resolver(current.parent_id)

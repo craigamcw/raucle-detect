@@ -72,7 +72,13 @@ fn write_value(out: &mut String, v: &Value) -> Result<(), CanonicalError> {
             // default feature set; sort keys explicitly for canonical
             // output.
             let mut keys: Vec<&String> = map.keys().collect();
-            keys.sort();
+            // Order by UTF-16 code unit (RFC 8785 / JCS §3.2.3), matching the
+            // TypeScript (a < b) and C# (StringComparer.Ordinal) encoders. A
+            // bare `keys.sort()` compares UTF-8 bytes (Unicode code-point
+            // order), which diverges from JCS for non-BMP keys: a surrogate
+            // pair must sort before BMP code points >= U+E000. BMP keys are
+            // unaffected; this keeps all five reference encoders byte-identical.
+            keys.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
             out.push('{');
             for (i, k) in keys.iter().enumerate() {
                 if i > 0 {

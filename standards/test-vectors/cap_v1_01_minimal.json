@@ -2,13 +2,15 @@
   "agent_id": "agent:demo",
   "constraints": {},
   "expires_at": 1747227600,
+  "grammar_hash": null,
   "issued_at": 1747224000,
   "issuer": "vectors.example",
   "key_id": "f0ff50dacf109dea",
   "not_before": 1747224000,
   "parent_id": null,
+  "policy_hash": null,
   "policy_proof_hash": null,
-  "signature": "zvWTNtsZVUb9dwXhgQMc0jNfXutGvP6zv8LHZm0a6WkCZ9kc-GQ194ekUtH9_Sy09qVDMgUNVFg4cUXJQna3CQ",
-  "token_id": "cap:0b23b6d6c72b93c0571c9de8",
+  "signature": "-CKdLd5-IAYe8t5WvuZ1MgyPGxf1iwQW_pSyLDj1w266-Y1hsfvtcJYIiOKkxQF0fPoTAuwiduEuZlt729ZSDg",
+  "token_id": "cap:c4916acedea2c9733d02e88a",
   "tool": "echo"
 }

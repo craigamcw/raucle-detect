@@ -78,6 +78,8 @@ from pathlib import Path
 from typing import Any
 
 from . import registry as _registry
+from ._canon import reorder_keys_utf16 as _reorder_keys_utf16
+from ._canon import utf16_key as _utf16_key
 
 logger = logging.getLogger(__name__)
 
@@ -163,13 +165,13 @@ def _structural_errors(receipt: ProvenanceReceipt) -> list[str]:
     for fld in _REQUIRED_FIELDS_BY_OP.get(op, ()):
         if not getattr(receipt, fld, ""):
             errs.append(f"{op} receipt missing required field {fld!r}")
-    # Spec v1 §4.2: parents and taint MUST be sorted (lexicographic) and unique —
-    # part of the canonical contract; unsorted/duplicate entries indicate a
-    # non-conformant emitter.
+    # Spec v1 §4.2/§4.3.1: parents and taint MUST be sorted by UTF-16 code unit
+    # and unique — part of the canonical contract; unsorted/duplicate entries
+    # indicate a non-conformant emitter.
     for name in ("parents", "taint"):
         seq = list(getattr(receipt, name, []) or [])
-        if seq != sorted(seq):
-            errs.append(f"{name} must be sorted lexicographically")
+        if seq != sorted(seq, key=_utf16_key):
+            errs.append(f"{name} must be sorted in UTF-16 code-unit order (§4.3.1)")
         if len(seq) != len(set(seq)):
             errs.append(f"{name} must not contain duplicates")
     return errs
@@ -196,7 +198,7 @@ def _validate_receipt_strict(receipt: ProvenanceReceipt) -> None:
       6. Root rule (only ``user_input``/``guardrail_scan`` may have empty
          parents); ``merge`` arity (>= 2 parents).
       7. Required-fields-per-operation.
-      8. ``parents``/``taint`` sorted lexicographically and unique.
+      8. ``parents``/``taint`` sorted by UTF-16 code unit (§4.3.1) and unique.
 
     Raises
     ------
@@ -272,13 +274,19 @@ def _reject_floats(obj: Any) -> None:
 def _canonical_json(obj: Any) -> bytes:
     """Serialise *obj* with sorted keys, no whitespace, UTF-8 — for hashing.
 
-    allow_nan=False rejects NaN/Infinity; ``_reject_floats`` additionally rejects
-    *all* floats, matching the TS/Go/Rust/C# reference encoders so the signed
-    bytes are byte-identical across implementations.
+    Object keys are ordered by UTF-16 code unit (RFC 8785 / JCS §3.2.3), not by
+    Python's native code-point order, so the signed/hashed bytes are
+    byte-identical across the TS/Go/Rust/C# reference encoders even for non-BMP
+    keys (see ``_utf16_key``). allow_nan=False rejects NaN/Infinity;
+    ``_reject_floats`` additionally rejects *all* floats.
     """
     _reject_floats(obj)
     return json.dumps(
-        obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+        _reorder_keys_utf16(obj),
+        sort_keys=False,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
     ).encode("utf-8")
 
 
@@ -293,6 +301,9 @@ _EXPECTED_TYP = "provenance-receipt/v1"
 #: The critical-header marker every genuine receipt carries. Verifiers must
 #: understand every entry in ``crit``; this is the only one we understand.
 _UNDERSTOOD_CRIT = {"raucle/v1"}
+#: Prefix marking a sanitisation receipt's ``corpus`` removed-taint claim
+#: (``"removed:<tag1>,<tag2>,…"``), used at both build and verify time.
+_REMOVED_PREFIX = "removed:"
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -382,15 +393,15 @@ class CapabilityStatement:
             "agent_id": self.agent_id,
             "key_id": self.key_id,
             "public_key_pem": self.public_key_pem,
-            "allowed_models": sorted(self.allowed_models),
-            "allowed_tools": sorted(self.allowed_tools),
-            "data_classifications": sorted(self.data_classifications),
+            "allowed_models": sorted(self.allowed_models, key=_utf16_key),
+            "allowed_tools": sorted(self.allowed_tools, key=_utf16_key),
+            "data_classifications": sorted(self.data_classifications, key=_utf16_key),
             "issuer": self.issuer,
             "issued_at": self.issued_at,
             "expires_at": self.expires_at,
         }
         if self.sanitisation_authority:
-            body["sanitisation_authority"] = sorted(self.sanitisation_authority)
+            body["sanitisation_authority"] = sorted(self.sanitisation_authority, key=_utf16_key)
         return body
 
     def to_dict(self) -> dict[str, Any]:
@@ -563,8 +574,8 @@ class ProvenanceReceipt:
             "agent_id": self.agent_id,
             "agent_key_id": self.agent_key_id,
             "operation": self.operation.value,
-            "parents": sorted(self.parents),
-            "taint": sorted(self.taint),
+            "parents": sorted(self.parents, key=_utf16_key),
+            "taint": sorted(self.taint, key=_utf16_key),
         }
         if self.input_hash:
             out["input_hash"] = self.input_hash
@@ -1036,7 +1047,10 @@ class ProvenanceLogger:
         )
         # Stash the claim in a structured way via the corpus field — slightly
         # abusive but avoids inventing a new payload field for one operation.
-        receipt.corpus = "removed:" + ",".join(sorted(removed_taints))
+        # The removed tags are a set (verifiers parse order-independently, §4.2);
+        # producers SHOULD emit them in UTF-16 code-unit order (§4.3.1) for
+        # canonical determinism, which we do here.
+        receipt.corpus = _REMOVED_PREFIX + ",".join(sorted(removed_taints, key=_utf16_key))
         return self._emit(receipt)
 
     def record_merge(
@@ -1472,8 +1486,8 @@ class ProvenanceVerifier:
         if receipt.operation == Operation.SANITISATION:
             # Sanitisation may remove specific tags listed in `corpus` field.
             removed = set()
-            if receipt.corpus.startswith("removed:"):
-                removed = set(filter(None, receipt.corpus[len("removed:") :].split(",")))
+            if receipt.corpus.startswith(_REMOVED_PREFIX):
+                removed = set(filter(None, receipt.corpus[len(_REMOVED_PREFIX) :].split(",")))
 
             # TAINT-LAUNDER: a SANITISATION receipt is only as trustworthy as
             # the authority granted to the signing key. When capability
