@@ -86,6 +86,19 @@ public static class Receipt
         var parents = p.StrArray("parents") ?? new List<string>();
         if (op == "user_input" && parents.Count > 0) throw new ProvException("user_input must have no parents");
         if (op != "user_input" && parents.Count == 0) throw new ProvException($"{op} requires at least one parent");
+
+        // §4.2/§4.3.1: parents and taint MUST be sorted in UTF-16 code-unit
+        // order and unique. StringComparer.Ordinal is UTF-16; a strictly-
+        // increasing check enforces sorted AND unique at once.
+        foreach (var name in new[] { "parents", "taint" })
+        {
+            var arr = p.StrArray(name);
+            if (arr == null) continue;
+            for (int i = 1; i < arr.Count; i++)
+                if (StringComparer.Ordinal.Compare(arr[i - 1], arr[i]) >= 0)
+                    throw new ProvException(
+                        $"{name} must be sorted in UTF-16 code-unit order and unique (§4.3.1)");
+        }
     }
 
     // ── emit / verify ──────────────────────────────────────────────

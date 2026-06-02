@@ -155,6 +155,21 @@ pub fn validate_payload(p: &Value) -> Result<(), ProvError> {
         return err(format!("{op} requires at least one parent"));
     }
 
+    // §4.2/§4.3.1: parents and taint MUST be sorted in UTF-16 code-unit order
+    // and unique. A strictly-increasing check enforces both at once.
+    for name in ["parents", "taint"] {
+        if let Some(arr) = obj.get(name).and_then(|v| v.as_array()) {
+            for w in arr.windows(2) {
+                let (a, b) = (w[0].as_str().unwrap_or(""), w[1].as_str().unwrap_or(""));
+                if a.encode_utf16().cmp(b.encode_utf16()) != std::cmp::Ordering::Less {
+                    return err(format!(
+                        "{name} must be sorted in UTF-16 code-unit order and unique (§4.3.1)"
+                    ));
+                }
+            }
+        }
+    }
+
     Ok(())
 }
 

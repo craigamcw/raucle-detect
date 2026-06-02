@@ -109,12 +109,48 @@ def _reject_floats(obj: Any) -> None:
             _reject_floats(v)
 
 
+def _utf16_key(s: str) -> bytes:
+    """Sort key giving RFC 8785 (JCS §3.2.3) object-key ordering: by UTF-16 code
+    unit. Encoding to UTF-16 big-endian makes a byte comparison equal a code-unit
+    comparison — matching JavaScript ``a < b`` and .NET ``StringComparer.Ordinal``,
+    and the provenance canonicaliser. Differs from Python's native code-point
+    ordering only for non-BMP keys (a surrogate pair sorts before BMP ≥ U+E000)."""
+    return s.encode("utf-16-be")
+
+
+def _reorder_keys_utf16(obj: Any) -> Any:
+    """Recursively reorder object keys by UTF-16 code unit (JCS), preserving
+    array order; tuples are treated as arrays (parity with _reject_floats)."""
+    if isinstance(obj, dict):
+        return {k: _reorder_keys_utf16(obj[k]) for k in sorted(obj, key=_utf16_key)}
+    if isinstance(obj, (list, tuple)):
+        return [_reorder_keys_utf16(v) for v in obj]
+    return obj
+
+
+def _value_sort_key(v: Any):
+    """Deterministic sort key for allowlist/denylist VALUES, which may be strings
+    or integers. Strings sort among themselves by UTF-16 code unit (§4.3.1, parity
+    with object-key ordering); non-strings keep numeric/stable order. The leading
+    type-rank keeps the two groups from being compared against each other (which
+    would otherwise raise on a mixed list)."""
+    if isinstance(v, str):
+        return (0, v.encode("utf-16-be"))
+    return (1, v)
+
+
 def _canonical_json(obj: Any) -> bytes:
     # allow_nan rejects NaN/Infinity; _reject_floats rejects ALL floats so signed
-    # token material is integer-only and deterministic (parity with provenance).
+    # token material is integer-only and deterministic. Object keys are ordered by
+    # UTF-16 code unit (§4.3.1 / RFC 8785), not Python's native code-point order,
+    # for cross-language byte-identity parity with the provenance canonicaliser.
     _reject_floats(obj)
     return json.dumps(
-        obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+        _reorder_keys_utf16(obj),
+        sort_keys=False,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
     ).encode("utf-8")
 
 
@@ -379,13 +415,13 @@ def _normalise_constraints(c: dict[str, Any]) -> dict[str, Any]:
     if "forbidden_values" in c:
         _validate_field_keys("forbidden_values", c["forbidden_values"])
         out["forbidden_values"] = {
-            k: sorted(_as_value_list("forbidden_values", k, v))
+            k: sorted(_as_value_list("forbidden_values", k, v), key=_value_sort_key)
             for k, v in c["forbidden_values"].items()
         }
     if "allowed_values" in c:
         _validate_field_keys("allowed_values", c["allowed_values"])
         out["allowed_values"] = {
-            k: sorted(_as_value_list("allowed_values", k, v))
+            k: sorted(_as_value_list("allowed_values", k, v), key=_value_sort_key)
             for k, v in c["allowed_values"].items()
         }
     if "starts_with" in c:
@@ -408,7 +444,9 @@ def _normalise_constraints(c: dict[str, Any]) -> dict[str, Any]:
             _require_int_bound("min_value", fld, bound)
         out["min_value"] = dict(c["min_value"])
     if "required_present" in c:
-        out["required_present"] = sorted(_require_field_name_list("required_present", c))
+        out["required_present"] = sorted(
+            _require_field_name_list("required_present", c), key=_utf16_key
+        )
     if "forbidden_field_combinations" in c:
         combos = c["forbidden_field_combinations"]
         if not isinstance(combos, list):
@@ -428,8 +466,13 @@ def _normalise_constraints(c: dict[str, Any]) -> dict[str, Any]:
                         f"forbidden_field_combinations field name must be a non-empty "
                         f"string, got {fld!r} (§8.5)"
                     )
-            norm_combos.append(sorted(combo))
-        out["forbidden_field_combinations"] = sorted(norm_combos)
+            norm_combos.append(sorted(combo, key=_utf16_key))
+        # Sort the outer list of combos by their UTF-16-ordered field names too,
+        # so the signed canonical form is deterministic and code-point/UTF-16
+        # consistent for non-BMP field names.
+        out["forbidden_field_combinations"] = sorted(
+            norm_combos, key=lambda combo: [_utf16_key(x) for x in combo]
+        )
     return out
 
 

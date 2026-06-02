@@ -112,6 +112,19 @@ func (p *Payload) Validate() error {
 	if p.Operation != "user_input" && len(p.Parents) == 0 {
 		return fmt.Errorf("%s requires at least one parent", p.Operation)
 	}
+	// §4.2/§4.3.1: parents and taint MUST be sorted in UTF-16 code-unit order
+	// and unique. A strictly-increasing check enforces both at once (a non-
+	// conformant emitter could otherwise sign an unsorted/duplicated array).
+	for _, f := range []struct {
+		name string
+		vals []string
+	}{{"parents", p.Parents}, {"taint", p.Taint}} {
+		for i := 1; i < len(f.vals); i++ {
+			if !lessUTF16(f.vals[i-1], f.vals[i]) {
+				return fmt.Errorf("%s must be sorted in UTF-16 code-unit order and unique (§4.3.1)", f.name)
+			}
+		}
+	}
 	return nil
 }
 

@@ -1072,9 +1072,9 @@ class ProvenanceLogger:
         )
         # Stash the claim in a structured way via the corpus field — slightly
         # abusive but avoids inventing a new payload field for one operation.
-        # UTF-16 code-unit order (§4.3.1) — corpus is signed payload material,
-        # so its sort must match the rest of the canonical contract even though
-        # this producer is currently the only one that constructs it.
+        # The removed tags are a set (verifiers parse order-independently, §4.2);
+        # producers SHOULD emit them in UTF-16 code-unit order (§4.3.1) for
+        # canonical determinism, which we do here.
         receipt.corpus = "removed:" + ",".join(sorted(removed_taints, key=_utf16_key))
         return self._emit(receipt)
 
