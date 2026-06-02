@@ -252,6 +252,20 @@ class Capability:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Capability:
+        def _ts(name: str) -> int:
+            # Timestamps are signed material and MUST be canonical integers.
+            # Do NOT coerce floats/strings via int() (a non-canonical encoding
+            # would re-sign to different bytes, and would also disagree with the
+            # cap-verifier reference, which rejects non-int timestamps) and do
+            # NOT crash on a missing/None value — reject fail-closed instead.
+            v = d.get(name)
+            if isinstance(v, bool) or not isinstance(v, int):
+                raise ValueError(
+                    f"capability token: {name} must be an integer, got "
+                    f"{type(v).__name__} {v!r}"
+                )
+            return v
+
         return cls(
             token_id=d["token_id"],
             agent_id=d["agent_id"],
@@ -259,9 +273,9 @@ class Capability:
             constraints=d.get("constraints", {}),
             issuer=d["issuer"],
             key_id=d["key_id"],
-            issued_at=int(d["issued_at"]),
-            not_before=int(d["not_before"]),
-            expires_at=int(d["expires_at"]),
+            issued_at=_ts("issued_at"),
+            not_before=_ts("not_before"),
+            expires_at=_ts("expires_at"),
             parent_id=d.get("parent_id"),
             policy_proof_hash=d.get("policy_proof_hash"),
             grammar_hash=d.get("grammar_hash"),
