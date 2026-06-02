@@ -75,6 +75,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from . import registry as _registry
+from ._canon import utf16_key as _canon_utf16_key
 
 
 def _canonical_json(obj: Any) -> bytes:
@@ -138,7 +139,7 @@ class ProofResult:
             "grammar_hash": self.grammar_hash,
             "policy_hash": self.policy_hash,
             "counterexample": self.counterexample,
-            "notes": sorted(self.notes),
+            "notes": sorted(self.notes, key=_canon_utf16_key),
             "timeout_ms": self.timeout_ms,
         }
 

@@ -63,6 +63,9 @@ def _canonical_json(obj: Any) -> bytes:
     ).encode("utf-8")
 
 
+from ._canon import utf16_key as _u16  # UTF-16 ordering for signed value lists
+
+
 def _sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -83,11 +86,11 @@ def hash_ruleset(rules: list[dict[str, Any]]) -> str:
             {
                 "id": r.get("id", ""),
                 "score": r.get("score", 0.0),
-                "patterns": sorted(r.get("patterns", [])),
+                "patterns": sorted(r.get("patterns", []), key=_u16),
             }
             for r in rules
         ],
-        key=lambda r: r["id"],
+        key=lambda r: _u16(r["id"]),
     )
     return _sha256_hex(_canonical_json(projection))
 

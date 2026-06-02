@@ -799,23 +799,55 @@ class CapabilityIssuer:
         return child
 
 
+def _vid(v: Any):
+    """JSON identity for value-list dedup. ``bool`` is an ``int`` subclass, so a
+    plain ``set`` collapses ``True`` and ``1`` (distinct JSON values) into one,
+    silently dropping a constraint value. Keying on (type-name, value) keeps them
+    distinct (codex R7 P2)."""
+    return (type(v).__name__, v)
+
+
+def _union_values(a, b):
+    """Order-insensitive union preserving JSON-distinct values (no bool/int
+    collapse). Final ordering is applied by _normalise_constraints."""
+    seen: dict = {}
+    for v in list(a) + list(b):
+        seen.setdefault(_vid(v), v)
+    return list(seen.values())
+
+
+def _intersect_values(a, b):
+    """Intersection preserving JSON-distinct values (no bool/int collapse)."""
+    b_ids = {_vid(v) for v in b}
+    seen: dict = {}
+    for v in a:
+        if _vid(v) in b_ids:
+            seen.setdefault(_vid(v), v)
+    return list(seen.values())
+
+
 def _merge_narrowing(parent: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
-    """Combine two constraint sets, taking the tighter bound on every key."""
+    """Combine two constraint sets, taking the tighter bound on every key.
+
+    Final value-list ordering is canonicalised by _normalise_constraints (UTF-16),
+    so the intermediate operations here only need to preserve the correct SET of
+    values — which means avoiding Python ``set`` for value lists (it collapses
+    bool/int, see _vid)."""
     import copy
 
     out: dict[str, Any] = copy.deepcopy(parent)
 
     for fld, vals in extra.get("forbidden_values", {}).items():
         out.setdefault("forbidden_values", {})
-        out["forbidden_values"][fld] = sorted(set(out["forbidden_values"].get(fld, [])) | set(vals))
+        out["forbidden_values"][fld] = _union_values(out["forbidden_values"].get(fld, []), vals)
 
     for fld, vals in extra.get("allowed_values", {}).items():
         out.setdefault("allowed_values", {})
         if fld in out["allowed_values"]:
             # Intersection = tighter
-            out["allowed_values"][fld] = sorted(set(out["allowed_values"][fld]) & set(vals))
+            out["allowed_values"][fld] = _intersect_values(out["allowed_values"][fld], vals)
         else:
-            out["allowed_values"][fld] = sorted(set(vals))
+            out["allowed_values"][fld] = _union_values(vals, [])
 
     for fld, prefix in extra.get("starts_with", {}).items():
         out.setdefault("starts_with", {})

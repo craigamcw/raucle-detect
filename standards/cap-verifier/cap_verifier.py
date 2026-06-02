@@ -101,7 +101,7 @@ _TOOL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_\-./]{0,127}$")
 _BODY_FIELDS = (
     "version", "agent_id", "tool", "constraints",
     "issuer", "key_id", "issued_at", "not_before", "expires_at",
-    "parent_id", "policy_proof_hash",
+    "parent_id", "policy_proof_hash", "grammar_hash", "policy_hash",
 )
 
 
@@ -122,8 +122,10 @@ def token_body(token: dict) -> dict:
         if f in token:
             out[f] = token[f]
         else:
-            # parent_id and policy_proof_hash default to None when absent.
-            if f in ("parent_id", "policy_proof_hash"):
+            # These optional fields are always present (as null when unset) in
+            # Capability.body(), so they MUST be emitted as null here too or the
+            # signed/hashed bytes diverge from the minting implementation.
+            if f in ("parent_id", "policy_proof_hash", "grammar_hash", "policy_hash"):
                 out[f] = None
     return out
 
@@ -145,9 +147,9 @@ def _normalise_constraints(c: dict) -> dict:
         out["min_value"] = dict(c["min_value"])
     if "required_present" in c:
         out["required_present"] = sorted(c["required_present"], key=_utf16_key)
-    if "forbidden_combos" in c:
-        out["forbidden_combos"] = sorted(
-            (sorted(combo, key=_utf16_key) for combo in c["forbidden_combos"]),
+    if "forbidden_field_combinations" in c:
+        out["forbidden_field_combinations"] = sorted(
+            (sorted(combo, key=_utf16_key) for combo in c["forbidden_field_combinations"]),
             key=lambda combo: [_utf16_key(x) for x in combo],
         )
     return out
@@ -248,6 +250,11 @@ def _check_constraints(c: dict, args: dict) -> str | None:
     for fld in c.get("required_present", []):
         if fld not in args:
             return f"required field {fld!r} missing"
+    # PRESENCE check: a combination is forbidden iff every field in it is present
+    # (mirrors raucle_detect.capability gate semantics).
+    for combo in c.get("forbidden_field_combinations", []):
+        if all(field in args for field in combo):
+            return f"forbidden field combination {combo!r} all present"
     return None
 
 

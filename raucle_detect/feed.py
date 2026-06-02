@@ -82,6 +82,9 @@ def _canonical_json(obj: Any) -> bytes:
     ).encode("utf-8")
 
 
+from ._canon import utf16_key as _u16  # UTF-16 ordering for signed value lists
+
+
 def _sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -135,12 +138,12 @@ class SignedIOC:
             "kind": self.kind,
             "pattern": self.pattern,
             "severity": self.severity,
-            "categories": sorted(self.categories),
+            "categories": sorted(self.categories, key=_u16),
             "description": self.description,
             "issuer": self.issuer,
             "key_id": self.key_id,
             "issued_at": self.issued_at,
-            "revokes": sorted(self.revokes),
+            "revokes": sorted(self.revokes, key=_u16),
             "expires_at": self.expires_at,
         }
 
@@ -203,7 +206,7 @@ class Feed:
     version: str = "raucle-feed/v1"
 
     def compute_merkle_root(self) -> str:
-        hashes = sorted(i.content_hash for i in self.iocs)
+        hashes = sorted((i.content_hash for i in self.iocs), key=_u16)
         if not hashes:
             return "sha256:" + _sha256_hex(b"")
         return "sha256:" + _sha256_hex(_canonical_json(hashes))

@@ -80,7 +80,14 @@ def _proof_verdict(p: dict[str, Any]) -> tuple[str, str]:
     status_str = str(p.get("status", "")).upper()
     colour, detail = _PROOF_STATUS.get(status_str, (AMBER, f"unknown proof status {status_str!r}"))
     if status_str == "REFUTED" and p.get("counterexample"):
-        detail += f"; counterexample: {json.dumps(p['counterexample'], sort_keys=True)}"
+        # UTF-16 key ordering (§4.3.1): this detail is embedded in the signable
+        # manifest body, so it must use the same canonical ordering as the rest
+        # of the signed material rather than code-point sort_keys (codex R7).
+        from ._canon import reorder_keys_utf16
+
+        detail += "; counterexample: " + json.dumps(
+            reorder_keys_utf16(p["counterexample"]), sort_keys=False
+        )
     return colour, detail
 
 
