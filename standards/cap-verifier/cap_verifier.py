@@ -319,9 +319,15 @@ def _verify_token_impl(
     # with the right JSON types, else this is invalid signed material (DENY).
     if not isinstance(token, dict):
         return False, "token must be a JSON object", "format"
-    for f in ("agent_id", "tool", "issuer", "key_id", "signature", "token_id"):
-        if not isinstance(token.get(f), str):
-            return False, f"{f} must be a string", "format"
+    # Identity fields must be NON-EMPTY strings (matches Capability.from_dict);
+    # an empty string is invalid signed material, not merely a failed regex.
+    for f in ("agent_id", "tool", "issuer", "key_id", "token_id"):
+        if not isinstance(token.get(f), str) or not token.get(f):
+            return False, f"{f} must be a non-empty string", "format"
+    # signature is string-only (an empty signature is denied at the signature
+    # check, not here — parity with from_dict).
+    if not isinstance(token.get("signature"), str):
+        return False, "signature must be a string", "format"
     for f in ("issued_at", "not_before", "expires_at"):
         if isinstance(token.get(f), bool) or not isinstance(token.get(f), int):
             return False, f"{f} must be an integer", "format"

@@ -252,6 +252,12 @@ class Capability:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Capability:
+        # The token must be a JSON object; a non-object (list/str/number/null)
+        # is invalid signed material and must fail closed with a ValueError, not
+        # an AttributeError on the .get() calls below.
+        if not isinstance(d, dict):
+            raise ValueError(f"capability token: must be a JSON object, got {type(d).__name__}")
+
         # Independently re-validate signed-token shape at the parse boundary
         # (defence in depth): mint() enforces these, but a token reaches the gate
         # as untrusted JSON, and the cap-verifier reference rejects the same
