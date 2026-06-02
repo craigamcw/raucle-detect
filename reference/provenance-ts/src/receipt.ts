@@ -151,7 +151,7 @@ export function validatePayload(p: ReceiptPayload): void {
   // and unique. byCodeUnit gives UTF-16 ordering; a strictly-increasing check
   // enforces sorted AND unique at once.
   for (const name of ['parents', 'taint'] as const) {
-    const arr = (p[name] ?? []) as string[]
+    const arr = p[name] ?? []
     for (let i = 1; i < arr.length; i++) {
       if (byCodeUnit(arr[i - 1], arr[i]) >= 0) {
         throw new Error(

@@ -20,43 +20,45 @@ type req struct {
 	Payload map[string]any `json:"payload"`
 }
 
-func main() {
-	canon := len(os.Args) > 1 && os.Args[1] == "--canon"
+func newScanner() *bufio.Scanner {
 	sc := bufio.NewScanner(os.Stdin)
 	sc.Buffer(make([]byte, 1024*1024), 1024*1024)
-	out := bufio.NewWriter(os.Stdout)
-	defer out.Flush()
+	return sc
+}
 
-	if canon {
-		// Canonicalisation cross-check: read {"obj": <value>} lines, emit
-		// {"hex": "<utf8 hex of canonical bytes>"}. JSON numbers unmarshal to
-		// float64; canonicalWrite accepts integral float64 in the safe range
-		// and rejects non-integers / out-of-range values (exit non-zero), which
-		// is exactly what the invalid-vector checks rely on.
-		for sc.Scan() {
-			line := sc.Bytes()
-			if len(line) == 0 {
-				continue
-			}
-			var cr struct {
-				Obj any `json:"obj"`
-			}
-			if err := json.Unmarshal(line, &cr); err != nil {
-				fmt.Fprintln(os.Stderr, "decode:", err)
-				os.Exit(1)
-			}
-			b, err := provenance.CanonicalEncode(cr.Obj)
-			if err != nil {
-				fmt.Fprintln(os.Stderr, "canon:", err)
-				os.Exit(1)
-			}
-			o, _ := json.Marshal(map[string]string{"hex": hex.EncodeToString(b)})
-			out.Write(o)
-			out.WriteByte('\n')
+func fail(stage string, err error) {
+	fmt.Fprintln(os.Stderr, stage+":", err)
+	os.Exit(1)
+}
+
+// runCanon reads {"obj": <value>} lines and writes {"hex": "<utf8 hex of
+// canonical bytes>"}. JSON numbers unmarshal to float64; canonicalWrite accepts
+// integral float64 in the safe range and rejects non-integers / out-of-range
+// values (exit non-zero), which is what the invalid-vector checks rely on.
+func runCanon(sc *bufio.Scanner, out *bufio.Writer) {
+	for sc.Scan() {
+		line := sc.Bytes()
+		if len(line) == 0 {
+			continue
 		}
-		return
+		var cr struct {
+			Obj any `json:"obj"`
+		}
+		if err := json.Unmarshal(line, &cr); err != nil {
+			fail("decode", err)
+		}
+		b, err := provenance.CanonicalEncode(cr.Obj)
+		if err != nil {
+			fail("canon", err)
+		}
+		o, _ := json.Marshal(map[string]string{"hex": hex.EncodeToString(b)})
+		out.Write(o)
+		out.WriteByte('\n')
 	}
+}
 
+// runEmit reads {"seed_hex","payload"} lines and writes {"jws","id"}.
+func runEmit(sc *bufio.Scanner, out *bufio.Writer) {
 	for sc.Scan() {
 		line := sc.Bytes()
 		if len(line) == 0 {
@@ -64,19 +66,28 @@ func main() {
 		}
 		var r req
 		if err := json.Unmarshal(line, &r); err != nil {
-			fmt.Fprintln(os.Stderr, "decode:", err)
-			os.Exit(1)
+			fail("decode", err)
 		}
 		seed, _ := hex.DecodeString(r.SeedHex)
 		priv := ed25519.NewKeyFromSeed(seed)
 		p := provenance.PayloadFromHarness(r.Payload)
 		rec, err := provenance.Emit(p, priv)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "emit:", err)
-			os.Exit(1)
+			fail("emit", err)
 		}
 		b, _ := json.Marshal(map[string]string{"jws": rec.JWS, "id": rec.ID})
 		out.Write(b)
 		out.WriteByte('\n')
 	}
+}
+
+func main() {
+	sc := newScanner()
+	out := bufio.NewWriter(os.Stdout)
+	defer out.Flush()
+	if len(os.Args) > 1 && os.Args[1] == "--canon" {
+		runCanon(sc, out)
+		return
+	}
+	runEmit(sc, out)
 }

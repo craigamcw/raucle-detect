@@ -54,7 +54,7 @@ def _value_sort_key(v):
     unit; non-strings ranked by type name then value (bool never collides with
     an equal int)."""
     if isinstance(v, str):
-        return (0, v.encode("utf-16-be"))
+        return (0, "str", v.encode("utf-16-be"))
     return (1, type(v).__name__, v)
 
 
