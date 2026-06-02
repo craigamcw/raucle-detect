@@ -110,7 +110,12 @@ def b64url_decode(data: str) -> bytes:
 # ---------------------------------------------------------------------------
 
 
-_AGENT_ID_RE = re.compile(r"^agent:[a-z0-9][a-z0-9_\-./]{0,127}$")
+# Canonical agent_id regex (provenance spec §5 / capability AGENT-ID-REGEX): a
+# dot is a hierarchy separator and MUST be followed by an alphanumeric, so a
+# TRAILING dot and CONSECUTIVE dots ("..") are forbidden. A loose class like
+# [a-z0-9_\-./] would admit "agent:a..evil", which can over-authorise descendants
+# (a token for "agent:a" must NOT cover "agent:a..evil").
+_AGENT_ID_RE = re.compile(r"^agent:[a-z0-9](?:[a-z0-9_\-]|\.(?=[a-z0-9])){0,126}[a-z0-9]?$")
 _TOOL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_\-./]{0,127}$")
 
 
@@ -152,8 +157,22 @@ def token_body(token: dict) -> dict:
     return out
 
 
+def _require_int_bound(kind: str, fld: str, bound) -> None:
+    """A numeric bound MUST be a non-bool int (mirrors capability._require_int_bound).
+    bool is an int subclass, so True/False would otherwise pass as 1/0 bounds."""
+    if isinstance(bound, bool) or not isinstance(bound, int):
+        raise ValueError(
+            f"{kind}[{fld!r}] bound must be an integer, got {type(bound).__name__} {bound!r}"
+        )
+
+
 def _normalise_constraints(c: dict) -> dict:
-    """Normalisation logic mirroring raucle_detect.capability._normalise_constraints."""
+    """Normalisation logic mirroring raucle_detect.capability._normalise_constraints.
+    Raises ValueError on invalid signed material (unknown kinds, non-int numeric
+    bounds) so verify_token denies such a token rather than silently accepting it."""
+    for kind in c:
+        if kind not in _KNOWN_CONSTRAINT_KINDS:
+            raise ValueError(f"unknown constraint kind {kind!r}")
     out: dict = {}
     if "forbidden_values" in c:
         out["forbidden_values"] = {
@@ -166,8 +185,12 @@ def _normalise_constraints(c: dict) -> dict:
     if "starts_with" in c:
         out["starts_with"] = dict(c["starts_with"])
     if "max_value" in c:
+        for fld, bound in c["max_value"].items():
+            _require_int_bound("max_value", fld, bound)
         out["max_value"] = dict(c["max_value"])
     if "min_value" in c:
+        for fld, bound in c["min_value"].items():
+            _require_int_bound("min_value", fld, bound)
         out["min_value"] = dict(c["min_value"])
     if "required_present" in c:
         out["required_present"] = sorted(c["required_present"], key=_utf16_key)
@@ -239,19 +262,34 @@ def verify_token(
     if tool is not None and tool != token["tool"]:
         return False, f"tool mismatch (token says {token['tool']!r})", "tool_match"
 
-    # Check 6: agent scope
-    if agent_id is not None and agent_id != token["agent_id"]:
-        if not agent_id.startswith(token["agent_id"] + "."):
+    # Check 6: agent scope. The caller agent_id MUST itself be well-formed
+    # (mirrors CapabilityGate, which validates the caller id before scope) so a
+    # malformed id like "agent:a..evil" cannot masquerade as a sub-scope.
+    if agent_id is not None:
+        if not _AGENT_ID_RE.match(agent_id):
+            return False, f"malformed caller agent_id {agent_id!r}", "agent_scope"
+        if agent_id != token["agent_id"] and not agent_id.startswith(token["agent_id"] + "."):
             return False, f"agent {agent_id!r} not a sub-scope of {token['agent_id']!r}", "agent_scope"
 
-    # Check 7: constraints (only if args supplied)
-    if args is not None:
-        reason = _check_constraints(token.get("constraints", {}), args)
-        if reason:
-            return False, f"constraint: {reason}", "constraint"
+    # Check 7 — chain resolution (fundamental, so checked before constraints).
+    # This minimal verifier resolves single tokens only. A token that cites a
+    # parent MUST be DENIED (fail-closed), never silently accepted: its
+    # attenuation chain cannot be verified here.
+    if token.get("parent_id") is not None:
+        return (
+            False,
+            "token cites parent_id; attenuation-chain resolution is out of scope "
+            "for this minimal verifier (fail-closed)",
+            "chain",
+        )
 
-    # Check 8 (chain resolution): not implemented by this minimal verifier.
-    # A fuller implementation walks parent_id chains.
+    # Check 8: constraints. Run regardless of args so token-level invariants
+    # (e.g. an unmodelled constraint kind that survived into a signed token) are
+    # enforced even on a presence-only verification; arg-dependent checks are
+    # no-ops when args is None.
+    reason = _check_constraints(token.get("constraints", {}), args or {})
+    if reason:
+        return False, f"constraint: {reason}", "constraint"
 
     return True, "ok", None
 
