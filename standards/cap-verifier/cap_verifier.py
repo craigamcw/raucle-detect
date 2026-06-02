@@ -33,6 +33,7 @@ import math
 import re
 import sys
 import time
+import unicodedata
 from pathlib import Path
 
 
@@ -182,41 +183,67 @@ def _require_value_list(kind: str, fld: str, v):
     return sorted(v, key=_value_sort_key)
 
 
+def _field_mapping(kind: str, c: dict) -> dict:
+    """Return c[kind] after asserting it is a dict whose field names are
+    non-empty strings that remain DISTINCT under Unicode NFC normalisation
+    (mirrors capability._validate_field_keys). A non-dict shape (e.g. a list)
+    must fail closed as invalid signed material, not crash on .items()."""
+    m = c[kind]
+    if not isinstance(m, dict):
+        raise ValueError(f"{kind} must be an object mapping field -> value, got {type(m).__name__}")
+    seen: dict = {}
+    for key in m:
+        if not isinstance(key, str) or not key:
+            raise ValueError(f"{kind} field name must be a non-empty string, got {key!r}")
+        norm = unicodedata.normalize("NFC", key)
+        if norm in seen and seen[norm] != key:
+            raise ValueError(
+                f"{kind} field names {seen[norm]!r} and {key!r} collide under Unicode NFC"
+            )
+        seen[norm] = key
+    return m
+
+
 def _normalise_constraints(c: dict) -> dict:
     """Normalisation logic mirroring raucle_detect.capability._normalise_constraints.
-    Raises ValueError on invalid signed material (unknown kinds, malformed value
-    shapes, non-int numeric bounds) so verify_token denies such a token rather
-    than silently accepting it — the gate rejects these at sign/normalise time."""
+    Raises ValueError on invalid signed material (unknown kinds, non-dict mappings,
+    NFC-colliding field names, malformed value shapes, non-int numeric bounds) so
+    verify_token DENIES (fail-closed) rather than silently accepting or crashing."""
+    if not isinstance(c, dict):
+        raise ValueError(f"constraints must be an object, got {type(c).__name__}")
     for kind in c:
         if kind not in _KNOWN_CONSTRAINT_KINDS:
             raise ValueError(f"unknown constraint kind {kind!r}")
     out: dict = {}
     if "forbidden_values" in c:
+        m = _field_mapping("forbidden_values", c)
         out["forbidden_values"] = {
-            k: _require_value_list("forbidden_values", k, v)
-            for k, v in c["forbidden_values"].items()
+            k: _require_value_list("forbidden_values", k, v) for k, v in m.items()
         }
     if "allowed_values" in c:
+        m = _field_mapping("allowed_values", c)
         out["allowed_values"] = {
-            k: _require_value_list("allowed_values", k, v)
-            for k, v in c["allowed_values"].items()
+            k: _require_value_list("allowed_values", k, v) for k, v in m.items()
         }
     if "starts_with" in c:
-        for fld, prefix in c["starts_with"].items():
+        m = _field_mapping("starts_with", c)
+        for fld, prefix in m.items():
             if not isinstance(prefix, str):
                 raise ValueError(
                     f"starts_with[{fld!r}] prefix must be a string, got "
                     f"{type(prefix).__name__} {prefix!r}"
                 )
-        out["starts_with"] = dict(c["starts_with"])
+        out["starts_with"] = dict(m)
     if "max_value" in c:
-        for fld, bound in c["max_value"].items():
+        m = _field_mapping("max_value", c)
+        for fld, bound in m.items():
             _require_int_bound("max_value", fld, bound)
-        out["max_value"] = dict(c["max_value"])
+        out["max_value"] = dict(m)
     if "min_value" in c:
-        for fld, bound in c["min_value"].items():
+        m = _field_mapping("min_value", c)
+        for fld, bound in m.items():
             _require_int_bound("min_value", fld, bound)
-        out["min_value"] = dict(c["min_value"])
+        out["min_value"] = dict(m)
     if "required_present" in c:
         rp = c["required_present"]
         if not isinstance(rp, list) or not all(isinstance(x, str) and x for x in rp):
