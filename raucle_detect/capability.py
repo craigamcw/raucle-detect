@@ -286,8 +286,13 @@ class Capability:
                 f"capability token: parent_id must be a non-empty string or null, "
                 f"got {type(_pid).__name__} {_pid!r}"
             )
-        if "signature" in d and not isinstance(d["signature"], str):
-            raise ValueError("capability token: signature must be a string")
+        # A parsed token is signed material: signature MUST be present and a
+        # string (matches the cap-verifier reference, which type-checks it as a
+        # required field). An empty string is tolerated here — the signature
+        # check denies it on verify — but a missing/non-string value fails closed
+        # at the parse boundary rather than defaulting to "".
+        if not isinstance(d.get("signature"), str):
+            raise ValueError("capability token: signature must be present and a string")
 
         def _ts(name: str) -> int:
             # Timestamps are signed material and MUST be canonical integers.
@@ -316,7 +321,7 @@ class Capability:
             policy_proof_hash=d.get("policy_proof_hash"),
             grammar_hash=d.get("grammar_hash"),
             policy_hash=d.get("policy_hash"),
-            signature=d.get("signature", ""),
+            signature=d["signature"],
         )
 
     def save(self, path: str | Path) -> None:
