@@ -290,7 +290,11 @@ def _reorder_keys_utf16(obj: Any) -> Any:
     dict keys, to be serialised with ``sort_keys=False``."""
     if isinstance(obj, dict):
         return {k: _reorder_keys_utf16(obj[k]) for k in sorted(obj, key=_utf16_key)}
-    if isinstance(obj, list):
+    if isinstance(obj, (list, tuple)):
+        # Tuples are serialised as JSON arrays by json.dumps and are descended by
+        # _reject_floats, so they MUST be recursed here too — otherwise a dict
+        # nested inside a tuple would keep Python's native code-point key order
+        # and bypass the UTF-16 canonical ordering (codex round-3).
         return [_reorder_keys_utf16(v) for v in obj]
     return obj
 

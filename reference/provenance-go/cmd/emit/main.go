@@ -28,9 +28,11 @@ func main() {
 	defer out.Flush()
 
 	if canon {
-		// Canonicalisation cross-check (key ordering): read {"obj": <value>}
-		// lines, emit {"hex": "<utf8 hex of canonical bytes>"}. Values are
-		// strings (numbers would unmarshal to float64 and be rejected).
+		// Canonicalisation cross-check: read {"obj": <value>} lines, emit
+		// {"hex": "<utf8 hex of canonical bytes>"}. JSON numbers unmarshal to
+		// float64; canonicalWrite accepts integral float64 in the safe range
+		// and rejects non-integers / out-of-range values (exit non-zero), which
+		// is exactly what the invalid-vector checks rely on.
 		for sc.Scan() {
 			line := sc.Bytes()
 			if len(line) == 0 {
