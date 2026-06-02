@@ -204,6 +204,10 @@ def _canonicalization_vectors() -> list[dict]:
             "description": desc,
             "input_object": obj,
             "expected_canonical_utf8": jcs.decode("utf-8"),
+            # Unambiguous byte artifact: hex of the exact UTF-8 canonical bytes,
+            # so a peer can byte-diff without depending on how the outer JSON
+            # escapes non-ASCII (the file itself uses ensure_ascii=True).
+            "expected_canonical_hex": jcs.hex(),
             "expected_canonical_sha256": "sha256:" + _sha256_hex(jcs),
         }
 
@@ -232,6 +236,17 @@ def _canonicalization_vectors() -> list[dict]:
             {"corpus": "café — naïve — 日本語 — 🔒", "taint": ["external_user", "naïveté"]},
         ),
         vec(
+            "canon_non_bmp_key_ordering",
+            "Object keys MUST be ordered by UTF-16 code unit (§4.3.1, RFC 8785 "
+            "§3.2.3), NOT by Unicode code point. The key '\\uE000' (BMP private-use) "
+            "vs '\\U0001F511' (🔑, non-BMP) is the discriminating case: by code "
+            "point \\uE000 (57344) < 🔑 (128273) so \\uE000 sorts first; by UTF-16 "
+            "the 🔑 surrogate lead unit 0xD83D (55357) < 0xE000 so 🔑 sorts first. "
+            "A code-point sort (naive Python/Go/Rust) and a UTF-16 sort (JS/.NET) "
+            "disagree here — this vector forces all implementations onto UTF-16.",
+            {"": 1, "\U0001F511": 2, "a": 3},
+        ),
+        vec(
             "canon_boundary_integer",
             "Safe-integer boundary 2^53-1 = 9007199254740991 (§4.3.6). This value "
             "round-trips byte-identically everywhere; 2^53 (9007199254740992) is "
@@ -241,9 +256,54 @@ def _canonicalization_vectors() -> list[dict]:
     ]
 
 
+def _invalid_canonicalization_vectors() -> list[dict]:
+    """Inputs that are INVALID signed/hashed material and MUST be rejected, not
+    serialised (§4.3.5 floats, §4.3.6 integer domain). Makes the normative
+    rejection rules machine-checkable instead of prose-only.
+
+    Self-checked at generation time: each input is asserted to actually raise
+    in `_canonical_json`, so the published `must_reject: true` is never a claim
+    the reference implementation fails to honour.
+    """
+    from raucle_detect.provenance import _canonical_json
+
+    cases = [
+        ("invalid_integer_above_safe_range",
+         "2^53 = 9007199254740992 is one past the safe-integer boundary (§4.3.6); "
+         "MUST be rejected at sign and verify in every implementation.",
+         {"amount": 9007199254740992}),
+        ("invalid_integer_below_safe_range",
+         "-(2^53) = -9007199254740992 is one past the negative boundary (§4.3.6); "
+         "MUST be rejected.",
+         {"amount": -9007199254740992}),
+        ("invalid_float",
+         "Non-integer numbers (floats) MUST be rejected, not serialised (§4.3.5): "
+         "cross-implementation float canonicalisation is out of scope for v1.",
+         {"amount": 1.5}),
+    ]
+    out = []
+    for name, desc, obj in cases:
+        try:
+            _canonical_json(obj)
+        except Exception as e:  # expected — this is the contract
+            out.append({
+                "name": name,
+                "description": desc,
+                "input_object": obj,
+                "must_reject": True,
+                "reference_error": type(e).__name__,
+            })
+        else:
+            raise AssertionError(
+                f"{name}: _canonical_json accepted input that the spec says MUST be rejected"
+            )
+    return out
+
+
 def main() -> int:
     vectors = _build_vectors()
     vectors["canonicalization_vectors"] = _canonicalization_vectors()
+    vectors["invalid_canonicalization_vectors"] = _invalid_canonicalization_vectors()
     print(json.dumps(vectors, indent=2, sort_keys=True))
     return 0
 

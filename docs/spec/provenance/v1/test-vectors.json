@@ -4,6 +4,7 @@
   "canonicalization_vectors": [
     {
       "description": "APS \u00a74.1 action_ref preimage (4 string/array-of-string fields; no numbers, so the \u00b1(2^53-1) integer bound is moot \u2014 restricted subset == full RFC 8785 here)",
+      "expected_canonical_hex": "7b22616374696f6e54797065223a22636f6d6d657263655f707265666c69676874222c226167656e744964223a226469643a6170733a7a364d6b4578616d706c654167656e744964496e43616e6f6e6963616c4d756c746962617365466f726d222c2273636f70655265717569726564223a5b22636f6d6d657263652e72656164222c22636f6d6d657263652e7772697465225d2c2274696d657374616d70223a22323032362d30342d30385431323a30303a30305a227d",
       "expected_canonical_sha256": "sha256:1b1d08b62eb438d4079fcf99ffe91be43660ca271e304df8c74897fdda3b88aa",
       "expected_canonical_utf8": "{\"actionType\":\"commerce_preflight\",\"agentId\":\"did:aps:z6MkExampleAgentIdInCanonicalMultibaseForm\",\"scopeRequired\":[\"commerce.read\",\"commerce.write\"],\"timestamp\":\"2026-04-08T12:00:00Z\"}",
       "input_object": {
@@ -19,6 +20,7 @@
     },
     {
       "description": "Non-ASCII strings MUST be raw UTF-8, never \\uXXXX-escaped (\u00a74.3.4). Mix of Latin-1, CJK, and emoji to exercise multi-byte UTF-8.",
+      "expected_canonical_hex": "7b22636f72707573223a22636166c3a920e28094206e61c3af766520e2809420e697a5e69cace8aa9e20e2809420f09f9492222c227461696e74223a5b2265787465726e616c5f75736572222c226e61c3af766574c3a9225d7d",
       "expected_canonical_sha256": "sha256:9a52dfa41875cb7739234f5f8e4f374b29414fab4264b880920098e1e9e6fd5d",
       "expected_canonical_utf8": "{\"corpus\":\"caf\u00e9 \u2014 na\u00efve \u2014 \u65e5\u672c\u8a9e \u2014 \ud83d\udd12\",\"taint\":[\"external_user\",\"na\u00efvet\u00e9\"]}",
       "input_object": {
@@ -31,7 +33,20 @@
       "name": "canon_non_ascii_strings"
     },
     {
+      "description": "Object keys MUST be ordered by UTF-16 code unit (\u00a74.3.1, RFC 8785 \u00a73.2.3), NOT by Unicode code point. The key '\\uE000' (BMP private-use) vs '\\U0001F511' (\ud83d\udd11, non-BMP) is the discriminating case: by code point \\uE000 (57344) < \ud83d\udd11 (128273) so \\uE000 sorts first; by UTF-16 the \ud83d\udd11 surrogate lead unit 0xD83D (55357) < 0xE000 so \ud83d\udd11 sorts first. A code-point sort (naive Python/Go/Rust) and a UTF-16 sort (JS/.NET) disagree here \u2014 this vector forces all implementations onto UTF-16.",
+      "expected_canonical_hex": "7b2261223a332c22f09f9491223a322c22ee8080223a317d",
+      "expected_canonical_sha256": "sha256:61f7338a6e5f58badfac0f7f479fca6d1c2f8c8af4a7416bed0225d0f13b71b2",
+      "expected_canonical_utf8": "{\"a\":3,\"\ud83d\udd11\":2,\"\ue000\":1}",
+      "input_object": {
+        "a": 3,
+        "\ue000": 1,
+        "\ud83d\udd11": 2
+      },
+      "name": "canon_non_bmp_key_ordering"
+    },
+    {
       "description": "Safe-integer boundary 2^53-1 = 9007199254740991 (\u00a74.3.6). This value round-trips byte-identically everywhere; 2^53 (9007199254740992) is out of the signed-material domain and MUST be rejected at sign/verify.",
+      "expected_canonical_hex": "7b22616d6f756e74223a393030373139393235343734303939312c2263757272656e6379223a22555344227d",
       "expected_canonical_sha256": "sha256:ef744d469e2154cc3b64dbc7f60de7c3a7568745a7bf0a9a2b79c821af92da89",
       "expected_canonical_utf8": "{\"amount\":9007199254740991,\"currency\":\"USD\"}",
       "input_object": {
@@ -43,6 +58,35 @@
   ],
   "fixed_seed_hex": "1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100",
   "generator_version": "raucle-detect 0.5.0",
+  "invalid_canonicalization_vectors": [
+    {
+      "description": "2^53 = 9007199254740992 is one past the safe-integer boundary (\u00a74.3.6); MUST be rejected at sign and verify in every implementation.",
+      "input_object": {
+        "amount": 9007199254740992
+      },
+      "must_reject": true,
+      "name": "invalid_integer_above_safe_range",
+      "reference_error": "ValueError"
+    },
+    {
+      "description": "-(2^53) = -9007199254740992 is one past the negative boundary (\u00a74.3.6); MUST be rejected.",
+      "input_object": {
+        "amount": -9007199254740992
+      },
+      "must_reject": true,
+      "name": "invalid_integer_below_safe_range",
+      "reference_error": "ValueError"
+    },
+    {
+      "description": "Non-integer numbers (floats) MUST be rejected, not serialised (\u00a74.3.5): cross-implementation float canonicalisation is out of scope for v1.",
+      "input_object": {
+        "amount": 1.5
+      },
+      "must_reject": true,
+      "name": "invalid_float",
+      "reference_error": "ValueError"
+    }
+  ],
   "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAcSZR9FC6BbY4mLme9fe6RWMujiUn9/cVzWcexAJMxR4=\n-----END PUBLIC KEY-----\n",
   "spec_version": "raucle-provenance-receipt/v1",
   "vectors": [

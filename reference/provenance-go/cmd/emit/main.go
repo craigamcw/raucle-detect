@@ -21,10 +21,39 @@ type req struct {
 }
 
 func main() {
+	canon := len(os.Args) > 1 && os.Args[1] == "--canon"
 	sc := bufio.NewScanner(os.Stdin)
 	sc.Buffer(make([]byte, 1024*1024), 1024*1024)
 	out := bufio.NewWriter(os.Stdout)
 	defer out.Flush()
+
+	if canon {
+		// Canonicalisation cross-check (key ordering): read {"obj": <value>}
+		// lines, emit {"hex": "<utf8 hex of canonical bytes>"}. Values are
+		// strings (numbers would unmarshal to float64 and be rejected).
+		for sc.Scan() {
+			line := sc.Bytes()
+			if len(line) == 0 {
+				continue
+			}
+			var cr struct {
+				Obj any `json:"obj"`
+			}
+			if err := json.Unmarshal(line, &cr); err != nil {
+				fmt.Fprintln(os.Stderr, "decode:", err)
+				os.Exit(1)
+			}
+			b, err := provenance.CanonicalEncode(cr.Obj)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "canon:", err)
+				os.Exit(1)
+			}
+			o, _ := json.Marshal(map[string]string{"hex": hex.EncodeToString(b)})
+			out.Write(o)
+			out.WriteByte('\n')
+		}
+		return
+	}
 
 	for sc.Scan() {
 		line := sc.Bytes()

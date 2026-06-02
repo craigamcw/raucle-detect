@@ -27,6 +27,23 @@ if (args.Length > 0 && args[0] == "--harness")
     return;
 }
 
+// Canonicalisation cross-check (key ordering): read {"obj": <value>} lines,
+// write {"hex": "<utf8 hex of canonical bytes>"} lines.
+if (args.Length > 0 && args[0] == "--canon")
+{
+    string? line;
+    while ((line = Console.ReadLine()) != null)
+    {
+        if (string.IsNullOrWhiteSpace(line)) continue;
+        using var doc = JsonDocument.Parse(line);
+        var obj = JVal.FromJsonElement(doc.RootElement.GetProperty("obj"));
+        var bytes = Canonical.Encode(obj);
+        Console.WriteLine(JsonSerializer.Serialize(
+            new { hex = Convert.ToHexString(bytes).ToLowerInvariant() }));
+    }
+    return;
+}
+
 // Deterministic key (32 bytes of 0x07) for a reproducible interop fixture.
 var seed = new byte[32]; for (int i = 0; i < 32; i++) seed[i] = 7;
 var priv = new Ed25519PrivateKeyParameters(seed, 0);

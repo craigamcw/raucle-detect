@@ -176,7 +176,8 @@ fn normalise_payload(payload: &Value) -> Result<Value, ProvError> {
                 .iter()
                 .filter_map(|e| e.as_str().map(|s| s.to_string()))
                 .collect();
-            v.sort();
+            // UTF-16 code-unit order (JCS), matching the canonical reference.
+            v.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
             obj.insert(key.into(), json!(v));
         }
     }

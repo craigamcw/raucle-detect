@@ -168,7 +168,7 @@ def _structural_errors(receipt: ProvenanceReceipt) -> list[str]:
     # non-conformant emitter.
     for name in ("parents", "taint"):
         seq = list(getattr(receipt, name, []) or [])
-        if seq != sorted(seq):
+        if seq != sorted(seq, key=_utf16_key):
             errs.append(f"{name} must be sorted lexicographically")
         if len(seq) != len(set(seq)):
             errs.append(f"{name} must not contain duplicates")
@@ -269,16 +269,48 @@ def _reject_floats(obj: Any) -> None:
             _reject_floats(v)
 
 
+def _utf16_key(s: str) -> bytes:
+    """Sort key giving RFC 8785 (JCS) object-key ordering: by UTF-16 code unit.
+
+    Encoding to UTF-16 *big-endian* makes a plain byte comparison equivalent to
+    comparing the sequence of unsigned 16-bit code units, which is exactly what
+    JCS §3.2.3, JavaScript ``a < b``, and .NET ``StringComparer.Ordinal`` do.
+    This differs from Python's native ``sort_keys=True`` (Unicode code-point
+    order) only for non-BMP (astral) characters, where a surrogate pair (lead
+    unit U+D800..U+DBFF) sorts *before* BMP code points ≥ U+E000. Unifying on
+    this ordering is what keeps the Python/Go/Rust/TS/C# reference encoders
+    byte-identical for objects with non-BMP keys (BMP keys are unaffected).
+    """
+    return s.encode("utf-16-be")
+
+
+def _reorder_keys_utf16(obj: Any) -> Any:
+    """Recursively reorder object keys by UTF-16 code unit (JCS), preserving
+    array order. Returns a structurally equal value with canonically-ordered
+    dict keys, to be serialised with ``sort_keys=False``."""
+    if isinstance(obj, dict):
+        return {k: _reorder_keys_utf16(obj[k]) for k in sorted(obj, key=_utf16_key)}
+    if isinstance(obj, list):
+        return [_reorder_keys_utf16(v) for v in obj]
+    return obj
+
+
 def _canonical_json(obj: Any) -> bytes:
     """Serialise *obj* with sorted keys, no whitespace, UTF-8 — for hashing.
 
-    allow_nan=False rejects NaN/Infinity; ``_reject_floats`` additionally rejects
-    *all* floats, matching the TS/Go/Rust/C# reference encoders so the signed
-    bytes are byte-identical across implementations.
+    Object keys are ordered by UTF-16 code unit (RFC 8785 / JCS §3.2.3), not by
+    Python's native code-point order, so the signed/hashed bytes are
+    byte-identical across the TS/Go/Rust/C# reference encoders even for non-BMP
+    keys (see ``_utf16_key``). allow_nan=False rejects NaN/Infinity;
+    ``_reject_floats`` additionally rejects *all* floats.
     """
     _reject_floats(obj)
     return json.dumps(
-        obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+        _reorder_keys_utf16(obj),
+        sort_keys=False,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
     ).encode("utf-8")
 
 
@@ -382,15 +414,15 @@ class CapabilityStatement:
             "agent_id": self.agent_id,
             "key_id": self.key_id,
             "public_key_pem": self.public_key_pem,
-            "allowed_models": sorted(self.allowed_models),
-            "allowed_tools": sorted(self.allowed_tools),
-            "data_classifications": sorted(self.data_classifications),
+            "allowed_models": sorted(self.allowed_models, key=_utf16_key),
+            "allowed_tools": sorted(self.allowed_tools, key=_utf16_key),
+            "data_classifications": sorted(self.data_classifications, key=_utf16_key),
             "issuer": self.issuer,
             "issued_at": self.issued_at,
             "expires_at": self.expires_at,
         }
         if self.sanitisation_authority:
-            body["sanitisation_authority"] = sorted(self.sanitisation_authority)
+            body["sanitisation_authority"] = sorted(self.sanitisation_authority, key=_utf16_key)
         return body
 
     def to_dict(self) -> dict[str, Any]:
@@ -563,8 +595,8 @@ class ProvenanceReceipt:
             "agent_id": self.agent_id,
             "agent_key_id": self.agent_key_id,
             "operation": self.operation.value,
-            "parents": sorted(self.parents),
-            "taint": sorted(self.taint),
+            "parents": sorted(self.parents, key=_utf16_key),
+            "taint": sorted(self.taint, key=_utf16_key),
         }
         if self.input_hash:
             out["input_hash"] = self.input_hash

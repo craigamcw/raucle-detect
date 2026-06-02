@@ -119,9 +119,9 @@ func (p *Payload) Validate() error {
 // ProvenanceReceipt.payload() does. Parents and taint are sorted.
 func (p *Payload) toMap() map[string]any {
 	parents := append([]string(nil), p.Parents...)
-	sort.Strings(parents)
+	sort.Slice(parents, func(i, j int) bool { return lessUTF16(parents[i], parents[j]) })
 	taint := append([]string(nil), p.Taint...)
-	sort.Strings(taint)
+	sort.Slice(taint, func(i, j int) bool { return lessUTF16(taint[i], taint[j]) })
 
 	parentsAny := make([]any, len(parents))
 	for i, v := range parents {
