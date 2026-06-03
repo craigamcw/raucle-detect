@@ -33,6 +33,16 @@
       "name": "canon_non_ascii_strings"
     },
     {
+      "description": "Canonicalisation is pure serialisation (RFC 8785) and does NOT apply Unicode normalisation: a decomposed string is emitted byte-for-byte as given, NOT folded to NFC. The value is U+0041 U+030A (LATIN A + COMBINING RING) \u2014 distinct bytes from the precomposed U+00C5 '\u00c5'. Interop note: NFC is a *producer* responsibility (e.g. APS sorts/normalises scopeRequired before canonicalising); a canonicaliser that silently NFC-folds here would diverge on this input.",
+      "expected_canonical_hex": "7b2273636f7065223a2241cc8a227d",
+      "expected_canonical_sha256": "sha256:389c57f1d74c4a88ffdd1bc0fce5c62f62a7e204ac49aafd38f538d89a87afd7",
+      "expected_canonical_utf8": "{\"scope\":\"A\u030a\"}",
+      "input_object": {
+        "scope": "A\u030a"
+      },
+      "name": "canon_non_nfc_passthrough"
+    },
+    {
       "description": "Object keys MUST be ordered by UTF-16 code unit (\u00a74.3.1, RFC 8785 \u00a73.2.3), NOT by Unicode code point. The key '\\uE000' (BMP private-use) vs '\\U0001F511' (\ud83d\udd11, non-BMP) is the discriminating case: by code point \\uE000 (57344) < \ud83d\udd11 (128273) so \\uE000 sorts first; by UTF-16 the \ud83d\udd11 surrogate lead unit 0xD83D (55357) < 0xE000 so \ud83d\udd11 sorts first. A code-point sort (naive Python/Go/Rust) and a UTF-16 sort (JS/.NET) disagree here \u2014 this vector forces all implementations onto UTF-16.",
       "expected_canonical_hex": "7b2261223a332c22f09f9491223a322c22ee8080223a317d",
       "expected_canonical_sha256": "sha256:61f7338a6e5f58badfac0f7f479fca6d1c2f8c8af4a7416bed0225d0f13b71b2",

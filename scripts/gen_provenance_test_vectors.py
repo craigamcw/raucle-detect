@@ -236,6 +236,17 @@ def _canonicalization_vectors() -> list[dict]:
             {"corpus": "café — naïve — 日本語 — 🔒", "taint": ["external_user", "naïveté"]},
         ),
         vec(
+            "canon_non_nfc_passthrough",
+            "Canonicalisation is pure serialisation (RFC 8785) and does NOT apply "
+            "Unicode normalisation: a decomposed string is emitted byte-for-byte as "
+            "given, NOT folded to NFC. The value is U+0041 U+030A (LATIN A + COMBINING "
+            "RING) — distinct bytes from the precomposed U+00C5 'Å'. Interop note: NFC "
+            "is a *producer* responsibility (e.g. APS sorts/normalises scopeRequired "
+            "before canonicalising); a canonicaliser that silently NFC-folds here would "
+            "diverge on this input.",
+            {"scope": "A\u030a"},  # decomposed: LATIN A + COMBINING RING ABOVE
+        ),
+        vec(
             "canon_non_bmp_key_ordering",
             "Object keys MUST be ordered by UTF-16 code unit (§4.3.1, RFC 8785 "
             "§3.2.3), NOT by Unicode code point. The key '\\uE000' (BMP private-use) "
