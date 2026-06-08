@@ -2,8 +2,9 @@
 
 How **raucle-detect**'s primitives align with the
 [NIST AI Agent Standards Initiative](https://www.nist.gov/artificial-intelligence/ai-agent-standards-initiative)
-(launched by CAISI on 18 Feb 2026), whose foundational workstream is **AI agent
-identity and authorization** — Raucle's core lane.
+(announced by CAISI on 17 Feb 2026), whose early related work includes an NCCoE
+project / draft concept paper on **AI agent identity and authorization** —
+Raucle's core lane.
 
 > **Scope & honesty note.** The initiative is **early** — convenings, an RFI on
 > agent security threats/mitigations, and an NCCoE concept paper on *agent
@@ -21,25 +22,29 @@ identity and authorization** — Raucle's core lane.
 2. **Community-led protocols** — lowering barriers to interoperable agent protocols (incl. open-source funding).
 3. **Research investment** — agent **authentication, identity infrastructure**, and security evaluation.
 
-Foundational deliverable: an **agent identity & authorization** concept paper
-(NCCoE), plus an **RFI on agent security threats and mitigations**.
+A related early **NCCoE project / draft concept paper** addresses **agent
+identity & authorization**, and an **RFI on agent security threats and
+mitigations** ran in early 2026. (Both public comment periods have since closed
+— RFI 9 Mar, concept paper 2 Apr 2026; NCCoE status: *reviewing comments*.)
 
 ## Alignment map
 
 | NIST focus area | Raucle primitive | Status |
 |---|---|---|
-| **Agent identity & authentication** | An agent is an Ed25519 keypair (`AgentIdentity`); a **capability token** binds `(agent_id, tool, constraints, validity, parent)` under that key. `agent_id` is a stable, dot-scoped identifier. | **Shipped.** |
+| **Agent identity & authentication** | An agent is an Ed25519 keypair (`AgentIdentity`); a **capability token** binds `(agent_id, tool, constraints, validity, parent)`, **signed by the issuer key** (`CapabilityIssuer`). `agent_id` is a stable, dot-scoped identifier. | **Shipped.** |
 | **Authorization & delegation** | Tool calls are gated against the token's signed constraints (fail-closed). **Delegation = attenuation**: a parent mints a child that can only *narrow* permissions, never broaden; chains are verifiable link-by-link. Tokens are short-lived; **revocation** denies a token (and its descendants **when a parent resolver is configured**). | **Shipped.** |
 | **Action accountability / audit** | Every step emits a content-addressed, EdDSA-signed **provenance receipt**, independently verifiable **offline** by a third party (no trust in the issuing agent required). | **Shipped.** |
 | **Interoperability** | The receipt + canonicalisation are a **published, versioned spec** with **five byte-identical reference implementations** (Python/TS/Go/Rust/C#). Active cross-system interop with the A2A/APS `action_ref` work (a shared JCS+SHA-256 canonicalisation fixture). | **Shipped + in progress.** |
 | **Verifiable authorization (the strong claim)** | In **strict proof mode**, a decision binds to a machine-checked policy via `policy_hash`: a Z3 proof (over **prover-encodable** keys and modelled schema fragments) that no admitted call violates the policy, with gate soundness mechanised in **Lean 4** (composition assumes prover soundness as a stated axiom). Proof binding is **opt-in**. | **Shipped (opt-in, scoped).** |
-| **Security evaluation** | `raucle-bench` provides an executed-effect evaluation harness against AgentDojo-style suites. | **Partial / evolving.** |
+| **Security evaluation** | The paper evaluation harness (`paper/eval`) runs an executed-effect evaluation against AgentDojo-style suites (parts still scaffolded). | **Partial / evolving.** |
 
 ## Engagement on-ramp
 
-The concrete channels are the **identity & authorization concept paper** and the
-**agent-security RFI**. Raucle is a natural **candidate reference** for the
-identity/authorization workstream: signed, attenuable capability tokens are a
+The relevant NIST/NCCoE inputs are the **identity & authorization concept paper**
+and the **agent-security RFI** (both comment periods closed in early 2026; NCCoE
+is reviewing comments — watch for the next draft/comment window). Raucle is a
+natural **candidate reference** for the identity/authorization work: signed,
+attenuable capability tokens are a
 working instance of "scoped agent authorization with verifiable delegation," and
 the offline-verifiable receipt is a working instance of "auditable authorization
 decisions." The interoperability pillar is where the published spec + five
