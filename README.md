@@ -561,8 +561,9 @@ the **Raucle** name or logo — see [TRADEMARK.md](TRADEMARK.md). The five
 reference implementations under `reference/` are MIT-licensed; the Provenance
 Receipt specification is CC-BY-4.0.
 
-> Starting with **v0.19.0**, the core package is licensed Apache-2.0. Earlier
-> releases (≤ v0.18.0) remain under the AGPL-3.0-or-later licence under which
-> they were published.
+> Starting with **v0.19.0**, the core package is licensed Apache-2.0. Releases
+> **v0.10.0 through v0.18.0** remain under the AGPL-3.0-or-later licence under
+> which they were published; releases before v0.10.0 remain under their
+> previously published terms (MIT).
 
 Copyright (c) 2026 epic28 Ltd (trading as Raucle)

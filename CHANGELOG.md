@@ -440,7 +440,7 @@ raucle-detect is now dual-licensed. The default open-source licence becomes the 
 
 The change protects the project from being absorbed into closed-source commercial forks while preserving full openness for self-hosting enterprises, academic research, security audits, and contributors. Self-hosting inside a single organisation for internal use — the dominant use case in our regulated-fintech ICP — is unaffected.
 
-Versions tagged on or before commit `ac9aed0` remain available under the MIT licence under which they were released. See [LICENSING.md](LICENSING.md) for the rationale and [COMMERCIAL.md](COMMERCIAL.md) for commercial-licence details.
+Versions tagged on or before commit `ac9aed0` remain available under the MIT licence under which they were released. See [LICENSING.md](LICENSING.md) for the rationale. (Note: the project was subsequently relicensed to Apache-2.0 in v0.19.0; the AGPL + commercial dual-licence described in this historical entry applied to releases v0.10.0–v0.18.0.)
 
 ## 0.10.0 (2026-05-14)
 
