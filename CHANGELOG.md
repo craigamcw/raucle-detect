@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.19.0 (2026-06-08) — relicensed to Apache-2.0
+
+**The core package is now licensed under the Apache License, Version 2.0.**
+This replaces the previous AGPL-3.0-or-later + commercial dual-licence model.
+
+### Changed — licensing
+
+- **Core (`raucle_detect/`) relicensed from AGPL-3.0-or-later to Apache-2.0.**
+  Apache-2.0 is permissive and includes an explicit patent grant, making the
+  engine trivial to embed in any agent runtime, gateway, SDK, or cloud —
+  consistent with the goal of becoming the de-facto reference for verifiable
+  agent authorization and provenance receipts.
+- **Dual-licence apparatus retired.** Removed `COMMERCIAL.md`, `CLA.md`, and the
+  `commercial@raucle.com` licensing lever. Contributions are now Apache-2.0
+  (inbound = outbound) under the existing [DCO](DCO) sign-off; no separate
+  copyright-assignment CLA is required.
+- **Trademark posture unchanged.** Apache-2.0 §6 does not grant rights to the
+  **"Raucle"** name; the trademark remains held separately
+  (see [TRADEMARK.md](TRADEMARK.md)).
+- **Unaffected:** the five reference implementations (`reference/`) remain MIT;
+  the Provenance Receipt specification remains CC-BY-4.0.
+
+> **Note on earlier releases.** This change is forward-looking. Releases
+> **≤ v0.18.0** were published under AGPL-3.0-or-later and remain available under
+> those terms; it does not retroactively alter copies already received.
+
 ## 0.18.0 (2026-06-02) — cross-language canonicalisation fix (B7) + interop vectors
 
 A correctness release centred on a real **cross-language signing bug** found by

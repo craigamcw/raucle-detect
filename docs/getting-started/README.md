@@ -71,7 +71,7 @@ No, it stacks. The heuristic shields stop *speech*; raucle stops *action*. Run s
 Sub-100 µs per gate decision (p50) on commodity hardware. Indistinguishable in end-to-end agent wall time; on three of eight measured open-weight models, raucle-enabled agents finish *faster* than the no-defence baseline because the gate terminates attacker-induced reasoning loops early.
 
 **Open-source licence?**
-AGPL-3.0-or-later. Self-hosting inside a single organisation for internal use — the dominant use case — is unaffected. Commercial licences available from `commercial@raucle.com` for use that's incompatible with AGPL terms.
+Apache-2.0 — permissive, with an explicit patent grant. You may use, modify, embed, and redistribute it (including in closed-source products and hosted services) under the licence's terms. See [LICENSE](../../LICENSE) and [NOTICE](../../NOTICE).
 
 **Does it work without Z3 / cryptography / etc.?**
 The gate and capability layer need only the standard library + the `cryptography` package. The SMT prover needs Z3 (via the `[proof]` extra). Receipt verification anywhere downstream needs only `python3 + cryptography`.

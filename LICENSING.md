@@ -1,30 +1,53 @@
 # Licensing
 
-raucle-detect is released under a **dual licence**:
+raucle-detect is licensed under the **Apache License, Version 2.0**
+(Apache-2.0). See [LICENSE](LICENSE) for the full text and [NOTICE](NOTICE)
+for the attribution notice.
 
-1. **GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later)** — the default. See [LICENSE](LICENSE) for the full text.
-2. **A commercial licence** from epic28 Ltd (trading as Raucle), available for organisations who cannot or do not wish to comply with the AGPL.
+Apache-2.0 is a permissive open-source licence. You may use, modify, embed, and
+redistribute raucle-detect — including inside closed-source products and hosted
+services — provided you comply with the licence's terms (preserve copyright and
+NOTICE attribution, state significant changes, and honour the patent terms).
 
-Most users can stop reading here: if you use raucle-detect under AGPL, you are covered. The AGPL is a strong-copyleft licence that requires anyone who *modifies* raucle-detect and *makes it available to users over a network* — i.e., embeds it in a hosted service — to release their modifications under the same licence. If you self-host raucle-detect inside your organisation and do not redistribute or expose it as a service to third parties, the AGPL imposes no obligations beyond preserving the copyright notices.
+## What the licence covers (and what it doesn't)
 
-For full details on when a commercial licence is appropriate and how to obtain one, see [COMMERCIAL.md](COMMERCIAL.md).
+- **Code.** The engine in `raucle_detect/` is Apache-2.0. The five reference
+  implementations in `reference/` are **MIT**. The Provenance Receipt
+  specification text is **CC-BY-4.0**.
+- **Patents.** Apache-2.0 §3 includes an explicit patent grant from
+  contributors to users, with a retaliation/termination clause — useful
+  assurance for adopters building on raucle-detect as a standard.
+- **Trademarks — not granted.** Apache-2.0 §6 does **not** grant rights to the
+  **"Raucle"** name or logo. A software licence grants rights in the *code*, not
+  the *name*. See [TRADEMARK.md](TRADEMARK.md): you may use the code freely, but
+  you may not name a fork or product "Raucle" or imply endorsement.
 
-## Why AGPL + commercial?
+## Why Apache-2.0?
 
-We chose this model deliberately:
-
-- **AGPL preserves the open-source character of the project.** The source is public, anyone may read it, audit it, learn from it, modify it, and redistribute it. Academic researchers, security teams, students, and self-hosting enterprises can use raucle-detect freely. The AGPL is an OSI-approved open-source licence in the strictest sense.
-- **It prevents proprietary-SaaS clones.** A company that wants to host raucle-detect as a commercial service for third parties must either release their entire modified codebase under AGPL or obtain a commercial licence from us. This protects the project from being absorbed into a closed-source product by a third party that contributes nothing back.
-- **It is the standard model for production-quality commercial open source.** MongoDB used AGPL for a decade before SSPL; MySQL used GPL + commercial for two decades; Sentry, GitLab, and Grafana all use variations of this pattern. It is well-understood by enterprise legal teams and not a barrier to adoption inside regulated industries.
-
-## Contributing
-
-Contributions to raucle-detect are accepted under the AGPL-3.0 by default. Significant contributors may be asked to sign a Contributor Licence Agreement (CLA) granting epic28 Ltd (trading as Raucle) the right to also license their contribution under our commercial licence; this is what makes the dual-licence model possible. The CLA does not remove your rights to your contribution — it adds rights for Raucle.
+raucle-detect aims to be the de-facto reference for verifiable agent
+authorization and provenance receipts. A standard wins by being trivial to
+adopt — embeddable in any agent runtime, gateway, SDK, or cloud without legal
+friction. Apache-2.0 maximises that embeddability while still protecting
+adopters (patent grant) and the project's identity (trademark, held separately).
 
 ## Earlier versions
 
-Versions of raucle-detect tagged before this relicensing remain available under the MIT licence under which they were originally released. The git history at and before commit `ac9aed0` is MIT-licensed; from the commit that introduces this file onward, the project is AGPL-3.0-or-later.
+- Releases **≤ v0.18.0** were published under **AGPL-3.0-or-later** (with a
+  commercial licence option) and remain available under those terms.
+- Even earlier history (at and before commit `ac9aed0`) was **MIT**.
+- Starting with **v0.19.0**, the core package is **Apache-2.0**.
+
+This change is forward-looking: it does not retroactively alter copies already
+received under a prior licence.
+
+## Contributing
+
+Contributions are accepted under Apache-2.0 (inbound = outbound, per the Apache
+contribution norm). Every contribution requires a [DCO](DCO) sign-off
+(`git commit -s`), which certifies you have the right to submit it. No separate
+copyright-assignment CLA is required. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Questions
 
-Email `commercial@raucle.com` for commercial-licensing enquiries. For general licensing questions, open an issue on the GitHub repository.
+Open an issue on the GitHub repository, or email `oss@raucle.com`. For trademark
+or brand-use questions, email `legal@raucle.com`.

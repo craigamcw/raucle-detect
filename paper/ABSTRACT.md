@@ -12,7 +12,7 @@ We present **Verified Capability Discipline**, a composition of three primitives
 
 We mechanise three soundness theorems in Lean 4 with zero `sorry`s: attenuation cannot broaden permissions along any constraint dimension; if the gate returns ALLOW then the call arguments satisfy the token's modelled constraints in a valid descendant of a pinned-issuer token; and, given a `PROVEN` policy proof, a schema-conforming call accepted by the gate satisfies both the policy and the token's own constraints (the SMT solver's completeness is an explicit, **load-bearing** oracle axiom, not re-derived in Lean; the proof-to-token citation binding is enforced operationally in strict proof mode, not mechanised). Evaluating against AgentDojo and InjecAgent across contemporary text-side defences (Spotlighting, Microsoft Prompt Shields), three frontier-class open-weight base models, three attack families, and four task suites, Verified Capability Discipline reduces tool-call-mediated attack-success rate from a no-defence baseline of **1.4–70.8%** to a benchmark-artefact floor of **0.0–0.7%** while preserving **58.6–91.0%** benign task completion; at equivalent security, text-side defences collapse benign completion to 0.0–36.7%, a **+27.9 to +58.6 percentage-point** benign-preservation gap. A static upper bound across both benchmarks is verified at **0 of 2,737** attack scenarios. Per-call gate latency is well under 100 microseconds at p50; cached SMT proofs add no runtime cost. The defence is honest about scope: free-form text-output attacks and parameter-space side channels remain, but the dominant prompt-injection class — coercing a tool call — is closed.
 
-The reference implementation, Lean development, and benchmark harness are released as open source under a strong-copyleft licence (with a commercial licence available for licence-incompatible uses) and form a complete reproducibility package. We do **not** report a separate production deployment in this paper. The thesis is that AI security must move its boundary out of the model.
+The reference implementation, Lean development, and benchmark harness are released as open source under a permissive licence (Apache-2.0) and form a complete reproducibility package. We do **not** report a separate production deployment in this paper. The thesis is that AI security must move its boundary out of the model.
 
 ---
 
@@ -47,7 +47,7 @@ S&P's published criteria weight these dimensions; the abstract addresses each ex
 | Significance | "billions of tool calls per day across regulated industries" |
 | Soundness | "mechanise three soundness theorems in Lean 4" |
 | Empirical rigour | named benchmarks + named baselines + concrete delta numbers |
-| Reproducibility | strong-copyleft (commercial licence available); reproducibility package = eval harness + machine-checked Lean development |
+| Reproducibility | permissive (Apache-2.0); reproducibility package = eval harness + machine-checked Lean development |
 | Honest scope | last paragraph explicitly delimits coverage |
 
 ## Next pass — what to tighten

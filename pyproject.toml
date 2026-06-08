@@ -7,7 +7,7 @@ name = "raucle-detect"
 version = "0.18.0"
 description = "Open-source verifiable agent accountability — cryptographic capability receipts and formal proofs for LLM agent activity"
 readme = "README.md"
-license = "AGPL-3.0-or-later"
+license = "Apache-2.0"
 requires-python = ">=3.10"
 authors = [
     { name = "Raucle", email = "oss@raucle.com" },
@@ -28,7 +28,7 @@ keywords = [
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
