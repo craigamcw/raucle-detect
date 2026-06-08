@@ -12,7 +12,7 @@ Raucle's core lane.
 > This document therefore makes **no conformance claim**. It is a **positioning
 > and candidate-input** map: where Raucle's *shipped* primitives line up with the
 > initiative's stated focus areas, and where Raucle is a candidate reference for
-> the identity/authorization workstream. Capability/proof caveats below match
+> the identity/authorization work. Capability/proof caveats below match
 > the [OWASP mapping](owasp-agentic-top10-mapping.md) and the
 > [spec](../spec/provenance/v1.md).
 
