@@ -115,6 +115,9 @@ _in_force_token: contextvars.ContextVar[Capability | None] = contextvars.Context
 )
 
 
+_UNKNOWN = "<unknown>"  # named once (Sonar S1192)
+
+
 def set_in_force_token(token: Capability | None) -> None:
     """Bind a capability token to the current async context.
 
@@ -318,13 +321,13 @@ class RaucleFunctionMiddleware(FunctionMiddleware):
         decision: GateDecision,
     ) -> CapabilityReceipt:
         return CapabilityReceipt(
-            issuer=(token.issuer if token else "<unknown>"),
-            issuer_pubkey=(token.key_id if token else "<unknown>"),
+            issuer=(token.issuer if token else _UNKNOWN),
+            issuer_pubkey=(token.key_id if token else _UNKNOWN),
             schema_hash=None,  # populated when policy_proof_hash is wired in
             policy_proof_hash=(token.policy_proof_hash if token else None),
             lean_theorem_id=self._lean_theorem_id,
             attenuation_chain=(decision.chain or ([] if token is None else [token.token_id])),
-            agent_id=agent_id or "<unknown>",
+            agent_id=agent_id or _UNKNOWN,
             tool=tool,
             call_args_hash=_hash_args(args),
             decision=("ALLOW" if decision.allowed else "DENY"),

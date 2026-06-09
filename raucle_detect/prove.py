@@ -77,6 +77,8 @@ from typing import Any
 from . import registry as _registry
 from ._canon import utf16_key as _canon_utf16_key
 
+_SHA256_PREFIX = "sha256:"  # named once (Sonar S1192)
+
 
 def _canonical_json(obj: Any) -> bytes:
     # UTF-16 code-unit key ordering (shared _canon helper) so a strict-mode
@@ -145,7 +147,7 @@ class ProofResult:
 
     @property
     def hash(self) -> str:
-        return "sha256:" + _sha256_hex(_canonical_json(self.body()))
+        return _SHA256_PREFIX + _sha256_hex(_canonical_json(self.body()))
 
     def to_dict(self) -> dict[str, Any]:
         d = self.body()
@@ -371,8 +373,8 @@ class JSONSchemaProver:
             status=status,
             prover="JSONSchemaProver",
             prover_version=_JSON_PROVER_VERSION,
-            grammar_hash="sha256:" + _sha256_hex(_canonical_json(schema)),
-            policy_hash="sha256:" + _sha256_hex(_canonical_json(policy)),
+            grammar_hash=_SHA256_PREFIX + _sha256_hex(_canonical_json(schema)),
+            policy_hash=_SHA256_PREFIX + _sha256_hex(_canonical_json(policy)),
             counterexample=counter,
             notes=notes,
             timeout_ms=self.timeout_ms,
@@ -534,8 +536,8 @@ class URLPolicyProver:
             status=status,
             prover="URLPolicyProver",
             prover_version=_URL_PROVER_VERSION,
-            grammar_hash="sha256:" + _sha256_hex(_canonical_json(grammar)),
-            policy_hash="sha256:" + _sha256_hex(_canonical_json(policy)),
+            grammar_hash=_SHA256_PREFIX + _sha256_hex(_canonical_json(grammar)),
+            policy_hash=_SHA256_PREFIX + _sha256_hex(_canonical_json(policy)),
             counterexample=counter,
             notes=notes,
         )
@@ -777,8 +779,8 @@ class SQLClauseProver:
             status=status,
             prover="SQLClauseProver",
             prover_version=_SQL_PROVER_VERSION,
-            grammar_hash="sha256:" + _sha256_hex(_canonical_json(grammar)),
-            policy_hash="sha256:" + _sha256_hex(_canonical_json(policy)),
+            grammar_hash=_SHA256_PREFIX + _sha256_hex(_canonical_json(grammar)),
+            policy_hash=_SHA256_PREFIX + _sha256_hex(_canonical_json(policy)),
             counterexample=counter,
             notes=notes,
         )

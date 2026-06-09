@@ -47,6 +47,9 @@ _PROOF_STATUS = {
 }
 
 
+_SHA256_PREFIX = "sha256:"  # named once (Sonar S1192)
+
+
 def _proof_hash_ok(p: dict[str, Any]) -> bool:
     """A supplied proof dict is trusted only if its claimed ``hash`` equals the
     hash recomputed from its own body (the content-address binding). Without this
@@ -170,7 +173,7 @@ def _parse_finding(err: str) -> tuple[str | None, object, str]:
             return "line", int(num), rest
     if sep and head.startswith("receipt "):
         h = head[len("receipt ") :].strip()
-        if h.startswith("sha256:"):
+        if h.startswith(_SHA256_PREFIX):
             return "receipt", h, rest
     return None, None, err
 
@@ -339,14 +342,14 @@ def build_report(
     }
 
     input_hashes = {
-        "chain_sha256": "sha256:" + _sha256_hex(Path(chain_path).read_bytes()),
+        "chain_sha256": _SHA256_PREFIX + _sha256_hex(Path(chain_path).read_bytes()),
         "public_keys": {
-            kid: "sha256:" + _sha256_hex(pem) for kid, pem in sorted(public_keys.items())
+            kid: _SHA256_PREFIX + _sha256_hex(pem) for kid, pem in sorted(public_keys.items())
         },
         # The enforced capability statements are an input that changes verdicts
         # (allowed-tools/models), so bind their content into the manifest too.
         "capability_statements": {
-            kid: "sha256:" + _sha256_hex(_canonical_json(stmt.to_dict()))
+            kid: _SHA256_PREFIX + _sha256_hex(_canonical_json(stmt.to_dict()))
             for kid, stmt in sorted((capability_statements or {}).items())
         },
         "proofs": [p.get("hash", "") for p in proofs],

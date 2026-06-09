@@ -70,6 +70,9 @@ _model_version = os.environ.get("RAUCLE_DETECT_MODEL_VERSION", "")
 _tenant_default = os.environ.get("RAUCLE_DETECT_TENANT") or None
 
 
+_HELP_SCANNER_MODE = "Override scanner mode"  # named once (Sonar S1192)
+
+
 def _init_compliance() -> tuple[Any, Any]:
     """Build the optional audit sink + verdict signer from environment.
 
@@ -177,7 +180,7 @@ class BatchScanRequest(BaseModel):
         max_length=_MAX_BATCH_PROMPTS,
         description="List of prompts to scan",
     )
-    mode: str | None = Field(default=None, description="Override scanner mode")
+    mode: str | None = Field(default=None, description=_HELP_SCANNER_MODE)
     workers: int = Field(default=4, ge=1, le=32, description="Concurrency level")
 
 
@@ -186,13 +189,13 @@ class OutputScanRequest(BaseModel):
     original_prompt: str | None = Field(
         default=None, description="Original user prompt for context"
     )
-    mode: str | None = Field(default=None, description="Override scanner mode")
+    mode: str | None = Field(default=None, description=_HELP_SCANNER_MODE)
 
 
 class ToolCallScanRequest(BaseModel):
     tool_name: str = Field(..., description="Name of the tool being called")
     arguments: dict[str, Any] = Field(default_factory=dict, description="Tool call arguments")
-    mode: str | None = Field(default=None, description="Override scanner mode")
+    mode: str | None = Field(default=None, description=_HELP_SCANNER_MODE)
 
 
 class ScanResponse(BaseModel):

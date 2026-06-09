@@ -69,6 +69,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+_SHA256_PREFIX = "sha256:"  # named once (Sonar S1192)
+
+
 def _canonical_json(obj: Any) -> bytes:
     # UTF-16 code-unit key ordering (shared _canon helper) for cross-language
     # byte-identity. allow_nan=False: NaN/Infinity are not valid JSON and break
@@ -147,7 +150,7 @@ class SignedIOC:
         }
 
     def compute_content_hash(self) -> str:
-        return "sha256:" + _sha256_hex(_canonical_json(self.body()))
+        return _SHA256_PREFIX + _sha256_hex(_canonical_json(self.body()))
 
     def to_dict(self) -> dict[str, Any]:
         d = self.body()
@@ -207,8 +210,8 @@ class Feed:
     def compute_merkle_root(self) -> str:
         hashes = sorted((i.content_hash for i in self.iocs), key=_u16)
         if not hashes:
-            return "sha256:" + _sha256_hex(b"")
-        return "sha256:" + _sha256_hex(_canonical_json(hashes))
+            return _SHA256_PREFIX + _sha256_hex(b"")
+        return _SHA256_PREFIX + _sha256_hex(_canonical_json(hashes))
 
     def manifest_body(self) -> dict[str, Any]:
         return {
