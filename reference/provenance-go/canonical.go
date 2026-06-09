@@ -18,6 +18,52 @@ import (
 	"unicode/utf16"
 )
 
+// RejectLoneSurrogatesRaw scans raw JSON source for an unpaired UTF-16
+// surrogate escape (a \udXXX where the high surrogate is not immediately
+// followed by a low-surrogate escape, or a low surrogate not preceded by a
+// high). It MUST run before encoding/json.Unmarshal, because Unmarshal silently
+// replaces lone surrogates with U+FFFD — losing the information needed to reject
+// them. Python and Rust reject lone surrogates and a JS JSON.stringify emits a
+// \udXXX escape, so without this scan the Go port would diverge by substituting
+// U+FFFD. Rejecting is the only portable contract (§4.3.4).
+func RejectLoneSurrogatesRaw(raw []byte) error {
+	parseHex4 := func(i int) (uint16, bool) {
+		if i+6 > len(raw) || raw[i] != '\\' || raw[i+1] != 'u' {
+			return 0, false
+		}
+		v, err := strconv.ParseUint(string(raw[i+2:i+6]), 16, 16)
+		if err != nil {
+			return 0, false
+		}
+		return uint16(v), true
+	}
+	for i := 0; i < len(raw); i++ {
+		if raw[i] != '\\' {
+			continue
+		}
+		if i+1 < len(raw) && raw[i+1] == '\\' {
+			i++ // a literal backslash escape — the next char is not an escape intro
+			continue
+		}
+		cu, ok := parseHex4(i)
+		if !ok {
+			continue
+		}
+		if cu >= 0xD800 && cu <= 0xDBFF { // high surrogate
+			if lo, ok := parseHex4(i + 6); ok && lo >= 0xDC00 && lo <= 0xDFFF {
+				i += 11 // consume both escapes of a valid pair
+				continue
+			}
+			return fmt.Errorf("canonical-JSON: lone surrogate U+%04X is not permitted in v1 signed/hashed material", cu)
+		}
+		if cu >= 0xDC00 && cu <= 0xDFFF { // low surrogate with no preceding high
+			return fmt.Errorf("canonical-JSON: lone surrogate U+%04X is not permitted in v1 signed/hashed material", cu)
+		}
+		i += 5 // consume a non-surrogate \uXXXX escape
+	}
+	return nil
+}
+
 // lessUTF16 orders two strings by UTF-16 code unit (RFC 8785 / JCS §3.2.3),
 // matching the TypeScript (a < b) and C# (StringComparer.Ordinal) reference
 // encoders. Go's sort.Strings compares UTF-8 bytes (Unicode code-point order),

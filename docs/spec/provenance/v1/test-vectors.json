@@ -64,6 +64,17 @@
         "currency": "USD"
       },
       "name": "canon_boundary_integer"
+    },
+    {
+      "description": "C0 control characters in string values MUST use the two-char short escapes \\b \\f \\n \\r \\t where defined, and \\u00XX (lowercase hex) for every other code point < U+0020 (\u00a74.3.4). '/' is NOT escaped; '\"' and '\\\\' are. '<' '>' '&' are passed through literally (NOT HTML-escaped). The five reference encoders are hand-aligned on this; this vector pins it so a port that emits \\u0008 for backspace, uppercase hex, or HTML-escapes diverges loudly instead of silently.",
+      "expected_canonical_hex": "7b2263746c223a22615c62625c74635c6e645c72655c6666675c7530303031682f695c226a5c5c6b222c226c74223a223c783e2679227d",
+      "expected_canonical_sha256": "sha256:bf8e1bd677940aa7d6015615ee217913783a0b20d615e01f425e3181e5041f70",
+      "expected_canonical_utf8": "{\"ctl\":\"a\\bb\\tc\\nd\\re\\ffg\\u0001h/i\\\"j\\\\k\",\"lt\":\"<x>&y\"}",
+      "input_object": {
+        "ctl": "a\bb\tc\nd\re\ffg\u0001h/i\"j\\k",
+        "lt": "<x>&y"
+      },
+      "name": "canon_control_char_escaping"
     }
   ],
   "fixed_seed_hex": "1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100",
@@ -94,6 +105,33 @@
       },
       "must_reject": true,
       "name": "invalid_float",
+      "reference_error": "ValueError"
+    },
+    {
+      "description": "An unpaired UTF-16 surrogate (here a lone HIGH surrogate U+D800 in a string value) MUST be rejected at sign/verify (\u00a74.3.4). It cannot be encoded to UTF-8 and the ports otherwise disagree: Python and Rust reject, Go and .NET substitute U+FFFD, and a JS JSON.stringify emits a \\udXXX escape \u2014 a silent cross-implementation byte divergence. Rejection is the only portable contract.",
+      "input_object": {
+        "corpus": "\ud800"
+      },
+      "must_reject": true,
+      "name": "invalid_lone_surrogate",
+      "reference_error": "ValueError"
+    },
+    {
+      "description": "A lone LOW surrogate U+DC00 (not preceded by a high) in a string value MUST be rejected (\u00a74.3.4), same contract as a lone high surrogate. Distinct code path from the high-surrogate case in every port.",
+      "input_object": {
+        "corpus": "\udc00"
+      },
+      "must_reject": true,
+      "name": "invalid_lone_surrogate_low",
+      "reference_error": "ValueError"
+    },
+    {
+      "description": "A lone surrogate U+D800 in an OBJECT KEY (not a value) MUST be rejected (\u00a74.3.4): the rule applies to keys and values alike. Exercises the key-validation path, which is separate from value validation in the Python/TypeScript ports.",
+      "input_object": {
+        "\ud800": 1
+      },
+      "must_reject": true,
+      "name": "invalid_lone_surrogate_key",
       "reference_error": "ValueError"
     }
   ],
