@@ -255,7 +255,7 @@ def _canonicalization_vectors() -> list[dict]:
             "the 🔑 surrogate lead unit 0xD83D (55357) < 0xE000 so 🔑 sorts first. "
             "A code-point sort (naive Python/Go/Rust) and a UTF-16 sort (JS/.NET) "
             "disagree here — this vector forces all implementations onto UTF-16.",
-            {"": 1, "\U0001F511": 2, "a": 3},
+            {"": 1, "\U0001f511": 2, "a": 3},
         ),
         vec(
             "canon_boundary_integer",
@@ -273,7 +273,7 @@ def _canonicalization_vectors() -> list[dict]:
             "escaped). The five reference encoders are hand-aligned on this; this "
             "vector pins it so a port that emits \\u0008 for backspace, uppercase "
             "hex, or HTML-escapes diverges loudly instead of silently.",
-            {"ctl": "a\bb\tc\nd\re\ffg\x01h/i\"j\\k", "lt": "<x>&y"},
+            {"ctl": 'a\bb\tc\nd\re\ffg\x01h/i"j\\k', "lt": "<x>&y"},
         ),
     ]
 
@@ -290,53 +290,199 @@ def _invalid_canonicalization_vectors() -> list[dict]:
     from raucle_detect.provenance import _canonical_json
 
     cases = [
-        ("invalid_integer_above_safe_range",
-         "2^53 = 9007199254740992 is one past the safe-integer boundary (§4.3.6); "
-         "MUST be rejected at sign and verify in every implementation.",
-         {"amount": 9007199254740992}),
-        ("invalid_integer_below_safe_range",
-         "-(2^53) = -9007199254740992 is one past the negative boundary (§4.3.6); "
-         "MUST be rejected.",
-         {"amount": -9007199254740992}),
-        ("invalid_float",
-         "Non-integer numbers (floats) MUST be rejected, not serialised (§4.3.5): "
-         "cross-implementation float canonicalisation is out of scope for v1.",
-         {"amount": 1.5}),
-        ("invalid_lone_surrogate",
-         "An unpaired UTF-16 surrogate (here a lone HIGH surrogate U+D800 in a "
-         "string value) MUST be rejected at sign/verify (§4.3.4). It cannot be "
-         "encoded to UTF-8 and the ports otherwise disagree: Python and Rust "
-         "reject, Go and .NET substitute U+FFFD, and a JS JSON.stringify emits a "
-         "\\udXXX escape — a silent cross-implementation byte divergence. "
-         "Rejection is the only portable contract.",
-         {"corpus": "\ud800"}),
-        ("invalid_lone_surrogate_low",
-         "A lone LOW surrogate U+DC00 (not preceded by a high) in a string value "
-         "MUST be rejected (§4.3.4), same contract as a lone high surrogate. "
-         "Distinct code path from the high-surrogate case in every port.",
-         {"corpus": "\udc00"}),
-        ("invalid_lone_surrogate_key",
-         "A lone surrogate U+D800 in an OBJECT KEY (not a value) MUST be rejected "
-         "(§4.3.4): the rule applies to keys and values alike. Exercises the "
-         "key-validation path, which is separate from value validation in the "
-         "Python/TypeScript ports.",
-         {"\ud800": 1}),
+        (
+            "invalid_integer_above_safe_range",
+            "2^53 = 9007199254740992 is one past the safe-integer boundary (§4.3.6); "
+            "MUST be rejected at sign and verify in every implementation.",
+            {"amount": 9007199254740992},
+        ),
+        (
+            "invalid_integer_below_safe_range",
+            "-(2^53) = -9007199254740992 is one past the negative boundary (§4.3.6); "
+            "MUST be rejected.",
+            {"amount": -9007199254740992},
+        ),
+        (
+            "invalid_float",
+            "Non-integer numbers (floats) MUST be rejected, not serialised (§4.3.5): "
+            "cross-implementation float canonicalisation is out of scope for v1.",
+            {"amount": 1.5},
+        ),
+        (
+            "invalid_lone_surrogate",
+            "An unpaired UTF-16 surrogate (here a lone HIGH surrogate U+D800 in a "
+            "string value) MUST be rejected at sign/verify (§4.3.4). It cannot be "
+            "encoded to UTF-8 and the ports otherwise disagree: Python and Rust "
+            "reject, Go and .NET substitute U+FFFD, and a JS JSON.stringify emits a "
+            "\\udXXX escape — a silent cross-implementation byte divergence. "
+            "Rejection is the only portable contract.",
+            {"corpus": "\ud800"},
+        ),
+        (
+            "invalid_lone_surrogate_low",
+            "A lone LOW surrogate U+DC00 (not preceded by a high) in a string value "
+            "MUST be rejected (§4.3.4), same contract as a lone high surrogate. "
+            "Distinct code path from the high-surrogate case in every port.",
+            {"corpus": "\udc00"},
+        ),
+        (
+            "invalid_lone_surrogate_key",
+            "A lone surrogate U+D800 in an OBJECT KEY (not a value) MUST be rejected "
+            "(§4.3.4): the rule applies to keys and values alike. Exercises the "
+            "key-validation path, which is separate from value validation in the "
+            "Python/TypeScript ports.",
+            {"\ud800": 1},
+        ),
     ]
     out = []
     for name, desc, obj in cases:
         try:
             _canonical_json(obj)
         except Exception as e:  # expected — this is the contract
-            out.append({
-                "name": name,
-                "description": desc,
-                "input_object": obj,
-                "must_reject": True,
-                "reference_error": type(e).__name__,
-            })
+            out.append(
+                {
+                    "name": name,
+                    "description": desc,
+                    "input_object": obj,
+                    "must_reject": True,
+                    "reference_error": type(e).__name__,
+                }
+            )
         else:
             raise AssertionError(
                 f"{name}: _canonical_json accepted input that the spec says MUST be rejected"
+            )
+    return out
+
+
+def _invalid_receipt_vectors() -> list[dict]:
+    """Receipts a conformant verifier MUST reject (SPEC §6 byte-equality + R10).
+
+    Each carries a VALID Ed25519 signature over NON-canonical bytes — modelling a
+    buggy/malicious emitter that signed non-canonical material. So rejection is
+    the §6 canonical / R10 duplicate-key check firing, NOT a signature failure:
+    tampering a valid receipt would only test signature rejection. The header is
+    kept canonical so the failure isolates to the payload-side verify path.
+
+    Self-checked at generation: the canonical receipt MUST pass strict parsing,
+    and every invalid one MUST be rejected by ``from_jws(strict=True)``.
+    """
+    import json as _json
+
+    from raucle_detect.provenance import (
+        _EXPECTED_ALG,
+        _EXPECTED_TYP,
+        Operation,
+        ProvenanceReceipt,
+        _b64url_encode,
+        _canonical_json,
+        hash_text,
+    )
+
+    identity = _build_identity()
+    # A structurally-valid payload, so a rejection isolates to the canonical /
+    # duplicate-key check rather than a missing-field error.
+    base = ProvenanceReceipt(
+        agent_id=identity.agent_id,
+        agent_key_id=identity.key_id,
+        operation=Operation.USER_INPUT,
+        input_hash=hash_text("Hello, world."),
+        taint=["external_user"],
+        issued_at=1_700_000_001,
+    )
+    payload = base.payload()
+    canon = _canonical_json(payload)
+    header_b64 = _b64url_encode(
+        _canonical_json(
+            {
+                "alg": _EXPECTED_ALG,
+                "typ": _EXPECTED_TYP,
+                "kid": identity.key_id,
+                "crit": ["raucle/v1"],
+                "raucle/v1": "provenance",
+            }
+        )
+    )
+
+    def make(payload_bytes: bytes) -> str:
+        payload_b64 = _b64url_encode(payload_bytes)
+        signing_input = (header_b64 + "." + payload_b64).encode("ascii")
+        sig = identity.sign(signing_input)
+        return signing_input.decode("ascii") + "." + _b64url_encode(sig)
+
+    # Sanity: the canonical receipt MUST pass strict parsing, else the non-canon
+    # vectors below would reject for the wrong reason.
+    ProvenanceReceipt.from_jws(make(canon), strict=True)
+
+    reversed_order = _json.dumps(
+        {k: payload[k] for k in reversed(list(payload))},
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    with_whitespace = _json.dumps(
+        payload, separators=(", ", ": "), ensure_ascii=False, sort_keys=True
+    ).encode("utf-8")
+
+    # (name, description, payload_bytes, expected_error_substr). The substring is
+    # the reason verify MUST reject; the test asserts the rejection message
+    # contains it, so a future vector cannot pass for the WRONG reason.
+    cases = [
+        (
+            "invalid_receipt_duplicate_key",
+            "Payload has a duplicate object key (R10). A signed JWS whose payload "
+            "JSON repeats a key MUST be rejected on verify — duplicate keys are a "
+            "parser-differential / signature-confusion vector.",
+            canon[:-1] + b',"operation":"user_input"}',
+            "duplicate key",
+        ),
+        (
+            "invalid_receipt_noncanonical_key_order",
+            "Payload keys are not in canonical (UTF-16 code-unit) order (§6). The "
+            "signature is valid over these bytes, but re-encoding canonically does "
+            "not reproduce them, so verify MUST reject.",
+            reversed_order,
+            "not canonical JSON",
+        ),
+        (
+            "invalid_receipt_insignificant_whitespace",
+            "Payload has insignificant whitespace after separators (§6). Valid "
+            "signature, non-canonical bytes — verify MUST reject.",
+            with_whitespace,
+            "not canonical JSON",
+        ),
+        (
+            "invalid_receipt_lone_surrogate",
+            "Payload string contains an unpaired UTF-16 surrogate (§4.3.4). Re-"
+            "encoding rejects it, so verify MUST reject even with a valid signature.",
+            canon[:-1] + b',"x":"\\ud800"}',
+            "lone surrogate",
+        ),
+    ]
+
+    out = []
+    for name, desc, payload_bytes, expected_substr in cases:
+        jws = make(payload_bytes)
+        try:
+            ProvenanceReceipt.from_jws(jws, strict=True)
+        except Exception as e:  # expected — the verifier MUST reject
+            if expected_substr not in str(e):
+                raise AssertionError(
+                    f"{name}: rejected with {e!r}, expected message containing "
+                    f"{expected_substr!r} — the vector may be failing for the wrong reason"
+                ) from e
+            out.append(
+                {
+                    "name": name,
+                    "description": desc,
+                    "jws": jws,
+                    "must_reject": True,
+                    "reference_error": type(e).__name__,
+                    "expected_error_substr": expected_substr,
+                }
+            )
+        else:
+            raise AssertionError(
+                f"{name}: from_jws(strict=True) ACCEPTED a receipt the spec says MUST be rejected"
             )
     return out
 
@@ -345,6 +491,7 @@ def main() -> int:
     vectors = _build_vectors()
     vectors["canonicalization_vectors"] = _canonicalization_vectors()
     vectors["invalid_canonicalization_vectors"] = _invalid_canonicalization_vectors()
+    vectors["invalid_receipt_vectors"] = _invalid_receipt_vectors()
     print(json.dumps(vectors, indent=2, sort_keys=True))
     return 0
 

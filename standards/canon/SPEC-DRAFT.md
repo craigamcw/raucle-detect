@@ -125,12 +125,16 @@ only if it (a) reproduces every `canonicalization_vectors` entry's
 `invalid_canonicalization_vectors` entry. The kit and pass criteria are described
 in [`README.md`](README.md).
 
-**Verifier conformance (not yet machine-checked).** A full implementation MUST
+**Verifier conformance (partially machine-checked).** A full implementation MUST
 also enforce the verify-side rules — the §6 canonical byte-equality invariant and
-R10 duplicate-key rejection. The current kit exercises only the emit/canon path
-(§10), so (a) + (b) is **necessary but not sufficient** for verifier conformance;
-a verify-rejection conformance path is required before this profile is published
-at 1.0.
+R10 duplicate-key rejection. These are now machine-checked **for the Python
+reference** via the published `invalid_receipt_vectors`: receipts carrying a
+*valid* Ed25519 signature over non-canonical / duplicate-key bytes, which a
+conformant verifier MUST reject on the canonical/duplicate check (not on the
+signature). The remaining work before 1.0 is to extend this across the other four
+ports (a `--verify` mode per port CLI, §10). Until then (a) + (b) plus the
+Python-checked verify rules hold, but the verify path is not yet proven in
+Go/Rust/TS/C#.
 
 Use of the "Raucle Compatible" mark to advertise conformance is governed by a
 separate trademark policy (TODO: published before 1.0; requires counsel). The
@@ -154,9 +158,12 @@ version.
 
 ## 10. Open before publication (1.0 gate)
 
-- Add a verify-rejection conformance path so R10 (and other verify-side MUSTs)
-  are machine-checked across all five ports; the current kit exercises only the
-  emit/canon path.
+- Verify-rejection conformance: **Python reference done** (the published
+  `invalid_receipt_vectors` — signed non-canonical / duplicate-key receipts —
+  are machine-checked to reject in `tests/test_spec_conformance.py`). Remaining:
+  add a `--verify` mode to the Go/Rust/TS/C# port CLIs and extend the harness so
+  the verify-side MUSTs (§6, R10) are proven across all five ports, not only
+  Python.
 - Confirm capability-token canonicalisation (`capability.py`) and the standalone
   `cap_verifier.py` enforce R8 explicitly (today they reject lone surrogates
   incidentally via UTF-8 encoding; a normative profile should make it explicit).

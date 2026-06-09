@@ -73,6 +73,39 @@ class TestSpecConformance:
                 f"vector {v['name']!r}: signature did not verify against the published public key"
             )
 
+    def test_verifier_rejects_all_invalid_receipt_vectors(self):
+        """SPEC §6 (canonical byte-equality) + R10 (duplicate keys): every
+        invalid_receipt_vector carries a VALID signature over non-canonical /
+        duplicate-key bytes, so a conformant verifier MUST reject it on the
+        canonical/duplicate check — NOT on the signature. This test proves both:
+        the signature genuinely verifies, AND strict parsing still rejects."""
+        from cryptography.hazmat.primitives.serialization import (
+            load_pem_public_key,
+        )
+
+        from raucle_detect.provenance import ProvenanceReceipt, _b64url_decode
+
+        data = json.loads(VECTORS_PATH.read_text())
+        pub = load_pem_public_key(data["public_key_pem"].encode("ascii"))
+        vectors = data.get("invalid_receipt_vectors", [])
+        assert vectors, "invalid_receipt_vectors missing from the published file"
+
+        for v in vectors:
+            header_b64, payload_b64, sig_b64 = v["jws"].split(".")
+            signing_input = (header_b64 + "." + payload_b64).encode("ascii")
+            # 1) the signature is genuinely valid over the non-canonical bytes
+            #    (raises InvalidSignature and fails the test if it were tampered).
+            pub.verify(_b64url_decode(sig_b64), signing_input)
+            # 2) yet strict verify MUST reject it — and for the RIGHT reason
+            #    (the canonical/duplicate check named in the vector), not some
+            #    other ValueError that would give false confidence.
+            with pytest.raises(ValueError) as exc:
+                ProvenanceReceipt.from_jws(v["jws"], strict=True)
+            assert v["expected_error_substr"] in str(exc.value), (
+                f"vector {v['name']!r}: rejected with {exc.value!r}, expected a "
+                f"message containing {v['expected_error_substr']!r}"
+            )
+
     def test_vectors_cover_required_operation_types(self):
         """The published test vectors must exercise the operation types most
         likely to surface implementation bugs. Adding a vector here forces
