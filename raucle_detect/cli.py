@@ -23,6 +23,12 @@ from raucle_detect.scanner import MAX_INPUT_BYTES, Scanner
 
 logger = logging.getLogger(__name__)
 
+# Repeated argparse help strings, named once (Sonar S1192).
+_HELP_OUTPUT_FORMAT = "Output format"
+_HELP_RULES_DIR = "Path to custom YAML rules directory"
+_HELP_CHAIN_FILE = "JSONL chain file"
+_HELP_ISSUER_KEY = "Issuer private-key PEM"
+
 
 def _write_private_key(path: Path, data: bytes) -> None:
     """Write a private key with 0600 perms atomically (round-3 #20).
@@ -68,13 +74,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "--rules-dir",
         "-r",
         type=str,
-        help="Path to custom YAML rules directory",
+        help=_HELP_RULES_DIR,
     )
     scan_p.add_argument(
         "--format",
         choices=["table", "json"],
         default="table",
-        help="Output format",
+        help=_HELP_OUTPUT_FORMAT,
     )
 
     # -- scan-image / scan-pdf / scrub (multimodal v0.7.0) ------------------
@@ -83,11 +89,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     scan_image.add_argument("path", help="Path to the image file")
     scan_image.add_argument("--mode", "-m", choices=_modes, default="standard")
+    scan_image.add_argument("--rules-dir", "-r", type=str, help=_HELP_RULES_DIR)
     scan_image.add_argument(
-        "--rules-dir", "-r", type=str, help="Path to custom YAML rules directory"
-    )
-    scan_image.add_argument(
-        "--format", choices=["table", "json"], default="table", help="Output format"
+        "--format", choices=["table", "json"], default="table", help=_HELP_OUTPUT_FORMAT
     )
 
     scan_pdf = subparsers.add_parser(
@@ -95,9 +99,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     scan_pdf.add_argument("path", help="Path to the PDF file")
     scan_pdf.add_argument("--mode", "-m", choices=_modes, default="standard")
-    scan_pdf.add_argument("--rules-dir", "-r", type=str, help="Path to custom YAML rules directory")
+    scan_pdf.add_argument("--rules-dir", "-r", type=str, help=_HELP_RULES_DIR)
     scan_pdf.add_argument(
-        "--format", choices=["table", "json"], default="table", help="Output format"
+        "--format", choices=["table", "json"], default="table", help=_HELP_OUTPUT_FORMAT
     )
 
     scrub = subparsers.add_parser(
@@ -105,7 +109,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     scrub.add_argument("text", nargs="?", help="Text to inspect (or use --file)")
     scrub.add_argument("--file", "-f", type=str, help="Read text from a file")
-    scrub.add_argument("--format", choices=["table", "json"], default="table", help="Output format")
+    scrub.add_argument(
+        "--format", choices=["table", "json"], default="table", help=_HELP_OUTPUT_FORMAT
+    )
 
     # -- serve --------------------------------------------------------------
     serve_p = subparsers.add_parser("serve", help="Start the REST API server")
@@ -131,7 +137,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--rules-dir",
         "-r",
         type=str,
-        help="Path to custom YAML rules directory",
+        help=_HELP_RULES_DIR,
     )
 
     # -- rules --------------------------------------------------------------
@@ -142,13 +148,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "--rules-dir",
         "-r",
         type=str,
-        help="Path to custom YAML rules directory",
+        help=_HELP_RULES_DIR,
     )
     rules_list.add_argument(
         "--format",
         choices=["table", "json"],
         default="table",
-        help="Output format",
+        help=_HELP_OUTPUT_FORMAT,
     )
 
     # -- rules fuzz ---------------------------------------------------------
@@ -160,7 +166,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--rules-dir",
         "-r",
         type=str,
-        help="Path to custom YAML rules directory",
+        help=_HELP_RULES_DIR,
     )
     rules_fuzz.add_argument(
         "--samples",
@@ -172,7 +178,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--format",
         choices=["table", "json"],
         default="table",
-        help="Output format",
+        help=_HELP_OUTPUT_FORMAT,
     )
     rules_fuzz.add_argument(
         "--seed",
@@ -193,7 +199,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Path to Ed25519 public key PEM (omit to skip signature verification)",
     )
     audit_verify.add_argument(
-        "--format", choices=["table", "json"], default="table", help="Output format"
+        "--format", choices=["table", "json"], default="table", help=_HELP_OUTPUT_FORMAT
     )
 
     audit_keygen = audit_sub.add_parser(
@@ -250,9 +256,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default="standard",
         help="Detection sensitivity for the underlying scanner",
     )
-    mcp_serve.add_argument(
-        "--rules-dir", "-r", type=str, help="Path to custom YAML rules directory"
-    )
+    mcp_serve.add_argument("--rules-dir", "-r", type=str, help=_HELP_RULES_DIR)
 
     mcp_scan = mcp_sub.add_parser("scan", help="Static analysis of an MCP server manifest")
     mcp_scan.add_argument("path", help="Manifest JSON file or directory of manifests")
@@ -296,7 +300,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     prov_verify = prov_sub.add_parser("verify", help="Verify a provenance chain")
-    prov_verify.add_argument("path", help="JSONL chain file")
+    prov_verify.add_argument("path", help=_HELP_CHAIN_FILE)
     prov_verify.add_argument(
         "--pubkeys",
         nargs="+",
@@ -304,23 +308,23 @@ def _build_parser() -> argparse.ArgumentParser:
         help="One or more capability-statement JSON files OR public-key PEM files",
     )
     prov_verify.add_argument(
-        "--format", choices=["table", "json"], default="table", help="Output format"
+        "--format", choices=["table", "json"], default="table", help=_HELP_OUTPUT_FORMAT
     )
 
     prov_trace = prov_sub.add_parser(
         "trace", help="Walk the DAG backwards from a receipt to all roots"
     )
     prov_trace.add_argument("receipt_hash", help="The leaf receipt to trace from")
-    prov_trace.add_argument("--chain", required=True, help="JSONL chain file")
+    prov_trace.add_argument("--chain", required=True, help=_HELP_CHAIN_FILE)
     prov_trace.add_argument(
-        "--format", choices=["table", "json"], default="table", help="Output format"
+        "--format", choices=["table", "json"], default="table", help=_HELP_OUTPUT_FORMAT
     )
 
     prov_graph = prov_sub.add_parser(
         "graph", help="Export the ancestor DAG of a receipt as Graphviz DOT"
     )
     prov_graph.add_argument("receipt_hash", help="The leaf receipt to render")
-    prov_graph.add_argument("--chain", required=True, help="JSONL chain file")
+    prov_graph.add_argument("--chain", required=True, help=_HELP_CHAIN_FILE)
     prov_graph.add_argument("--out", help="Write DOT to file (default: stdout)")
 
     prov_replay = prov_sub.add_parser(
@@ -349,7 +353,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--format",
         choices=["table", "json"],
         default="table",
-        help="Output format",
+        help=_HELP_OUTPUT_FORMAT,
     )
     prov_replay.add_argument(
         "--show-unchanged",
@@ -387,7 +391,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "sign", help="Sign a JSON list of IOC drafts into a published feed"
     )
     feed_sign.add_argument("drafts", help="Path to JSON file: list of IOC drafts")
-    feed_sign.add_argument("--key", required=True, help="Issuer private-key PEM")
+    feed_sign.add_argument("--key", required=True, help=_HELP_ISSUER_KEY)
     feed_sign.add_argument("--issuer", required=True, help="Issuer name (must match key)")
     feed_sign.add_argument("--feed-id", required=True, help="Feed identifier, e.g. 'raucle/core'")
     feed_sign.add_argument("--out", required=True, help="Output feed JSON path")
@@ -450,7 +454,7 @@ def _build_parser() -> argparse.ArgumentParser:
     cap_keygen.add_argument("--out", default="cap-issuer", help="Output prefix")
 
     cap_mint = cap_sub.add_parser("mint", help="Mint a fresh capability token")
-    cap_mint.add_argument("--key", required=True, help="Issuer private-key PEM")
+    cap_mint.add_argument("--key", required=True, help=_HELP_ISSUER_KEY)
     cap_mint.add_argument("--issuer", required=True)
     cap_mint.add_argument("--agent-id", required=True)
     cap_mint.add_argument("--tool", required=True)
@@ -499,7 +503,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "attenuate", help="Derive a more-restricted child token from a parent"
     )
     cap_atten.add_argument("--parent", required=True, help="Path to parent token JSON")
-    cap_atten.add_argument("--key", required=True, help="Issuer private-key PEM")
+    cap_atten.add_argument("--key", required=True, help=_HELP_ISSUER_KEY)
     cap_atten.add_argument("--issuer", required=True)
     cap_atten.add_argument("--extra-constraints", help="Path to extra-constraints JSON to merge in")
     cap_atten.add_argument("--ttl-seconds", type=int)
@@ -1341,10 +1345,10 @@ def _cmd_feed_list(args: argparse.Namespace) -> int:
     iocs = store.all_iocs()
     if not iocs:
         print("(empty)")
-        return 0
-    for ioc in iocs:
-        print(f"{ioc.severity:8s} {ioc.kind:18s} {ioc.issuer:24s} {ioc.pattern[:60]}")
-    print(f"\nTotal: {len(iocs)} live IOC(s) across {len(store.list_feeds())} feed(s)")
+    else:
+        for ioc in iocs:
+            print(f"{ioc.severity:8s} {ioc.kind:18s} {ioc.issuer:24s} {ioc.pattern[:60]}")
+        print(f"\nTotal: {len(iocs)} live IOC(s) across {len(store.list_feeds())} feed(s)")
     return 0
 
 
