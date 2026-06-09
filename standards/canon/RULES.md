@@ -124,11 +124,13 @@ exists to make it impossible to reintroduce.)
 ## Open items for the v1 SPEC (when it is written at 1.0)
 
 - Duplicate object keys: **resolved — reject** (see R10). Enforced cross-language
-  via canonical byte-equality, plus an explicit parse hook in Python. The
-  normative SPEC should state this as a verify-side MUST and ideally add a
-  verify-rejection conformance vector (the current harness only exercises the
-  emit/canon path, where duplicates cannot occur).
-- Capability tokens (`capability.py`) and the standalone `cap_verifier.py` are
-  Python-only (no cross-language port) and already reject lone surrogates
-  incidentally via the UTF-8 encode; a normative SPEC should make that explicit
-  for parity with R8.
+  via canonical byte-equality, plus an explicit parse hook in Python. **Now also
+  machine-checked at verify time across all five ports** via the published
+  `invalid_receipt_vectors` and `reference/verify_conformance.py` (a `--verify`
+  mode per port CLI), so the verify-side MUSTs (§6, R10) are proven, not only the
+  emit/canon path.
+- Capability tokens (`capability.py`) and the standalone `cap_verifier.py`:
+  **resolved — R8 now enforced explicitly.** Both reject lone surrogates with a
+  clean `ValueError` at sign/verify (shared `raucle_detect._canon.reject_lone_surrogates`;
+  the standalone verifier inlines an equivalent check to stay import-free) rather
+  than relying on the incidental `UnicodeEncodeError` from the later UTF-8 encode.

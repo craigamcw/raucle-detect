@@ -78,6 +78,7 @@ from pathlib import Path
 from typing import Any
 
 from . import registry as _registry
+from ._canon import reject_lone_surrogates as _reject_lone_surrogates
 from ._canon import reorder_keys_utf16 as _reorder_keys_utf16
 from ._canon import utf16_key as _utf16_key
 
@@ -238,26 +239,6 @@ def _b64url_decode(data: str) -> bytes:
 #: (or lossy) in the TS port — a cross-language canonical divergence (§8.10 #6).
 _MAX_SAFE_INT = 2**53 - 1
 _MIN_SAFE_INT = -(2**53 - 1)
-
-
-def _reject_lone_surrogates(s: str) -> None:
-    """Raise if *s* contains an unpaired UTF-16 surrogate code point.
-
-    In a Python ``str`` a valid non-BMP character is stored as a single code
-    point (e.g. U+1F511), so any code point in U+D800..U+DFFF is necessarily an
-    unpaired (lone) surrogate. Such a string cannot be encoded to UTF-8 and the
-    five reference implementations disagree on it: Python and Rust reject it,
-    Go and .NET silently substitute U+FFFD, and a JS ``JSON.stringify`` emits a
-    ``\\udXXX`` escape. Rejecting at sign/verify keeps signed material byte-
-    identical across all implementations (§4.3.x).
-    """
-    for ch in s:
-        if 0xD800 <= ord(ch) <= 0xDFFF:
-            raise ValueError(
-                "canonical JSON: lone surrogate "
-                f"U+{ord(ch):04X} is not permitted in v1 signed/hashed material "
-                "(unpaired surrogates are not cross-implementation stable)"
-            )
 
 
 def _reject_floats(obj: Any) -> None:

@@ -727,6 +727,57 @@ def test_canonical_json_rejects_nan_infinity():
             _canonical_json({"x": bad})
 
 
+def test_canonical_json_rejects_lone_surrogates_explicitly():
+    """Profile R8: a lone UTF-16 surrogate is rejected at sign time with a clean
+    ValueError naming the surrogate — not incidentally via UnicodeEncodeError
+    from a later .encode('utf-8'). Covers both value and key position."""
+    import pytest
+
+    from raucle_detect.capability import _canonical_json
+
+    lone = "tok\ud83d"  # unpaired high surrogate U+D83D
+    for obj in ({"x": lone}, {lone: 1}, {"nested": [{"y": lone}]}):
+        with pytest.raises(ValueError) as exc:
+            _canonical_json(obj)
+        assert "lone surrogate" in str(exc.value)
+
+    # The constraint-normalisation pre-sort runs the UTF-16 sort-key helpers
+    # BEFORE _canonical_json's explicit rejector; those helpers must also raise
+    # the clean R8 ValueError (not an incidental UnicodeEncodeError from encode).
+    from raucle_detect._canon import utf16_key, value_sort_key
+
+    for fn in (utf16_key, value_sort_key):
+        with pytest.raises(ValueError) as exc:
+            fn(lone)
+        assert "lone surrogate" in str(exc.value)
+
+
+def test_standalone_cap_verifier_rejects_lone_surrogates():
+    """The standalone OWASP cap_verifier (no package import) must enforce R8 with
+    the same clean ValueError, so it rejects the same cross-language-unstable
+    material as the package signer."""
+    import importlib.util
+    import pathlib
+
+    import pytest
+
+    path = (
+        pathlib.Path(__file__).resolve().parent.parent
+        / "standards"
+        / "cap-verifier"
+        / "cap_verifier.py"
+    )
+    spec = importlib.util.spec_from_file_location("cap_verifier_under_test", path)
+    cv = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cv)
+
+    lone = "tok\ud83d"
+    for obj in ({"x": lone}, {lone: 1}):
+        with pytest.raises(ValueError) as exc:
+            cv.canonical_json(obj)
+        assert "lone surrogate" in str(exc.value)
+
+
 def test_cli_errors_are_clean_not_tracebacks(capsys):
     """CLI prints 'error: ...' for expected user errors, never a raw traceback."""
     from raucle_detect.cli import main
