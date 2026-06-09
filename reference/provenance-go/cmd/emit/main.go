@@ -99,5 +99,40 @@ func main() {
 		runCanon(sc, out)
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "--verify" {
+		runVerify(sc, out)
+		return
+	}
 	runEmit(sc, out)
+}
+
+// runVerify reads {"jws","public_key_hex"} lines (the raw 32-byte Ed25519 public
+// key, hex-encoded) and writes a verdict per line:
+// {"verdict":"ACCEPT","id":"sha256:..."} or {"verdict":"REJECT"}. ANY error
+// (bad key, bad signature, non-canonical bytes, duplicate key, malformed JWS) is
+// a REJECT — the conformance harness asserts valid receipts ACCEPT and the
+// invalid_receipt_vectors REJECT across every port.
+func runVerify(sc *bufio.Scanner, out *bufio.Writer) {
+	for sc.Scan() {
+		line := sc.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var vr struct {
+			JWS    string `json:"jws"`
+			PubHex string `json:"public_key_hex"`
+		}
+		if err := json.Unmarshal(line, &vr); err != nil {
+			fail("decode", err)
+		}
+		verdict := map[string]string{"verdict": "REJECT"}
+		if raw, herr := hex.DecodeString(vr.PubHex); herr == nil && len(raw) == ed25519.PublicKeySize {
+			if rec, verr := provenance.Verify(vr.JWS, ed25519.PublicKey(raw)); verr == nil {
+				verdict = map[string]string{"verdict": "ACCEPT", "id": rec.ID}
+			}
+		}
+		b, _ := json.Marshal(verdict)
+		out.Write(b)
+		out.WriteByte('\n')
+	}
 }
