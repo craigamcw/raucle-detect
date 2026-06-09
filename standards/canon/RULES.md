@@ -95,6 +95,19 @@ Pinned by: `invalid_lone_surrogate`.
 - Arrays preserve input order (only object keys are reordered).
 - Object keys must be strings.
 
+### R10 — Duplicate object keys rejected on verify
+A JSON object with a duplicate key is rejected at verify. Duplicate keys are
+valid per the JSON grammar but their handling is implementation-defined (most
+parsers silently take last-wins), which is a classic signature-confusion vector.
+The emit side cannot produce them (an in-memory map has unique keys), so this is
+purely a parse/verify rule. It is enforced cross-language by the **canonical
+byte-equality check**: every port re-encodes the parsed payload and compares to
+the original on-wire bytes, and a duplicate key collapses on parse so the
+re-encoded bytes never equal the original — the receipt is rejected as
+non-canonical *before* any field is read. Python additionally rejects duplicate
+keys explicitly at parse (`_reject_duplicate_keys` object_pairs_hook) for a
+clearer error. Verified present in all five reference implementations.
+
 ## Why UTF-16 code units, not code points (R1 rationale)
 
 UTF-16 code-unit ordering is the one ordering JavaScript and .NET produce by
@@ -110,10 +123,11 @@ exists to make it impossible to reintroduce.)
 
 ## Open items for the v1 SPEC (when it is written at 1.0)
 
-- Duplicate object keys: Python `dict` / JSON objects cannot carry duplicates
-  in-memory, so the emit side never sees them; a normative SPEC should still
-  state a parse-side policy (reject vs last-wins) because it is a known
-  signature-confusion vector.
+- Duplicate object keys: **resolved — reject** (see R10). Enforced cross-language
+  via canonical byte-equality, plus an explicit parse hook in Python. The
+  normative SPEC should state this as a verify-side MUST and ideally add a
+  verify-rejection conformance vector (the current harness only exercises the
+  emit/canon path, where duplicates cannot occur).
 - Capability tokens (`capability.py`) and the standalone `cap_verifier.py` are
   Python-only (no cross-language port) and already reject lone surrogates
   incidentally via the UTF-8 encode; a normative SPEC should make that explicit
