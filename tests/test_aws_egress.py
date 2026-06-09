@@ -323,3 +323,131 @@ def test_json_helper_does_not_crash_on_binary_body():
     result = egress.get_object(token, bucket="statements", key="x.png", agent_id="agent:kyc-prod")
     parsed = result.json()  # must not raise
     assert "_raw" in parsed
+
+
+# ---------------------------------------------------------------------------
+# Custody → evidence loop: gate-emitted JWS receipts feed `raucle audit-export`
+# ---------------------------------------------------------------------------
+def test_gate_jws_receipts_feed_audit_export_end_to_end(tmp_path):
+    """The portable-provable-custody wedge: when the gate is given a
+    ProvenanceLogger, every gated action (ALLOW and DENY) emits a per-action,
+    Ed25519-signed JWS provenance receipt that `audit-export` ingests and that
+    verifies OFFLINE from the broker's public key alone — no AWS, no network.
+    This is the property AgentCore's CloudWatch trail structurally cannot give a
+    regulator."""
+    from raucle_detect.audit_export import _load_receipts, build_report
+    from raucle_detect.provenance import (
+        AgentIdentity,
+        ProvenanceLogger,
+        ProvenanceVerifier,
+    )
+
+    broker = AgentIdentity.generate(agent_id="agent:raucle-aws-egress-broker")
+    chain = tmp_path / "custody.jsonl"
+    writer = ProvenanceLogger(broker, sink_path=chain)
+
+    gate, token = _gate_and_token({"allowed_values": {"TableName": ["customers"]}})
+    egress = AWSEgressGate(
+        gate,
+        region="us-east-1",
+        access_key="AKIDEXAMPLE",
+        secret_key="wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+        provenance_writer=writer,
+        transport=_FakeTransport(),
+        clock=lambda: 1_700_000_000,
+    )
+
+    # ALLOW — the returned receipt links to the signed provenance receipt hash.
+    res = egress.get_item(
+        token,
+        table="customers",
+        key={"customer_id": {"S": "C-123"}},
+        agent_id="agent:kyc-prod",
+    )
+    assert res.receipt["provenance_receipt_hash"].startswith("sha256:")
+
+    # DENY — a refused action is cryptographically attested too.
+    with pytest.raises(CapabilityDenied):
+        egress.get_item(
+            token,
+            table="forbidden_table",
+            key={"customer_id": {"S": "C-9"}},
+            agent_id="agent:kyc-prod",
+        )
+    writer.close()
+
+    # audit-export ingests the gate-produced chain (the loop is closed). Each
+    # action is a mini-chain rooted at its gate-decision guardrail_scan:
+    # ALLOW = scan + tool_call (2), DENY = scan only (1) → 3 receipts total.
+    receipts = _load_receipts(chain)
+    assert len(receipts) == 3
+
+    # The signed payloads carry the gate decisions and the performed AWS action.
+    from raucle_detect.provenance import Operation
+
+    decoded = [r for _, r in receipts]
+    scans = [r for r in decoded if r.operation is Operation.GUARDRAIL_SCAN]
+    tool_calls = [r for r in decoded if r.operation is Operation.TOOL_CALL]
+    assert {s.guardrail_verdict for s in scans} == {"ALLOW", "DENY"}
+    assert len(tool_calls) == 1  # only the ALLOW produced an AWS call
+    assert tool_calls[0].tool == "dynamodb.GetItem"
+    assert tool_calls[0].parents  # descends from its decision receipt
+
+    # Every receipt verifies OFFLINE from the broker public key alone — no AWS.
+    verifier = ProvenanceVerifier(public_keys={broker.key_id: broker.public_key_pem()})
+    verdict = verifier.verify_chain(chain)
+    assert verdict.valid, verdict
+    assert verdict.receipt_count == 3
+    assert verdict.signature_failures == 0
+
+    # And the full audit-export report builds clean over the gate chain.
+    report = build_report(
+        chain,
+        public_keys={broker.key_id: broker.public_key_pem()},
+        generated_at=1_700_000_000,
+    )
+    assert report.body()["chain_verdict"]["valid"] is True
+
+
+def test_require_durable_receipt_refuses_construction_without_a_sink():
+    """Fail-closed custody: a gate that requires a durable receipt cannot be
+    built without somewhere to durably record it (Codex High)."""
+    gate, _ = _gate_and_token({"allowed_values": {"TableName": ["customers"]}})
+    with pytest.raises(ValueError, match="durable"):
+        AWSEgressGate(
+            gate,
+            region="us-east-1",
+            access_key="AKIDEXAMPLE",
+            secret_key="wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+            require_durable_receipt=True,  # no sink, no provenance_writer
+        )
+    # With a durable sink it constructs fine.
+    AWSEgressGate(
+        gate,
+        region="us-east-1",
+        access_key="AKIDEXAMPLE",
+        secret_key="wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+        sink=type("S", (), {"append": staticmethod(lambda e: e)})(),
+        require_durable_receipt=True,
+    )
+
+
+def test_receipt_binds_exact_signed_request_not_just_canonical_hash():
+    """Codex High: the receipt must pin the EXACT signed request (incl. the
+    Authorization signature), not only the canonical-request hash — so a
+    different principal signing the same canonical request can't match it."""
+    gate, token = _gate_and_token({"allowed_values": {"TableName": ["customers"]}})
+    egress = _egress(gate, _FakeTransport())
+    res = egress.get_item(
+        token,
+        table="customers",
+        key={"customer_id": {"S": "C-123"}},
+        agent_id="agent:kyc-prod",
+    )
+    binding = res.receipt["request_binding"]
+    assert binding["signed_request_hash"].startswith("sha256:")
+    # It is distinct from the canonical-request hash (binds more: the signature).
+    assert binding["signed_request_hash"] != binding["canonical_request_hash"]
+    # And it leaks no credential/signature material (it is only a hash).
+    blob = repr(res.receipt).lower()
+    assert "aws4-hmac-sha256" not in blob and "akidexample" not in blob
