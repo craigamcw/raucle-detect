@@ -824,16 +824,16 @@ def _cmd_audit_keygen(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_audit_export(args: argparse.Namespace) -> int:
-    import datetime as _dt
+def _load_audit_inputs(args: argparse.Namespace):
+    """Load the shared audit inputs (--pubkeys / --proofs / --capabilities) used
+    by both `audit-export` and `audit-pack build`. Capability *statements* are
+    kept (not just their PEM) so allowed-tools/models are enforced — else a
+    forbidden tool call would verify clean. Returns
+    ``(public_keys, statements, proofs, capabilities)``."""
     import hashlib
 
-    from raucle_detect.audit_export import build_report, render_html, sign_manifest
     from raucle_detect.provenance import CapabilityStatement
 
-    # Same pubkey loader as `provenance verify`. Keep the parsed capability
-    # statements too — they gate allowed-tools/models and MUST be enforced, not
-    # discarded after extracting the PEM (else a forbidden tool call verifies clean).
     public_keys: dict[str, bytes] = {}
     statements = {}
     for src in args.pubkeys:
@@ -847,6 +847,15 @@ def _cmd_audit_export(args: argparse.Namespace) -> int:
 
     proofs = [json.loads(Path(p).read_text()) for p in args.proofs]
     capabilities = [json.loads(Path(c).read_text()) for c in args.capabilities]
+    return public_keys, statements, proofs, capabilities
+
+
+def _cmd_audit_export(args: argparse.Namespace) -> int:
+    import datetime as _dt
+
+    from raucle_detect.audit_export import build_report, render_html, sign_manifest
+
+    public_keys, statements, proofs, capabilities = _load_audit_inputs(args)
 
     try:
         report = build_report(
@@ -879,24 +888,10 @@ def _cmd_audit_export(args: argparse.Namespace) -> int:
 
 def _cmd_audit_pack_build(args: argparse.Namespace) -> int:
     import datetime as _dt
-    import hashlib
 
     from raucle_detect.audit_pack import build_pack
-    from raucle_detect.provenance import CapabilityStatement
 
-    public_keys: dict[str, bytes] = {}
-    statements = {}
-    for src in args.pubkeys:
-        content = Path(src).read_bytes()
-        try:
-            stmt = CapabilityStatement.from_dict(json.loads(content))
-            public_keys[stmt.key_id] = stmt.public_key_pem.encode("ascii")
-            statements[stmt.key_id] = stmt
-        except (json.JSONDecodeError, KeyError):
-            public_keys[hashlib.sha256(content).hexdigest()[:16]] = content
-
-    proofs = [json.loads(Path(p).read_text()) for p in args.proofs]
-    capabilities = [json.loads(Path(c).read_text()) for c in args.capabilities]
+    public_keys, statements, proofs, capabilities = _load_audit_inputs(args)
 
     try:
         index = build_pack(
