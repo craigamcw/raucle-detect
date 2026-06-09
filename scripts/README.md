@@ -49,3 +49,35 @@ Validated against real AWS in `eu-west-2` on 2026-06-09 — all surfaces green, 
 gate's DENY blocked an unauthorised call before it reached AWS, and an audit-pack
 built from the real receipt chain verified offline against the pinned custodian
 key. Delete the access key when you're done.
+
+### Optional: prove non-bypass (IAM custody), $0
+
+`live_aws_smoke.py` runs an extra leg if you give it a **second, no-permission**
+IAM user (`raucle-agent`, no policy attached) — proving AWS itself **denies** the
+agent principal on every surface, while the gate (broker) succeeds. The agent
+cannot act even *with* a key:
+
+```bash
+export RAUCLE_AGENT_ACCESS_KEY_ID=...  RAUCLE_AGENT_SECRET_ACCESS_KEY=...
+RAUCLE_LIVE_AWS=1 python scripts/live_aws_smoke.py
+```
+
+## `cloudtrail_correlate.py` — "vendor log vs portable proof"
+
+Joins a raucle receipt chain to AWS's own CloudTrail record of the same calls,
+showing every call ran under the **broker** identity (never the agent) and that
+raucle's receipt adds portable, offline-verifiable *authorisation* a CloudTrail
+log can't. Needs only the read-only `cloudtrail:LookupEvents` permission — add to
+the policy above:
+
+```json
+{ "Sid": "CloudTrailRead", "Effect": "Allow",
+  "Action": ["cloudtrail:LookupEvents"], "Resource": "*" }
+```
+
+```bash
+RAUCLE_LIVE_AWS=1 python scripts/cloudtrail_correlate.py <chain.jsonl>
+```
+
+See `docs/proposals/aws-egress-nonbypass.md` for the full non-bypass deployment
+design (NAT-free, ~$0 to demo).
