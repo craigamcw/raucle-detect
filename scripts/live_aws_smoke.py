@@ -170,6 +170,55 @@ def main() -> int:
         check("gate DENY blocks unauthorised call (never reaches AWS)", denied)
         writer.close()
 
+        # Non-bypass / IAM-custody proof (optional): an AGENT principal holding
+        # its OWN no-permission credentials must be DENIED by AWS itself on every
+        # surface — proving the agent cannot act even with a key, while the broker
+        # (gate) can. Set RAUCLE_AGENT_ACCESS_KEY_ID / _SECRET_ACCESS_KEY to a
+        # second IAM user that has NO policy attached.
+        agent_ak = os.environ.get("RAUCLE_AGENT_ACCESS_KEY_ID")
+        agent_sk = os.environ.get("RAUCLE_AGENT_SECRET_ACCESS_KEY")
+        if agent_ak and agent_sk:
+            from botocore.exceptions import ClientError
+
+            print("[non-bypass] AWS itself must DENY the no-permission agent principal:")
+            ag = boto3.Session(
+                aws_access_key_id=agent_ak, aws_secret_access_key=agent_sk, region_name=REGION
+            )
+            a_ddb, a_s3, a_sqs, a_sm = (
+                ag.client("dynamodb"),
+                ag.client("s3"),
+                ag.client("sqs"),
+                ag.client("secretsmanager"),
+            )
+
+            def must_deny(label, fn):
+                try:
+                    fn()
+                    check(
+                        f"AWS denies agent on {label}",
+                        False,
+                        "call SUCCEEDED — agent over-privileged",
+                    )
+                except ClientError as exc:
+                    code = exc.response["Error"]["Code"]
+                    check(
+                        f"AWS denies agent on {label}",
+                        code in ("AccessDenied", "AccessDeniedException", "UnauthorizedOperation"),
+                        code,
+                    )
+
+            must_deny(
+                "dynamodb.GetItem",
+                lambda: a_ddb.get_item(TableName=TABLE, Key={"customer_id": {"S": "C-123"}}),
+            )
+            must_deny("s3.GetObject", lambda: a_s3.get_object(Bucket=BUCKET, Key="report.txt"))
+            must_deny(
+                "sqs.SendMessage", lambda: a_sqs.send_message(QueueUrl=queue_url, MessageBody="x")
+            )
+            must_deny(
+                "secretsmanager.GetSecretValue", lambda: a_sm.get_secret_value(SecretId=SECRET)
+            )
+
         # audit-pack + offline verify over the REAL receipt chain.
         from cryptography.hazmat.primitives import serialization
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
