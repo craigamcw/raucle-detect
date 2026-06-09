@@ -74,6 +74,42 @@ interface endpoints and Fargate task-seconds — cents for a demo, ~$0 once torn
 down. The **credential-custody half (control 1) is fully provable today for $0**
 and is what the gate's code guarantees; the network half hardens it in a real VPC.
 
+## Validated against real AWS (2026-06-09, eu-west-2)
+
+Both halves of control 1 were reproduced live against a real account, at ~$0
+(throwaway `raucle-smoke-*` resources, torn down after):
+
+**IAM custody — AWS itself denies the agent.** A second IAM principal modelling
+the agent, with **no policy attached**, was rejected by AWS on every surface while
+the gate's broker credentials succeeded on the same calls
+(`scripts/live_aws_smoke.py` with `RAUCLE_AGENT_*` set):
+
+```
+[gate]  dynamodb.GetItem … secretsmanager.GetSecretValue   → all OK (broker)
+[non-bypass] AWS itself must DENY the no-permission agent principal:
+  AWS denies agent on dynamodb.GetItem            — AccessDeniedException
+  AWS denies agent on s3.GetObject                — AccessDenied
+  AWS denies agent on sqs.SendMessage             — AccessDenied
+  AWS denies agent on secretsmanager.GetSecretValue — AccessDeniedException
+```
+
+**CloudTrail attribution — the broker, never the agent.** AWS's own CloudTrail
+recorded the gate's secret read under the broker identity; the agent (which has no
+AWS identity) appears nowhere (`scripts/cloudtrail_correlate.py`):
+
+```
+GetSecretValue
+  userIdentity : arn:aws:iam::…:user/raucle-smoke   ← the broker
+  ↳ made by the broker, not the agent: YES
+  eventTime    : 2026-06-09T19:55:29Z
+```
+
+So AWS's authoritative log confirms *who technically called* (the broker), and
+raucle's receipt for the same call adds *that it was authorised* and verifies
+offline — the pair no single source provides. (DynamoDB/S3/SQS calls are
+CloudTrail data events, not in the free history; correlating those needs a
+data-events trail, omitted here to keep standing cost at $0.)
+
 ## What this buys a regulator
 
 The agent cannot act outside the gate because it has **no key and no route**, and
@@ -86,7 +122,7 @@ authorise."
 
 ## Scope / non-goals
 
-This document plus the Terraform is a **reference**, not a managed product. It
+This document is a **reference design**, not a managed product. It
 does not cover multi-tenant isolation, HA, or the TEE-attested variant (see
 `tee-gate.md`). The custody *code* guarantees hold regardless of deployment; this
 is how you make the egress half non-bypassable in a real VPC.
