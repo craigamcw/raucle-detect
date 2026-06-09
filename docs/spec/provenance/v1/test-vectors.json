@@ -135,6 +135,40 @@
       "reference_error": "ValueError"
     }
   ],
+  "invalid_receipt_vectors": [
+    {
+      "description": "Payload has a duplicate object key (R10). A signed JWS whose payload JSON repeats a key MUST be rejected on verify \u2014 duplicate keys are a parser-differential / signature-confusion vector.",
+      "expected_error_substr": "duplicate key",
+      "jws": "eyJhbGciOiJFZERTQSIsImNyaXQiOlsicmF1Y2xlL3YxIl0sImtpZCI6IjEyNmRjZDU0MTY2ODU5YWQiLCJyYXVjbGUvdjEiOiJwcm92ZW5hbmNlIiwidHlwIjoicHJvdmVuYW5jZS1yZWNlaXB0L3YxIn0.eyJhZ2VudF9pZCI6ImFnZW50OnRlc3QtdmVjdG9ycyIsImFnZW50X2tleV9pZCI6IjEyNmRjZDU0MTY2ODU5YWQiLCJpYXQiOjE3MDAwMDAwMDEsImlucHV0X2hhc2giOiJzaGEyNTY6ZjhjM2JmNjJhOWFhM2U2ZmMxNjE5YzI1MGU0OGFiZTc1MTkzNzNkM2VkZjQxYmU2MmViNWRjNDUxOTlhZjJlZiIsImlzcyI6InJhdWNsZS1kZXRlY3QvcHJvdmVuYW5jZSIsIm9wZXJhdGlvbiI6InVzZXJfaW5wdXQiLCJwYXJlbnRzIjpbXSwidGFpbnQiOlsiZXh0ZXJuYWxfdXNlciJdLCJ0eXAiOiJwcm92ZW5hbmNlLXJlY2VpcHQvdjEiLCJvcGVyYXRpb24iOiJ1c2VyX2lucHV0In0.l_53i8n-PmVT5TIxW60Zb0kIzaA8kkHdRRQxT8fuoYrnrJlqUiupzriZInAJw0vnwpDVNgdYU_bOmYN0nC3WBQ",
+      "must_reject": true,
+      "name": "invalid_receipt_duplicate_key",
+      "reference_error": "ValueError"
+    },
+    {
+      "description": "Payload keys are not in canonical (UTF-16 code-unit) order (\u00a76). The signature is valid over these bytes, but re-encoding canonically does not reproduce them, so verify MUST reject.",
+      "expected_error_substr": "not canonical JSON",
+      "jws": "eyJhbGciOiJFZERTQSIsImNyaXQiOlsicmF1Y2xlL3YxIl0sImtpZCI6IjEyNmRjZDU0MTY2ODU5YWQiLCJyYXVjbGUvdjEiOiJwcm92ZW5hbmNlIiwidHlwIjoicHJvdmVuYW5jZS1yZWNlaXB0L3YxIn0.eyJpbnB1dF9oYXNoIjoic2hhMjU2OmY4YzNiZjYyYTlhYTNlNmZjMTYxOWMyNTBlNDhhYmU3NTE5MzczZDNlZGY0MWJlNjJlYjVkYzQ1MTk5YWYyZWYiLCJ0YWludCI6WyJleHRlcm5hbF91c2VyIl0sInBhcmVudHMiOltdLCJvcGVyYXRpb24iOiJ1c2VyX2lucHV0IiwiYWdlbnRfa2V5X2lkIjoiMTI2ZGNkNTQxNjY4NTlhZCIsImFnZW50X2lkIjoiYWdlbnQ6dGVzdC12ZWN0b3JzIiwiaWF0IjoxNzAwMDAwMDAxLCJ0eXAiOiJwcm92ZW5hbmNlLXJlY2VpcHQvdjEiLCJpc3MiOiJyYXVjbGUtZGV0ZWN0L3Byb3ZlbmFuY2UifQ.ChjFz6gtIb-niT6764muNpMDl5Q0AJX3kDRSCHB7eITFXsa-LDj4vSl5HiKYkwP9gvzTRMPA7eljD29YDmKnBA",
+      "must_reject": true,
+      "name": "invalid_receipt_noncanonical_key_order",
+      "reference_error": "ValueError"
+    },
+    {
+      "description": "Payload has insignificant whitespace after separators (\u00a76). Valid signature, non-canonical bytes \u2014 verify MUST reject.",
+      "expected_error_substr": "not canonical JSON",
+      "jws": "eyJhbGciOiJFZERTQSIsImNyaXQiOlsicmF1Y2xlL3YxIl0sImtpZCI6IjEyNmRjZDU0MTY2ODU5YWQiLCJyYXVjbGUvdjEiOiJwcm92ZW5hbmNlIiwidHlwIjoicHJvdmVuYW5jZS1yZWNlaXB0L3YxIn0.eyJhZ2VudF9pZCI6ICJhZ2VudDp0ZXN0LXZlY3RvcnMiLCAiYWdlbnRfa2V5X2lkIjogIjEyNmRjZDU0MTY2ODU5YWQiLCAiaWF0IjogMTcwMDAwMDAwMSwgImlucHV0X2hhc2giOiAic2hhMjU2OmY4YzNiZjYyYTlhYTNlNmZjMTYxOWMyNTBlNDhhYmU3NTE5MzczZDNlZGY0MWJlNjJlYjVkYzQ1MTk5YWYyZWYiLCAiaXNzIjogInJhdWNsZS1kZXRlY3QvcHJvdmVuYW5jZSIsICJvcGVyYXRpb24iOiAidXNlcl9pbnB1dCIsICJwYXJlbnRzIjogW10sICJ0YWludCI6IFsiZXh0ZXJuYWxfdXNlciJdLCAidHlwIjogInByb3ZlbmFuY2UtcmVjZWlwdC92MSJ9.049mpiLb1aGYCGJ268CKuckZdOcYW9-7xQl52-HdD5Le-f-4-fmVJbxboK2pXkuM6ZzgHOV1gW6fIa7RI2_WDA",
+      "must_reject": true,
+      "name": "invalid_receipt_insignificant_whitespace",
+      "reference_error": "ValueError"
+    },
+    {
+      "description": "Payload string contains an unpaired UTF-16 surrogate (\u00a74.3.4). Re-encoding rejects it, so verify MUST reject even with a valid signature.",
+      "expected_error_substr": "lone surrogate",
+      "jws": "eyJhbGciOiJFZERTQSIsImNyaXQiOlsicmF1Y2xlL3YxIl0sImtpZCI6IjEyNmRjZDU0MTY2ODU5YWQiLCJyYXVjbGUvdjEiOiJwcm92ZW5hbmNlIiwidHlwIjoicHJvdmVuYW5jZS1yZWNlaXB0L3YxIn0.eyJhZ2VudF9pZCI6ImFnZW50OnRlc3QtdmVjdG9ycyIsImFnZW50X2tleV9pZCI6IjEyNmRjZDU0MTY2ODU5YWQiLCJpYXQiOjE3MDAwMDAwMDEsImlucHV0X2hhc2giOiJzaGEyNTY6ZjhjM2JmNjJhOWFhM2U2ZmMxNjE5YzI1MGU0OGFiZTc1MTkzNzNkM2VkZjQxYmU2MmViNWRjNDUxOTlhZjJlZiIsImlzcyI6InJhdWNsZS1kZXRlY3QvcHJvdmVuYW5jZSIsIm9wZXJhdGlvbiI6InVzZXJfaW5wdXQiLCJwYXJlbnRzIjpbXSwidGFpbnQiOlsiZXh0ZXJuYWxfdXNlciJdLCJ0eXAiOiJwcm92ZW5hbmNlLXJlY2VpcHQvdjEiLCJ4IjoiXHVkODAwIn0.1AezEOnXsSOj9zZoa4scEQy7MwgY9yzsZ03C_m_egIyoBeXfQCPMEt6JKPYEjj6DVlty6r8st2wdY-nZRAFlCA",
+      "must_reject": true,
+      "name": "invalid_receipt_lone_surrogate",
+      "reference_error": "ValueError"
+    }
+  ],
   "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAcSZR9FC6BbY4mLme9fe6RWMujiUn9/cVzWcexAJMxR4=\n-----END PUBLIC KEY-----\n",
   "spec_version": "raucle-provenance-receipt/v1",
   "vectors": [
