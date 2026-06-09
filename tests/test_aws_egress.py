@@ -451,3 +451,51 @@ def test_receipt_binds_exact_signed_request_not_just_canonical_hash():
     # And it leaks no credential/signature material (it is only a hash).
     blob = repr(res.receipt).lower()
     assert "aws4-hmac-sha256" not in blob and "akidexample" not in blob
+
+
+# ---------------------------------------------------------------------------
+# SQS SendMessage — the custody model on an action/messaging surface
+# ---------------------------------------------------------------------------
+_Q = "https://sqs.us-east-1.amazonaws.com/123456789012/kyc-events"
+
+
+def test_sqs_send_message_allows_and_binds_body():
+    gate, token = _gate_and_token({"allowed_values": {"QueueUrl": [_Q]}}, tool="sqs.SendMessage")
+    tx = _FakeTransport()
+    egress = _egress(gate, tx)
+    result = egress.send_message(
+        token,
+        queue_url=_Q,
+        message_body='{"event":"kyc.verified","id":"C-123"}',
+        agent_id="agent:kyc-prod",
+    )
+    assert result.receipt["decision"] == "ALLOW"
+    assert result.receipt["request_binding"]["service"] == "sqs"
+    assert len(tx.calls) == 1  # exactly one wire request
+    # The exact message is bound into the signed wire request body.
+    assert b"kyc.verified" in tx.calls[0].body
+    assert b'"QueueUrl"' in tx.calls[0].body
+
+
+def test_sqs_denies_unallowed_queue():
+    gate, token = _gate_and_token(
+        {"allowed_values": {"QueueUrl": ["https://sqs.us-east-1.amazonaws.com/1/allowed"]}},
+        tool="sqs.SendMessage",
+    )
+    tx = _FakeTransport()
+    egress = _egress(gate, tx)
+    with pytest.raises(CapabilityDenied):
+        egress.send_message(token, queue_url=_Q, message_body="x", agent_id="agent:kyc-prod")
+    assert tx.calls == []  # never reached AWS
+
+
+def test_sqs_message_size_can_be_gated():
+    gate, token = _gate_and_token(
+        {"allowed_values": {"QueueUrl": [_Q]}, "max_value": {"MessageBytes": 16}},
+        tool="sqs.SendMessage",
+    )
+    tx = _FakeTransport()
+    egress = _egress(gate, tx)
+    with pytest.raises(CapabilityDenied):
+        egress.send_message(token, queue_url=_Q, message_body="x" * 64, agent_id="agent:kyc-prod")
+    assert tx.calls == []

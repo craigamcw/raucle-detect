@@ -7,8 +7,9 @@ return the response. The agent never holds an AWS credential, never sees the
 ``Authorization`` header, and has no route to AWS except through this gate — so
 "no receipt = no action" holds: it cannot act because it holds no key.
 
-Scope (v1): DynamoDB ``GetItem`` only — a narrow, non-streaming, fixed-body
-surface. Streaming, presigned URLs, multipart, redirects, and automatic retries
+Scope (v1): narrow, non-streaming, fixed-body surfaces — DynamoDB ``GetItem``,
+S3 ``GetObject``/``PutObject``, and SQS ``SendMessage`` (a gated action/messaging
+surface). Streaming, presigned URLs, multipart, redirects, and automatic retries
 are intentionally out of scope (see docs/proposals/aws-egress-gate.md). Each
 forwarded HTTP request gets its own receipt.
 
@@ -38,6 +39,8 @@ Transport = Callable[[sigv4.SignedRequest], "tuple[int, bytes]"]
 
 _DDB_TARGET_PREFIX = "DynamoDB_20120810"
 _DDB_CONTENT_TYPE = "application/x-amz-json-1.0"
+_SQS_TARGET = "AmazonSQS.SendMessage"
+_SQS_CONTENT_TYPE = "application/x-amz-json-1.0"
 
 
 class CapabilityDenied(Exception):
@@ -276,6 +279,43 @@ class AWSEgressGate:
             headers={
                 "x-amz-content-sha256": content_hash,
                 "content-type": content_type,
+            },
+        )
+
+    # ── SQS (JSON protocol; SendMessage only — a gated write/action surface) ─
+    def send_message(
+        self,
+        token: Capability,
+        *,
+        queue_url: str,
+        message_body: str,
+        agent_id: str | None = None,
+    ) -> EgressResult:
+        """Gate, sign, forward, and receipt an SQS ``SendMessage``.
+
+        Proves the custody model generalises past storage (DynamoDB/S3) to an
+        action surface: a capability restricts *which queue* a message may go to
+        and *how large* it may be, while the exact message is bound into the
+        signed request and the JWS receipt. Gated args are ``QueueUrl`` and
+        ``MessageBytes`` (the UTF-8 size), so a capability can both allowlist
+        queues — ``{"allowed_values": {"QueueUrl": [...]}}`` — and cap size —
+        ``{"max_value": {"MessageBytes": 262144}}`` (SQS's 256 KiB limit).
+        """
+        wire = {"QueueUrl": queue_url, "MessageBody": message_body}
+        body = json.dumps(wire, separators=(",", ":")).encode("utf-8")
+        return self._dispatch(
+            token,
+            action="sqs.SendMessage",
+            args={"QueueUrl": queue_url, "MessageBytes": len(message_body.encode("utf-8"))},
+            agent_id=agent_id,
+            method="POST",
+            service="sqs",
+            host=f"sqs.{self._region}.amazonaws.com",
+            path="/",
+            body=body,
+            headers={
+                "content-type": _SQS_CONTENT_TYPE,
+                "x-amz-target": _SQS_TARGET,
             },
         )
 
