@@ -69,6 +69,7 @@ all = ["raucle-detect[rules,ml,server,compliance,multimodal,proof]"]
 
 [project.scripts]
 raucle-detect = "raucle_detect.cli:main"
+raucle-aws-mcp = "raucle_detect.broker.cli:main"
 
 [project.urls]
 Homepage = "https://raucle.com"

@@ -55,7 +55,9 @@ def _hash(obj: Any) -> str:
 
 
 def _http_transport(req: sigv4.SignedRequest) -> tuple[int, bytes]:
-    request = urllib.request.Request(  # noqa: S310 - https only, host from AWS
+    # req.url is always https with an AWS-derived host (built by the gate), never
+    # an agent-supplied scheme/host, so the dynamic-urlopen audit flag is moot.
+    request = urllib.request.Request(  # noqa: S310
         req.url, data=req.body, headers=req.headers, method=req.method
     )
     try:

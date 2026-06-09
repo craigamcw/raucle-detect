@@ -22,7 +22,6 @@ and have no direct AWS egress — only this server does.
 from __future__ import annotations
 
 import base64
-import binascii
 import json
 import sys
 from collections.abc import Callable
@@ -171,7 +170,7 @@ class RaucleMCPServer:
             if name == "aws.s3.put_object":
                 try:
                     body = base64.b64decode(args["body_b64"], validate=True)
-                except (binascii.Error, ValueError):
+                except ValueError:  # binascii.Error subclasses ValueError
                     return self._err(msg_id, _INVALID_PARAMS, "body_b64 is not valid base64")
                 result = self._gate.put_object(
                     token,
