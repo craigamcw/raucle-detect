@@ -125,22 +125,22 @@ only if it (a) reproduces every `canonicalization_vectors` entry's
 `invalid_canonicalization_vectors` entry. The kit and pass criteria are described
 in [`README.md`](README.md).
 
-**Verifier conformance (partially machine-checked).** A full implementation MUST
-also enforce the verify-side rules — the §6 canonical byte-equality invariant and
-R10 duplicate-key rejection. These are now machine-checked **for the Python
-reference** via the published `invalid_receipt_vectors`: receipts carrying a
-*valid* Ed25519 signature over non-canonical / duplicate-key bytes, which a
-conformant verifier MUST reject on the canonical/duplicate check (not on the
-signature). The remaining work before 1.0 is to extend this across the other four
-ports (a `--verify` mode per port CLI, §10). Until then (a) + (b) plus the
-Python-checked verify rules hold, but the verify path is not yet proven in
-Go/Rust/TS/C#.
+**Verifier conformance (machine-checked across all five ports).** A full
+implementation MUST also enforce the verify-side rules — the §6 canonical
+byte-equality invariant and R10 duplicate-key rejection. These are machine-checked
+across **all five reference ports** (Python, Go, Rust, TypeScript, C#) via the
+published `invalid_receipt_vectors`: receipts carrying a *valid* Ed25519 signature
+over non-canonical / duplicate-key bytes, which a conformant verifier MUST reject
+on the canonical/duplicate check (not on the signature). Each port exposes a
+`--verify` mode driven by `reference/verify_conformance.py`, which asserts every
+port ACCEPTs the published valid receipts (id-matched) and REJECTs every
+`invalid_receipt_vector`. The verify path is therefore proven, not only Python.
 
-Use of the "Raucle Compatible" mark to advertise conformance is governed by a
-separate trademark policy (TODO: published before 1.0; requires counsel). The
-technical bar for the mark is (a) + (b) for an encoder, and additionally the
-verify-side rules above for a full implementation, against a stated profile
-version.
+Conformance is asserted against a stated profile version. The project is not
+pursuing a "Raucle Compatible" certification mark at this time (no trademark is
+being registered), so there is no mark policy to satisfy; the technical bar is
+simply (a) + (b) for an encoder, and additionally the verify-side rules above for
+a full implementation, against a stated profile version.
 
 ## 9. Versioning and stability (governance)
 
@@ -158,13 +158,20 @@ version.
 
 ## 10. Open before publication (1.0 gate)
 
-- Verify-rejection conformance: **Python reference done** (the published
-  `invalid_receipt_vectors` — signed non-canonical / duplicate-key receipts —
-  are machine-checked to reject in `tests/test_spec_conformance.py`). Remaining:
-  add a `--verify` mode to the Go/Rust/TS/C# port CLIs and extend the harness so
-  the verify-side MUSTs (§6, R10) are proven across all five ports, not only
-  Python.
-- Confirm capability-token canonicalisation (`capability.py`) and the standalone
-  `cap_verifier.py` enforce R8 explicitly (today they reject lone surrogates
-  incidentally via UTF-8 encoding; a normative profile should make it explicit).
-- Trademark + "Raucle Compatible" mark policy (counsel).
+- Verify-rejection conformance: **done across all five ports.** The published
+  `invalid_receipt_vectors` (signed non-canonical / duplicate-key receipts) are
+  machine-checked to reject in `tests/test_spec_conformance.py` (Python) and in
+  `reference/verify_conformance.py`, which drives a `--verify` mode in every port
+  CLI (Python, Go, Rust, TypeScript, C#) and asserts the verify-side MUSTs (§6,
+  R10) hold cross-language.
+- Capability-token canonicalisation: **done.** `capability.py` and the standalone
+  `cap_verifier.py` now enforce R8 **explicitly** — a lone surrogate is rejected
+  with a clean `ValueError` at sign/verify, not incidentally via a later UTF-8
+  encode (shared helper `raucle_detect._canon.reject_lone_surrogates`; the
+  standalone verifier inlines an equivalent check to stay import-free). Covered by
+  `tests/test_capability.py::test_canonical_json_rejects_lone_surrogates_explicitly`
+  and `::test_standalone_cap_verifier_rejects_lone_surrogates`.
+- Trademark + "Raucle Compatible" mark policy (counsel). **Deferred** — the
+  project is not pursuing the "Raucle" trademark at this time, so the mark policy
+  is out of scope for the technical profile; conformance is asserted against a
+  stated profile version without invoking a certification mark.

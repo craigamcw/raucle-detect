@@ -75,6 +75,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import registry as _registry
+from ._canon import reject_lone_surrogates as _reject_lone_surrogates
 from ._canon import reorder_keys_utf16 as _reorder_keys_utf16
 from ._canon import utf16_key as _utf16_key
 from ._canon import value_sort_key as _value_sort_key
@@ -91,21 +92,31 @@ logger = logging.getLogger(__name__)
 
 
 def _reject_floats(obj: Any) -> None:
-    """Raise on any float in signed token material.
+    """Raise on any float, or any string/key carrying a lone surrogate, in signed
+    token material.
 
     cap:v1 numeric constraints are integers (see the standards doc). Floats are
     rejected — not serialised — so token canonicalisation stays deterministic and
     integer-only, consistent with the provenance receipt encoder. ``bool`` is an
     ``int`` subclass and is allowed. (Only used on the token body, never on call
     arguments, so float call-arg values still compare against integer bounds.)
+
+    Lone UTF-16 surrogates are rejected *explicitly* here (Profile R8) rather
+    than incidentally via the later ``.encode("utf-8")``, so capability tokens
+    reject the same cross-language-unstable material as provenance receipts and
+    on the same clean ``ValueError``.
     """
     if isinstance(obj, float):
         raise ValueError(
             "capability token: float numeric values are not permitted (cap:v1 "
             "constraints are integer-only)"
         )
-    if isinstance(obj, dict):
-        for v in obj.values():
+    if isinstance(obj, str):
+        _reject_lone_surrogates(obj)
+    elif isinstance(obj, dict):
+        for k, v in obj.items():
+            if isinstance(k, str):
+                _reject_lone_surrogates(k)
             _reject_floats(v)
     elif isinstance(obj, (list, tuple)):
         for v in obj:

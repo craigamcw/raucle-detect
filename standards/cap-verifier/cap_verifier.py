@@ -45,7 +45,10 @@ from pathlib import Path
 
 def _utf16_key(s):
     """RFC 8785 / JCS §3.2.3 ordering: by UTF-16 code unit (UTF-16-BE byte
-    comparison == unsigned-16-bit code-unit comparison)."""
+    comparison == unsigned-16-bit code-unit comparison). Rejects lone surrogates
+    explicitly first (R8) so the constraint pre-sort fails on the clean
+    ValueError, not the incidental UnicodeEncodeError from the encode."""
+    _reject_lone_surrogates(s)
     return s.encode("utf-16-be")
 
 
@@ -54,6 +57,7 @@ def _value_sort_key(v):
     unit; non-strings ranked by type name then value (bool never collides with
     an equal int)."""
     if isinstance(v, str):
+        _reject_lone_surrogates(v)  # R8: clean ValueError on any sort path
         return (0, "str", v.encode("utf-16-be"))
     return (1, type(v).__name__, v)
 
@@ -67,18 +71,38 @@ def _reorder_keys_utf16(obj):
     return obj
 
 
+def _reject_lone_surrogates(s) -> None:
+    """Reject any unpaired UTF-16 surrogate (U+D800..U+DFFF) in a string or key.
+    Such material cannot encode to UTF-8 and the five reference implementations
+    disagree on it, so it is rejected at sign/verify (Profile R8). This mirrors
+    raucle_detect._canon.reject_lone_surrogates, inlined here so this verifier
+    stays self-contained (no package import)."""
+    for ch in s:
+        if 0xD800 <= ord(ch) <= 0xDFFF:
+            raise ValueError(
+                "canonical JSON: lone surrogate "
+                f"U+{ord(ch):04X} is not permitted in v1 signed/hashed material "
+                "(unpaired surrogates are not cross-implementation stable)"
+            )
+
+
 def _reject_floats(obj) -> None:
-    """Reject any float in signed token material (cap:v1 numeric constraints are
-    integer-only), mirroring raucle_detect.capability._reject_floats. bool is an
-    int subclass and is allowed. Float bounds / NaN would otherwise serialize and
-    verify here while the real gate denies them."""
+    """Reject any float, or any string/key carrying a lone surrogate, in signed
+    token material (cap:v1 numeric constraints are integer-only; Profile R8),
+    mirroring raucle_detect.capability._reject_floats. bool is an int subclass and
+    is allowed. Float bounds / NaN would otherwise serialize and verify here while
+    the real gate denies them."""
     if isinstance(obj, float):
         raise ValueError(
             "capability token: float numeric values are not permitted "
             "(cap:v1 constraints are integer-only)"
         )
-    if isinstance(obj, dict):
-        for v in obj.values():
+    if isinstance(obj, str):
+        _reject_lone_surrogates(obj)
+    elif isinstance(obj, dict):
+        for k, v in obj.items():
+            if isinstance(k, str):
+                _reject_lone_surrogates(k)
             _reject_floats(v)
     elif isinstance(obj, (list, tuple)):
         for v in obj:
