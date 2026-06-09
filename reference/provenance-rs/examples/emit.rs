@@ -44,13 +44,24 @@ fn hex_to_bytes(s: &str) -> Vec<u8> {
 }
 
 // Strict hex decode: returns None on odd length or any non-hex char (no panic,
-// no trailing-nibble truncation). Used by the verify adapter's key contract.
+// no trailing-nibble truncation). Operates on raw bytes so a non-ASCII multibyte
+// char can't make a str-slice land mid-codepoint and abort the process — a bad
+// key must be a per-line REJECT, matching TS/C#. Used by the verify key contract.
 fn try_hex_to_bytes(s: &str) -> Option<Vec<u8>> {
-    if s.len() % 2 != 0 {
+    let bytes = s.as_bytes();
+    if bytes.len() % 2 != 0 {
         return None;
     }
-    (0..s.len() / 2)
-        .map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).ok())
+    fn nibble(c: u8) -> Option<u8> {
+        match c {
+            b'0'..=b'9' => Some(c - b'0'),
+            b'a'..=b'f' => Some(c - b'a' + 10),
+            b'A'..=b'F' => Some(c - b'A' + 10),
+            _ => None,
+        }
+    }
+    (0..bytes.len() / 2)
+        .map(|i| Some((nibble(bytes[2 * i])? << 4) | nibble(bytes[2 * i + 1])?))
         .collect()
 }
 
@@ -66,8 +77,13 @@ fn main() {
             if line.trim().is_empty() {
                 continue;
             }
-            let req: Value = serde_json::from_str(&line).unwrap();
-            writeln!(out, "{}", verify_one(&req)).unwrap();
+            // Parse inside the verdict boundary: a malformed request line is a
+            // REJECT, not a process abort (the "ANY error is REJECT" contract).
+            let verdict = match serde_json::from_str::<Value>(&line) {
+                Ok(req) => verify_one(&req),
+                Err(_) => json!({ "verdict": "REJECT" }),
+            };
+            writeln!(out, "{}", verdict).unwrap();
         }
         return;
     }

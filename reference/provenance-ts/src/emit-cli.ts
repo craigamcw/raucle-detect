@@ -36,6 +36,22 @@ async function importPubKey(hex: string): Promise<webcrypto.CryptoKey> {
 const rl = createInterface({ input: process.stdin })
 for await (const line of rl) {
   if (!line.trim()) continue
+  if (verifyMode) {
+    // {"jws","public_key_hex"} -> {"verdict":"ACCEPT","id":...} | {"verdict":"REJECT"}.
+    // ANY error (malformed line, bad key, bad signature, non-canonical, duplicate
+    // key) is REJECT — so JSON.parse lives INSIDE the boundary, not before it.
+    let verdict: { verdict: string; id?: string }
+    try {
+      const req = JSON.parse(line)
+      const pub = await importPubKey(req.public_key_hex)
+      const r = await verify(req.jws, pub)
+      verdict = { verdict: 'ACCEPT', id: r.id }
+    } catch {
+      verdict = { verdict: 'REJECT' }
+    }
+    process.stdout.write(JSON.stringify(verdict) + '\n')
+    continue
+  }
   const req = JSON.parse(line)
   if (canonMode) {
     // Canonicalisation cross-check (key ordering): {"obj": <value>} ->
@@ -44,20 +60,6 @@ for await (const line of rl) {
     process.stdout.write(
       JSON.stringify({ hex: Buffer.from(bytes).toString('hex') }) + '\n',
     )
-    continue
-  }
-  if (verifyMode) {
-    // {"jws","public_key_hex"} -> {"verdict":"ACCEPT","id":...} | {"verdict":"REJECT"}.
-    // ANY error (bad key, bad signature, non-canonical, duplicate key) is REJECT.
-    let verdict: { verdict: string; id?: string }
-    try {
-      const pub = await importPubKey(req.public_key_hex)
-      const r = await verify(req.jws, pub)
-      verdict = { verdict: 'ACCEPT', id: r.id }
-    } catch {
-      verdict = { verdict: 'REJECT' }
-    }
-    process.stdout.write(JSON.stringify(verdict) + '\n')
     continue
   }
   const key = await importSeedKey(req.seed_hex)
