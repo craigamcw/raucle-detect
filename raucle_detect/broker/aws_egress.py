@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..capability import Capability, CapabilityGate
-from ..provenance import _canonical_json, _sha256_hex
+from ..provenance import ProvenanceLogger, _canonical_json, _sha256_hex
 from . import sigv4
 
 # A transport forwards a signed request and returns (status_code, body_bytes).
@@ -81,6 +81,12 @@ class EgressResult:
     credentials) — only the response the gate chose to return. ``body`` is the
     raw response bytes (S3 object content is binary; DynamoDB is JSON); use
     :meth:`json` for JSON responses.
+
+    Receipt semantics: ``receipt`` is emitted BEFORE transport (so no AWS request
+    is ever dispatched receipt-less, even if the transport then fails). It
+    therefore attests an *authorised, signed, dispatched* request — not a
+    confirmed AWS-side outcome. The bound ``signed_request_hash`` pins the exact
+    request raucle sent; the AWS *result* is whatever ``status``/``body`` report.
     """
 
     status: int
@@ -111,6 +117,21 @@ class AWSEgressGate:
     sink
         Audit sink with an ``append(event: dict) -> dict`` method that signs and
         hash-chains the receipt (e.g. ``HashChainSink``). Optional.
+    provenance_writer
+        Optional :class:`~raucle_detect.provenance.ProvenanceLogger`. When given,
+        every gated action (ALLOW *and* DENY) additionally emits a per-action,
+        Ed25519-signed JWS provenance receipt to the writer's chain — the
+        portable, **offline-verifiable** custody evidence that ``raucle
+        audit-export`` turns into a regulator-grade bundle. Unlike the
+        hash-chained ``sink`` (tamper-evident, attributed only at checkpoints),
+        each JWS receipt is independently verifiable from a public key without
+        the cloud provider's cooperation. The returned receipt dict carries the
+        signed receipt's ``provenance_receipt_hash`` so the two views link up.
+    require_durable_receipt
+        Fail-closed custody switch. When ``True``, construction raises unless a
+        durable sink (``provenance_writer`` and/or ``sink``) is supplied, so the
+        gate can never forward an AWS call while only able to return an in-memory
+        receipt. Production custody deployments SHOULD set this.
     lean_theorem_id
         Lean theorem identifier the receipt cites (carried through for parity
         with the other adapters).
@@ -128,16 +149,30 @@ class AWSEgressGate:
         secret_key: str,
         session_token: str | None = None,
         sink: Any | None = None,
+        provenance_writer: ProvenanceLogger | None = None,
+        require_durable_receipt: bool = False,
         lean_theorem_id: str = "gate_allow_sound",
         transport: Transport | None = None,
         clock: Callable[[], float] | None = None,
     ) -> None:
+        # Fail-closed custody mode: a durable receipt requires a place to durably
+        # record it. Refuse to construct a gate that would forward AWS calls while
+        # only able to hand the agent an in-memory receipt dict (which a crash
+        # before the agent persists it would lose) — that would break
+        # "no DURABLE receipt = no action". Custody deployments MUST set this.
+        if require_durable_receipt and sink is None and provenance_writer is None:
+            raise ValueError(
+                "require_durable_receipt=True needs a durable sink: pass "
+                "`provenance_writer` (JWS receipts) and/or `sink` (hash chain). "
+                "Refusing to build a custody gate that cannot durably record."
+            )
         self._gate = gate
         self._region = region
         self._access_key = access_key
         self._secret_key = secret_key
         self._session_token = session_token
         self._sink = sink
+        self._prov_writer = provenance_writer
         self._lean_theorem_id = lean_theorem_id
         self._transport = transport or _http_transport
         self._clock = clock or time.time
@@ -286,6 +321,20 @@ class AWSEgressGate:
             "service": service,
             "amz_date": amz_date,
             "canonical_request_hash": signed.canonical_hash,
+            # The canonical-request hash alone does NOT pin the signer: a
+            # different principal/signature over the same canonical request would
+            # match it. Bind a hash of the EXACT signed wire request — including
+            # the Authorization header (the actual SigV4 signature) — so the
+            # receipt attests the precise request raucle dispatched. It is a hash,
+            # so no credential or signature is leaked into the receipt.
+            "signed_request_hash": _hash(
+                {
+                    "method": signed.method,
+                    "url": signed.url,
+                    "headers": {k.lower(): v for k, v in sorted(signed.headers.items())},
+                    "payload_hash": sigv4.payload_hash(body),
+                }
+            ),
         }
         # Emit the receipt for the signed request BEFORE forwarding, so no request
         # can reach AWS without a durable receipt even if the transport then fails
@@ -304,16 +353,55 @@ class AWSEgressGate:
         *,
         request_binding: dict[str, Any] | None,
     ) -> dict[str, Any]:
+        decision_str = "ALLOW" if decision.allowed else "DENY"
         receipt = {
             "lean_theorem_id": self._lean_theorem_id,
             "attenuation_chain": list(getattr(decision, "chain", []) or []),
             "tool": action,
             "call_args_hash": _hash(args),
-            "decision": "ALLOW" if decision.allowed else "DENY",
+            "decision": decision_str,
             "decision_reason": decision.reason,
             "request_binding": request_binding,
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(self._clock())),
         }
+        # Per-action JWS provenance receipts: the portable, offline-verifiable
+        # custody artifacts `raucle audit-export` consumes. Each gated action is a
+        # mini-chain rooted at the gate DECISION (a guardrail_scan — the only
+        # operation, besides user_input, permitted to root a chain) so the audit
+        # graph reads "gate scanned the requested action → verdict → [if allowed]
+        # AWS call performed". Emitted BEFORE any transport, so every action —
+        # permitted or refused — is cryptographically attested. The whole chain
+        # verifies offline from the broker's public key, with no AWS cooperation.
+        if self._prov_writer is not None:
+            # ruleset_hash binds the policy identity (cited Lean theorem +
+            # attenuation chain) into the signed decision receipt.
+            ruleset_hash = _hash(
+                {
+                    "lean_theorem_id": self._lean_theorem_id,
+                    "attenuation_chain": receipt["attenuation_chain"],
+                }
+            )
+            scan_hash = self._prov_writer.record_guardrail_scan(
+                parents=[],
+                scanned_text=_canonical_json({"action": action, "args": args}).decode("utf-8"),
+                verdict=decision_str,
+                ruleset_hash=ruleset_hash,
+                scan_target="aws-egress",
+            )
+            if request_binding is not None:
+                # ALLOW: the actual AWS call, descending from the decision, with
+                # the exact signed request bound into its output hash.
+                receipt["provenance_receipt_hash"] = self._prov_writer.record_tool_call(
+                    parents=[scan_hash],
+                    tool=action,
+                    input_args=args,
+                    output=request_binding,
+                    extra_taint={"gate:allow"},
+                )
+            else:
+                # DENY: no AWS action was performed; the decision receipt is the
+                # attestation that the gate refused the call.
+                receipt["provenance_receipt_hash"] = scan_hash
         if self._sink is not None:
             return self._sink.append(receipt)
         return receipt
