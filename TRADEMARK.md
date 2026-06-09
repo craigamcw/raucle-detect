@@ -9,7 +9,7 @@ grant rights in the *name*.**
 
 ## The short version
 
-- ✅ You may use the code under its applicable licence (AGPL-3.0-or-later
+- ✅ You may use the code under its applicable licence (Apache-2.0
   for the engine; MIT for the spec reference implementations; CC-BY-4.0
   for the specification text).
 - ✅ You may say your product "uses raucle-detect", "is built on Raucle",

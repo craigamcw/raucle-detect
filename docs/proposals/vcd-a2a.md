@@ -142,7 +142,7 @@ Where base A2A reduces to "the network connection is authenticated", VCD-A2A add
 
 - VCD-A2A does **not** define an inter-agent transport. A2A's HTTPS / mTLS guidance is unchanged.
 - VCD-A2A does **not** define a UI for human-in-the-loop policy authoring. That is application-specific.
-- VCD-A2A does **not** mandate AGPL or commercial licensing of agent implementations. The protocol extension itself is intended to be released under a permissive licence suitable for inclusion in the A2A spec.
+- VCD-A2A does **not** mandate any particular licensing of agent implementations. The protocol extension itself is intended to be released under a permissive licence suitable for inclusion in the A2A spec.
 
 ## Open questions for the A2A working group
 

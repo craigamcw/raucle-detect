@@ -103,11 +103,11 @@ Mechanised in Lean 4. Three theorems:
 
 **Theorem 3 (policy-proof composition):** if `JSONSchemaProver.prove(schema, policy) = PROVEN` and a token `t` cites that proof's hash and carries constraints equal to or tighter than `policy`, then for every call `(tool, args)` accepted by the gate with token `t`, the call satisfies `policy` and conforms to `schema`.
 
-The Lean proofs will be released alongside the paper (released under AGPL-3.0-or-later, commercial licence available) — reviewers can re-check.
+The Lean proofs will be released alongside the paper (released under Apache-2.0) — reviewers can re-check.
 
 ## 5. Implementation (~1 page)
 
-- ~2,500 lines of Python for the runtime (`raucle-detect` v0.10.0, AGPL-3.0-or-later with commercial licence available, already on PyPI).
+- ~2,500 lines of Python for the runtime (`raucle-detect`, Apache-2.0, already on PyPI).
 - ~500 lines of Lean 4 for the mechanisations.
 - Z3 4.16 (PyZ3 bindings) for the SMT side.
 - Ed25519 via `cryptography` 42+.
@@ -205,7 +205,7 @@ Honest scope:
 
 ## 9. Conclusion (~0.5 page)
 
-Restate thesis. The prompt-injection literature has spent four years trying to harden the model; we propose moving the security boundary out of the model entirely, for the bounded part of the agent's action space where this is structurally tractable. The result is a defence that holds at 0% ASR on standard tool-call benchmarks at production-acceptable latency, with mechanised soundness proofs and an AGPL-3.0-licensed reference implementation (commercial licence available) already in production use.
+Restate thesis. The prompt-injection literature has spent four years trying to harden the model; we propose moving the security boundary out of the model entirely, for the bounded part of the agent's action space where this is structurally tractable. The result is a defence that holds at 0% ASR on standard tool-call benchmarks at production-acceptable latency, with mechanised soundness proofs and an Apache-2.0-licensed reference implementation.
 
 ---
 

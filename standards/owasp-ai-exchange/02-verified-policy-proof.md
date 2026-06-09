@@ -129,7 +129,7 @@ Operators concerned about prover correctness MAY cross-validate by producing two
 
 ## Reference implementation
 
-AGPL-3.0 Python implementation (commercial licence available) in `raucle_detect/prove.py`. ~530 lines. Uses Z3 via `z3-solver`. Lean 4 mechanisation of the policy-proof composition theorem (Theorem 3 in the accompanying paper) lives in `paper/lean/VCD/Composition.lean`.
+Apache-2.0 Python implementation in `raucle_detect/prove.py`. ~530 lines. Uses Z3 via `z3-solver`. Lean 4 mechanisation of the policy-proof composition theorem (Theorem 3 in the accompanying paper) lives in `paper/lean/VCD/Composition.lean`.
 
 ## Interoperability test vectors
 

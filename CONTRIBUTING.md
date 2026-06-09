@@ -101,13 +101,11 @@ All PRs require approval from a maintainer before merging.
 ## License
 
 By contributing to Raucle Detect, you agree that your contributions will be
-licensed under the AGPL-3.0-or-later licence under which the project is
-released (see [LICENSE](LICENSE) and [LICENSING.md](LICENSING.md)).
+licensed under the **Apache License, Version 2.0** under which the project is
+released (see [LICENSE](LICENSE) and [LICENSING.md](LICENSING.md)). This follows
+the standard "inbound = outbound" model: what you contribute is licensed under
+the same terms as the project.
 
-Raucle operates under a dual-licence model: AGPL-3.0-or-later for the open
-community, and a commercial licence for users whose use cases are
-incompatible with AGPL terms. To keep this model workable, significant
-contributors may be asked to sign a lightweight Contributor Licence
-Agreement (CLA) granting epic28 Ltd (trading as Raucle) the right to also relicense your
-contribution under the commercial licence. The CLA does not remove your
-own rights to your contribution; it adds rights for Raucle.
+Every contribution requires a [DCO](DCO) sign-off (`git commit -s`), which
+certifies you have the right to submit it. No separate copyright-assignment CLA
+is required.

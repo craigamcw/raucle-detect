@@ -66,7 +66,7 @@ The receipt is not a log — it is a *provable record*. Three formal-verificatio
 - **Cryptographic capability tokens.** Tokens carry the cited proof hash, an agent identity, a constraint set, an attenuation chain, and an expiry — signed under Ed25519. Three soundness theorems are mechanised in Lean 4 with zero `sorry`s: attenuation cannot broaden permissions; the gate's ALLOW implies satisfaction of the **modelled** constraint kinds (`allowed_values`, `forbidden_values`, `max_value`/`min_value`, `required_present`); and, assuming prover soundness (an explicit Lean axiom), a call in a tool's modelled call language under a PROVEN proof for that tool's policy `P` satisfies `P` (via the axiom) while the gate independently bounds it to the token's constraints — the binding that the *cited* proof pertains to that tool's `(schema, P)` is an operational strict-mode runtime check, not mechanised. The mechanisation scope is deliberately narrower than the runtime gate: `starts_with`, `forbidden_field_combinations`, dot-delimited `agent_id` scope, revocation, expiry, signature, issuer pinning, and strict-proof binding are enforced at runtime and covered by tests, but are **not** in the Lean model yet. See `paper/lean/README.md` for the exact proof boundary.
 - **A gate on the tool-execution path you wire it into.** Every call on a gated path passes the gate's eight verifications, fail-closed by default, and the gate's decision is the receipt's payload. The guarantee is only as complete as the path coverage: a receipt proves what happened *where raucle sits on the execution path*. The strongest coverage is credential custody — where raucle holds the tool's credential (or brokers a per-call scoped one), acting without a receipt is impossible because the agent never holds the key. raucle ships adapters for the Microsoft Agent Framework, the Agent Governance Toolkit, LangChain, and AutoGen, and a gateway pattern for MCP; it does **not** claim to mediate execution paths it is not on.
 
-The technique is under submission to **IEEE Security & Privacy 2027**. The paper, the Lean proofs, the benchmark harness, and the engine are all released as open source; see [LICENSE](LICENSE).
+The technique is under submission to **IEEE Security & Privacy 2027**. The paper, the Lean proofs, the benchmark harness, and the engine are all released as open source under the permissive **Apache-2.0** licence.
 
 ## Evidence the mechanism is sound
 
@@ -551,11 +551,19 @@ To report a vulnerability, email **security@raucle.com**. Do not open a public i
 
 ## License
 
-raucle-detect is **dual-licensed**:
+raucle-detect is licensed under the **Apache License, Version 2.0** — see
+[LICENSE](LICENSE) and [NOTICE](NOTICE). You may use, modify, embed, and
+redistribute it (including in closed-source products and hosted services),
+subject to the licence's attribution and patent terms.
 
-- **AGPL-3.0-or-later** by default — see [LICENSE](LICENSE) for the full text and [LICENSING.md](LICENSING.md) for an explanation.
-- **Commercial licence** available for closed-source embedding, SaaS hosting, and other uses incompatible with AGPL terms — see [COMMERCIAL.md](COMMERCIAL.md) or email `commercial@raucle.com`.
+Apache-2.0 includes an explicit patent grant and does **not** grant rights to
+the **Raucle** name or logo — see [TRADEMARK.md](TRADEMARK.md). The five
+reference implementations under `reference/` are MIT-licensed; the Provenance
+Receipt specification is CC-BY-4.0.
 
-Self-hosting raucle-detect inside your own organisation is free under AGPL. Embedding it in a product you distribute, or offering it as a hosted service to third parties, generally requires a commercial licence.
+> Starting with **v0.19.0**, the core package is licensed Apache-2.0. Releases
+> **v0.10.0 through v0.18.0** remain under the AGPL-3.0-or-later licence under
+> which they were published; releases before v0.10.0 remain under their
+> previously published terms (MIT).
 
 Copyright (c) 2026 epic28 Ltd (trading as Raucle)

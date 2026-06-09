@@ -16,14 +16,17 @@ anyone (see [CONTRIBUTING.md](./CONTRIBUTING.md)).
 
 | Component | Location | Licence | Intent |
 |---|---|---|---|
-| **Detection / gate / prover engine** | `raucle_detect/` | AGPL-3.0-or-later + commercial | The product. Strong copyleft prevents closed-source SaaS clones; a commercial licence is available ([COMMERCIAL.md](./COMMERCIAL.md)). |
+| **Detection / gate / prover engine** | `raucle_detect/` | **Apache-2.0** | The product. Permissive so it is trivial to embed in any agent runtime, gateway, SDK, or cloud — with an explicit patent grant for adopters. |
 | **Provenance Receipt specification** | `docs/spec/provenance/` | CC-BY-4.0 | An open standard. Anyone may implement it, in any language, under any licence. |
 | **Reference implementations** | `reference/` | **MIT** (permissive, by design) | Deliberately permissive so the standard is trivial to adopt — embed them in any product, including proprietary ones. |
 
-The split is intentional: **the *standard* is open and its reference
-code is permissive (maximise adoption); the *engine* is copyleft
-(protect the product).** Implementing the spec, or using a reference
-implementation, never obliges you to adopt the AGPL.
+The posture is intentional: **the engine, the standard, and its reference
+code are all permissive — maximise adoption so raucle-detect becomes the
+de-facto reference.** The project's defensibility lives in the **Raucle**
+trademark (held separately — see [TRADEMARK.md](./TRADEMARK.md)), the brand,
+and proprietary offerings built on top, not in copyleft on the core. Using the
+engine, the spec, or a reference implementation never obliges you to open-source
+your own code.
 
 ## The specification
 

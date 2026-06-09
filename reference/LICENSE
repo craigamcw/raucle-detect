@@ -5,9 +5,9 @@ Copyright (c) 2026 epic28 Ltd (trading as Raucle)
 The reference implementations of the Raucle Provenance Receipt
 specification in this directory (reference/) are licensed under the MIT
 License — deliberately permissive so the standard is trivial to adopt in
-any product, including proprietary ones. This is distinct from the
-AGPL-3.0-or-later licence that governs the rest of this repository (the
-detection/gate/prover engine). See ../GOVERNANCE.md.
+any product, including proprietary ones. The rest of this repository (the
+detection/gate/prover engine) is licensed under Apache-2.0 — also permissive,
+with an explicit patent grant. See ../GOVERNANCE.md.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
