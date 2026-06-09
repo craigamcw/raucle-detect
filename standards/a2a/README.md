@@ -130,6 +130,11 @@ Whoever fills it with a portable, verifiable mechanism sets the pattern.
 This binding does it with an artifact any party can check offline against
 a pinned key — exactly what a regulator examining a multi-agent workflow
 needs, and exactly what a single-vendor guardrail cannot provide. It is
-proposed for upstream discussion; the reference helper that builds and
-verifies these receipts is in
-[`reference/a2a-provenance`](../../reference/a2a-provenance).
+proposed for upstream discussion. Reference helpers that build and verify
+these receipts ship in two languages:
+[`reference/a2a-provenance`](../../reference/a2a-provenance) (TypeScript)
+and [`raucle_detect/a2a.py`](../../raucle_detect/a2a.py) (Python), with a
+runnable two-agent demo in
+[`examples/a2a_handoff`](../../examples/a2a_handoff). The receipts share
+the Raucle provenance header + canonical JSON, so they are wire-compatible
+across implementations.
