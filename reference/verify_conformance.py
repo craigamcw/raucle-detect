@@ -28,11 +28,26 @@ VECTORS = ROOT / "docs" / "spec" / "provenance" / "v1" / "test-vectors.json"
 # Per-language --verify invocation: (argv, cwd). Python is handled in-process.
 VERIFY_CMD = {
     "go": (["go", "run", "./cmd/emit", "--verify"], REF / "provenance-go"),
+    "rust": (
+        ["cargo", "run", "--quiet", "--example", "emit", "--", "--verify"],
+        REF / "provenance-rs",
+    ),
+    "typescript": (
+        ["npx", "--no-install", "tsx", "src/emit-cli.ts", "--verify"],
+        REF / "provenance-ts",
+    ),
+    "csharp": (
+        ["dotnet", "run", "--project", "interop/Interop.csproj", "--", "--verify"],
+        REF / "provenance-cs",
+    ),
 }
 
 LANGS = [
     ("python", lambda: True),
     ("go", lambda: shutil.which("go")),
+    ("rust", lambda: shutil.which("cargo")),
+    ("typescript", lambda: shutil.which("npx")),
+    ("csharp", lambda: shutil.which("dotnet")),
 ]
 
 

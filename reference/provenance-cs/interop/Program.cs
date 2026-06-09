@@ -27,6 +27,44 @@ if (args.Length > 0 && args[0] == "--harness")
     return;
 }
 
+// Verify-rejection conformance: read {"jws","public_key_hex"} lines, write
+// {"verdict":"ACCEPT","id":...} | {"verdict":"REJECT"}. ANY error (bad key, bad
+// signature, non-canonical bytes, duplicate key) is a REJECT.
+if (args.Length > 0 && args[0] == "--verify")
+{
+    // Exactly 64 hex chars (32 bytes). Reject odd/over-length so a trailing nibble
+    // can't truncate back to a valid key (matches Go's strict decode).
+    static byte[] HexV(string s)
+    {
+        if (s.Length != 64) throw new FormatException("public_key_hex must be 64 hex chars");
+        var b = new byte[s.Length / 2];
+        for (int i = 0; i < b.Length; i++) b[i] = Convert.ToByte(s.Substring(2 * i, 2), 16);
+        return b;
+    }
+    string? vline;
+    while ((vline = Console.ReadLine()) != null)
+    {
+        if (string.IsNullOrWhiteSpace(vline)) continue;
+        object verdict;
+        try
+        {
+            using var doc = JsonDocument.Parse(vline);
+            var root = doc.RootElement;
+            var jws = root.GetProperty("jws").GetString()!;
+            var vpub = new Ed25519PublicKeyParameters(
+                HexV(root.GetProperty("public_key_hex").GetString()!), 0);
+            var rec = Receipt.Verify(jws, vpub);
+            verdict = new { verdict = "ACCEPT", id = rec.Id };
+        }
+        catch
+        {
+            verdict = new { verdict = "REJECT" };
+        }
+        Console.WriteLine(JsonSerializer.Serialize(verdict));
+    }
+    return;
+}
+
 // Canonicalisation cross-check (key ordering): read {"obj": <value>} lines,
 // write {"hex": "<utf8 hex of canonical bytes>"} lines.
 if (args.Length > 0 && args[0] == "--canon")
