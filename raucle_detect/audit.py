@@ -808,7 +808,9 @@ class NullSink:
         return {}
 
     def close(self) -> None:
-        pass
+        # No-op: a NullSink holds no file handle or buffer, so there is nothing
+        # to flush or release.
+        return
 
     @property
     def event_count(self) -> int:

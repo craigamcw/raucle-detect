@@ -1341,10 +1341,10 @@ def _cmd_feed_list(args: argparse.Namespace) -> int:
     iocs = store.all_iocs()
     if not iocs:
         print("(empty)")
-        return 0
-    for ioc in iocs:
-        print(f"{ioc.severity:8s} {ioc.kind:18s} {ioc.issuer:24s} {ioc.pattern[:60]}")
-    print(f"\nTotal: {len(iocs)} live IOC(s) across {len(store.list_feeds())} feed(s)")
+    else:
+        for ioc in iocs:
+            print(f"{ioc.severity:8s} {ioc.kind:18s} {ioc.issuer:24s} {ioc.pattern[:60]}")
+        print(f"\nTotal: {len(iocs)} live IOC(s) across {len(store.list_feeds())} feed(s)")
     return 0
 
 
