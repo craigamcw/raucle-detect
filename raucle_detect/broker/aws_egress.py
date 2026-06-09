@@ -383,9 +383,7 @@ class AWSEgressGate:
             )
             scan_hash = self._prov_writer.record_guardrail_scan(
                 parents=[],
-                scanned_text=_canonical_json({"action": action, "args": args}).decode(
-                    "utf-8"
-                ),
+                scanned_text=_canonical_json({"action": action, "args": args}).decode("utf-8"),
                 verdict=decision_str,
                 ruleset_hash=ruleset_hash,
                 scan_target="aws-egress",
