@@ -245,6 +245,42 @@ def _build_parser() -> argparse.ArgumentParser:
         "--out", required=True, help="Output HTML path (manifest written alongside)"
     )
 
+    # -- audit-pack ---------------------------------------------------------
+    pack_p = subparsers.add_parser(
+        "audit-pack",
+        help="Build / verify a self-contained, offline-verifiable custody evidence pack",
+    )
+    pack_sub = pack_p.add_subparsers(dest="audit_pack_command")
+    pack_build = pack_sub.add_parser(
+        "build", help="Bundle a receipt chain + keys + caps + proofs into one pack"
+    )
+    pack_build.add_argument("chain", help="Provenance chain JSONL")
+    pack_build.add_argument(
+        "--pubkeys",
+        nargs="+",
+        required=True,
+        help="Capability-statement JSON files OR public-key PEM files",
+    )
+    pack_build.add_argument(
+        "--proofs", nargs="*", default=[], help="ProofResult JSON files (optional)"
+    )
+    pack_build.add_argument(
+        "--capabilities", nargs="*", default=[], help="Capability token JSON files (optional)"
+    )
+    pack_build.add_argument(
+        "--sign-key", required=True, help="Ed25519 PEM private key that signs the manifest"
+    )
+    pack_build.add_argument("--out", required=True, help="Output pack DIRECTORY")
+    pack_verify = pack_sub.add_parser(
+        "verify", help="Verify a pack fully offline (no network, no external inputs)"
+    )
+    pack_verify.add_argument("pack", help="Pack directory to verify")
+    pack_verify.add_argument(
+        "--signer",
+        help="Pin the expected custodian audit key id — without it, a pass means "
+        "only 'internally consistent', not 'from this custodian'",
+    )
+
     # -- mcp ----------------------------------------------------------------
     mcp_p = subparsers.add_parser("mcp", help="Model Context Protocol operations")
     mcp_sub = mcp_p.add_subparsers(dest="mcp_command")
@@ -788,16 +824,16 @@ def _cmd_audit_keygen(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_audit_export(args: argparse.Namespace) -> int:
-    import datetime as _dt
+def _load_audit_inputs(args: argparse.Namespace):
+    """Load the shared audit inputs (--pubkeys / --proofs / --capabilities) used
+    by both `audit-export` and `audit-pack build`. Capability *statements* are
+    kept (not just their PEM) so allowed-tools/models are enforced — else a
+    forbidden tool call would verify clean. Returns
+    ``(public_keys, statements, proofs, capabilities)``."""
     import hashlib
 
-    from raucle_detect.audit_export import build_report, render_html, sign_manifest
     from raucle_detect.provenance import CapabilityStatement
 
-    # Same pubkey loader as `provenance verify`. Keep the parsed capability
-    # statements too — they gate allowed-tools/models and MUST be enforced, not
-    # discarded after extracting the PEM (else a forbidden tool call verifies clean).
     public_keys: dict[str, bytes] = {}
     statements = {}
     for src in args.pubkeys:
@@ -811,6 +847,15 @@ def _cmd_audit_export(args: argparse.Namespace) -> int:
 
     proofs = [json.loads(Path(p).read_text()) for p in args.proofs]
     capabilities = [json.loads(Path(c).read_text()) for c in args.capabilities]
+    return public_keys, statements, proofs, capabilities
+
+
+def _cmd_audit_export(args: argparse.Namespace) -> int:
+    import datetime as _dt
+
+    from raucle_detect.audit_export import build_report, render_html, sign_manifest
+
+    public_keys, statements, proofs, capabilities = _load_audit_inputs(args)
 
     try:
         report = build_report(
@@ -838,6 +883,77 @@ def _cmd_audit_export(args: argparse.Namespace) -> int:
         f"signed by {manifest['signer_key_id']}",
         file=sys.stderr,
     )
+    return 0
+
+
+def _cmd_audit_pack_build(args: argparse.Namespace) -> int:
+    import datetime as _dt
+
+    from raucle_detect.audit_pack import build_pack
+
+    public_keys, statements, proofs, capabilities = _load_audit_inputs(args)
+
+    try:
+        index = build_pack(
+            chain_path=args.chain,
+            public_keys=public_keys,
+            audit_key_pem=Path(args.sign_key).read_bytes(),
+            out_dir=args.out,
+            generated_at=int(_dt.datetime.now(_dt.timezone.utc).timestamp()),
+            capability_statements=statements or None,
+            capabilities=capabilities,
+            proofs=proofs,
+        )
+    except (ValueError, OSError) as exc:
+        print(f"audit-pack build failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(
+        f"audit pack written: {args.out} "
+        f"({len(index['members'])} members, signed by {index['audit_key_id']})\n"
+        f"  verify offline with: raucle audit-pack verify {args.out}",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def _cmd_audit_pack_verify(args: argparse.Namespace) -> int:
+    from raucle_detect.audit_pack import verify_pack
+
+    try:
+        verdict = verify_pack(args.pack, expected_signer=args.signer)
+    except (ValueError, OSError) as exc:
+        print(f"audit-pack verify failed: {exc}", file=sys.stderr)
+        return 1
+
+    def _mark(ok: bool) -> str:
+        return "PASS" if ok else "FAIL"
+
+    if verdict.signer_trusted is None:
+        signer_line = (
+            f"  signer (not pinned)         {verdict.signer_key_id} [internal consistency only]\n"
+        )
+    else:
+        signer_line = (
+            f"  signer matches pinned key   {_mark(verdict.signer_trusted)} "
+            f"({verdict.signer_key_id})\n"
+        )
+
+    print(
+        f"audit pack: {args.pack}\n"
+        f"  index signature             {_mark(verdict.index_signature_ok)}\n"
+        f"  integrity (member hashes)   {_mark(verdict.integrity_ok)}\n"
+        f"  manifest signature          {_mark(verdict.manifest_signature_ok)}\n"
+        f"{signer_line}"
+        f"  receipt chain (offline)     {_mark(verdict.chain_valid)} "
+        f"({verdict.receipt_count} receipts)\n"
+        f"  manifest reproducible       {_mark(verdict.reproducible)}\n"
+        f"  RESULT: {'VERIFIED' if verdict.ok else 'REJECTED'}",
+        file=sys.stderr,
+    )
+    for reason in verdict.reasons:
+        print(f"    - {reason}", file=sys.stderr)
+    return 0 if verdict.ok else 1
     return 0
 
 
@@ -1572,6 +1688,10 @@ def _dispatch(argv: list[str] | None = None) -> int:
         return _cmd_verify_receipt(args)
     elif args.command == "audit-export":
         return _cmd_audit_export(args)
+    elif args.command == "audit-pack" and args.audit_pack_command == "build":
+        return _cmd_audit_pack_build(args)
+    elif args.command == "audit-pack" and args.audit_pack_command == "verify":
+        return _cmd_audit_pack_verify(args)
     elif args.command == "mcp" and args.mcp_command == "serve":
         return _cmd_mcp_serve(args)
     elif args.command == "mcp" and args.mcp_command == "scan":
