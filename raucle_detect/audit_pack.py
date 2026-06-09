@@ -30,6 +30,7 @@ Layout::
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 from dataclasses import dataclass, field
@@ -51,6 +52,48 @@ INDEX_NAME = "PACK.json"
 
 def _file_hash(path: Path) -> str:
     return "sha256:" + _sha256_hex(path.read_bytes())
+
+
+_INDEX_SIG_FIELDS = ("audit_public_key_pem", "index_signature")
+
+
+def _sign_index(index: dict[str, Any], audit_key_pem: bytes) -> dict[str, Any]:
+    """Ed25519-sign the canonical index (its member digests included) with the
+    audit key. This binds every member's sha256 into a signature, so a member can
+    never be forged-and-re-indexed without the audit private key."""
+    from cryptography.hazmat.primitives import serialization
+
+    priv = serialization.load_pem_private_key(audit_key_pem, password=None)
+    sig = priv.sign(_canonical_json(index))
+    pub_pem = priv.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    return {
+        **index,
+        "audit_public_key_pem": pub_pem.decode("ascii"),
+        "index_signature": base64.b64encode(sig).decode("ascii"),
+    }
+
+
+def _verify_index_signature(index: dict[str, Any]) -> tuple[bool, str | None]:
+    """Verify the index's own signature against the public key embedded in it.
+    Returns ``(ok, signer_key_id)``. The signer id matches the manifest's
+    ``signer_key_id`` (same derivation) so the two can be cross-checked."""
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives import serialization
+
+    pem = index.get("audit_public_key_pem")
+    sig_b64 = index.get("index_signature")
+    if not pem or not sig_b64:
+        return False, None
+    body = {k: v for k, v in index.items() if k not in _INDEX_SIG_FIELDS}
+    try:
+        pub = serialization.load_pem_public_key(pem.encode("ascii"))
+        pub.verify(base64.b64decode(sig_b64), _canonical_json(body))
+    except (InvalidSignature, ValueError, TypeError):
+        return False, None
+    return True, _sha256_hex(pem.encode("ascii"))[:16]
 
 
 def build_pack(
@@ -131,6 +174,9 @@ def build_pack(
         "members": members,
         "verify": "raucle audit-pack verify <dir>",
     }
+    # Sign the index so its member digests are themselves under signature — the
+    # member set cannot be forged/re-indexed without the audit private key.
+    index = _sign_index(index, audit_key_pem)
     (out / INDEX_NAME).write_text(json.dumps(index, indent=2, ensure_ascii=False), encoding="utf-8")
     return index
 
@@ -169,6 +215,7 @@ class PackVerdict:
     manifest_signature_ok: bool
     chain_valid: bool
     reproducible: bool
+    index_signature_ok: bool = False
     signer_key_id: str | None = None
     signer_trusted: bool | None = None
     receipt_count: int = 0
@@ -180,11 +227,15 @@ def verify_pack(pack_dir: str | Path, *, expected_signer: str | None = None) -> 
 
     Checks, all of which must pass for ``ok``:
 
+    0. **Index signature** — ``PACK.json`` is itself Ed25519-signed, so its member
+       digests are under signature: no member (even one whose bytes never flow
+       into the manifest body — an unused capability-token field, an unknown-role
+       blob) can be forged and re-indexed without the audit private key.
     1. **Integrity** — every member's on-disk sha256 matches the ``PACK.json``
        index, every member path stays inside the pack, and the index ``kind`` is
        recognised (nothing added, dropped, altered, or pointing outside).
-    2. **Manifest signature** — the manifest's Ed25519 signature verifies against
-       the public key embedded in it, and the displayed signer id matches.
+    2. **Manifest signature** — the manifest's Ed25519 signature verifies, and its
+       signer id matches the index signer.
     3. **Chain validity** — the receipt chain verifies against the bundled public
        keys alone (the custody invariant, checked without the cloud provider).
     4. **Reproducibility** — rebuilding the report from the bundled evidence
@@ -204,6 +255,14 @@ def verify_pack(pack_dir: str | Path, *, expected_signer: str | None = None) -> 
     if not index_path.is_file():
         return PackVerdict(False, False, False, False, False, reasons=[f"missing {INDEX_NAME}"])
     index = json.loads(index_path.read_text())
+
+    # The index is itself signed, so its member digests are under signature: a
+    # member cannot be forged-and-re-indexed (even a member whose bytes do not
+    # flow into the manifest body, e.g. an unused capability-token field) without
+    # the audit private key. `index_signer` is the authoritative custodian id.
+    index_signature_ok, index_signer = _verify_index_signature(index)
+    if not index_signature_ok:
+        reasons.append("index (PACK.json) signature did not verify")
 
     integrity_ok = True
     if index.get("kind") != PACK_KIND:
@@ -236,23 +295,29 @@ def verify_pack(pack_dir: str | Path, *, expected_signer: str | None = None) -> 
     manifest_signature_ok = False
     manifest: dict[str, Any] = {}
     signer_key_id: str | None = None
+    # The custodian id is taken from the SIGNED index; the manifest must agree.
+    signer_key_id = index_signer
     manifest_member = _safe("manifest.json")
     if manifest_member is not None:
         manifest = json.loads(manifest_member.read_text())
         manifest_signature_ok = verify_manifest(manifest)
-        signer_key_id = manifest.get("signer_key_id")
         if not manifest_signature_ok:
             reasons.append("manifest signature did not verify")
+        elif manifest.get("signer_key_id") != index_signer:
+            manifest_signature_ok = False
+            reasons.append(
+                f"manifest signer {manifest.get('signer_key_id')!r} does not match "
+                f"index signer {index_signer!r}"
+            )
     else:
         reasons.append("missing or untrusted manifest.json")
 
     signer_trusted: bool | None = None
     if expected_signer is not None:
-        signer_trusted = manifest_signature_ok and signer_key_id == expected_signer
+        signer_trusted = index_signature_ok and signer_key_id == expected_signer
         if not signer_trusted:
             reasons.append(
-                f"manifest signer {signer_key_id!r} does not match pinned "
-                f"custodian key {expected_signer!r}"
+                f"custodian signer {signer_key_id!r} does not match pinned key {expected_signer!r}"
             )
 
     # Reload bundled public keys + capability statements (only verified members).
@@ -314,7 +379,8 @@ def verify_pack(pack_dir: str | Path, *, expected_signer: str | None = None) -> 
             reasons.append(f"reproducibility rebuild failed: {exc}")
 
     ok = (
-        integrity_ok
+        index_signature_ok
+        and integrity_ok
         and manifest_signature_ok
         and chain_valid
         and reproducible
@@ -326,6 +392,7 @@ def verify_pack(pack_dir: str | Path, *, expected_signer: str | None = None) -> 
         manifest_signature_ok=manifest_signature_ok,
         chain_valid=chain_valid,
         reproducible=reproducible,
+        index_signature_ok=index_signature_ok,
         signer_key_id=signer_key_id,
         signer_trusted=signer_trusted,
         receipt_count=receipt_count,

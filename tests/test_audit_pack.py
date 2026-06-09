@@ -270,3 +270,36 @@ def test_pinned_signer_anchor(tmp_path):
     # Correct anchor → PASS and signer_trusted True.
     v2 = verify_pack(out, expected_signer=real_signer)
     assert v2.ok and v2.signer_trusted is True
+
+
+def test_index_signature_binds_the_member_set(tmp_path):
+    """Codex re-review High: the PACK.json index is itself signed, so a member
+    cannot be added/forged and re-indexed (even one whose bytes never reach the
+    manifest body) without the audit key. Re-indexing without re-signing the
+    index is caught by the index signature."""
+    from raucle_detect.provenance import _sha256_hex
+
+    chain, broker = _gate_chain(tmp_path)
+    out = tmp_path / "pack"
+    build_pack(
+        chain_path=chain,
+        public_keys={broker.key_id: broker.public_key_pem()},
+        audit_key_pem=_audit_key(),
+        out_dir=out,
+        generated_at=1_700_000_000,
+    )
+    # Smuggle in a new member and update its index hash so INTEGRITY passes —
+    # but the attacker cannot re-sign the index without the audit private key.
+    smuggled = b"smuggled-evidence"
+    (out / "extra.bin").write_bytes(smuggled)
+    index = json.loads((out / "PACK.json").read_text())
+    index["members"].append(
+        {"path": "extra.bin", "role": "note", "sha256": "sha256:" + _sha256_hex(smuggled)}
+    )
+    (out / "PACK.json").write_text(json.dumps(index, indent=2))
+
+    verdict = verify_pack(out)
+    assert not verdict.ok
+    assert verdict.integrity_ok  # the re-indexed member hash matches...
+    assert not verdict.index_signature_ok  # ...but the index signature is broken
+    assert any("index" in r.lower() for r in verdict.reasons)

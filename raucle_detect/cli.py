@@ -941,6 +941,7 @@ def _cmd_audit_pack_verify(args: argparse.Namespace) -> int:
 
     print(
         f"audit pack: {args.pack}\n"
+        f"  index signature             {_mark(verdict.index_signature_ok)}\n"
         f"  integrity (member hashes)   {_mark(verdict.integrity_ok)}\n"
         f"  manifest signature          {_mark(verdict.manifest_signature_ok)}\n"
         f"{signer_line}"
