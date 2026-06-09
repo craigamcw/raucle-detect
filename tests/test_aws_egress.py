@@ -499,3 +499,45 @@ def test_sqs_message_size_can_be_gated():
     with pytest.raises(CapabilityDenied):
         egress.send_message(token, queue_url=_Q, message_body="x" * 64, agent_id="agent:kyc-prod")
     assert tx.calls == []
+
+
+# ---------------------------------------------------------------------------
+# Secrets Manager GetSecretValue — custody of secrets
+# ---------------------------------------------------------------------------
+_SECRET = "prod/kyc/api-key"
+
+
+class _FakeSecretsTransport:
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, req):
+        self.calls.append(req)
+        return 200, b'{"Name":"prod/kyc/api-key","SecretString":"s3cr3t"}'
+
+
+def test_secrets_get_allows_and_receipts():
+    gate, token = _gate_and_token(
+        {"allowed_values": {"SecretId": [_SECRET]}}, tool="secretsmanager.GetSecretValue"
+    )
+    tx = _FakeSecretsTransport()
+    egress = _egress(gate, tx)
+    result = egress.get_secret_value(token, secret_id=_SECRET, agent_id="agent:kyc-prod")
+    assert result.receipt["decision"] == "ALLOW"
+    assert result.receipt["request_binding"]["service"] == "secretsmanager"
+    assert result.json()["SecretString"] == "s3cr3t"
+    assert len(tx.calls) == 1
+    # Agent still never sees the AWS credential / Authorization signature.
+    assert "akidexample" not in repr(result).lower()
+
+
+def test_secrets_denies_unallowed_secret():
+    gate, token = _gate_and_token(
+        {"allowed_values": {"SecretId": ["prod/other/secret"]}},
+        tool="secretsmanager.GetSecretValue",
+    )
+    tx = _FakeSecretsTransport()
+    egress = _egress(gate, tx)
+    with pytest.raises(CapabilityDenied):
+        egress.get_secret_value(token, secret_id=_SECRET, agent_id="agent:kyc-prod")
+    assert tx.calls == []  # never reached AWS — the secret was never fetched
