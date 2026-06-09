@@ -178,6 +178,77 @@ def test_rejects_tampered_header_kid():
     assert not v.ok  # fails on signature (header changed) or kid binding
 
 
+def _sign_custom(identity, payload, *, extra_header=None):
+    """Build a signed handoff JWS bypassing emit_handoff's guards, to test the
+    verifier's own enforcement (parents, exact header)."""
+    header = {
+        "alg": "EdDSA",
+        "typ": "provenance-receipt/v1",
+        "kid": identity.key_id,
+        "crit": ["raucle/v1"],
+        "raucle/v1": "provenance",
+        **(extra_header or {}),
+    }
+    si = (
+        a2a._b64url_encode(a2a._canonical_json(header))
+        + "."
+        + a2a._b64url_encode(a2a._canonical_json(payload))
+    ).encode("ascii")
+    return si.decode("ascii") + "." + a2a._b64url_encode(identity.sign(si))
+
+
+def _base_payload(orch, callee, **over):
+    p = {
+        "iss": ISS,
+        "iat": 1,
+        "agent_id": orch.agent_id,
+        "agent_key_id": orch.key_id,
+        "operation": "agent_handoff",
+        "parents": [ROOT],
+        "input_hash": a2a._sha256_hex(a2a._canonical_json(INPUT)),
+        "output_hash": a2a._sha256_hex(a2a._canonical_json(INPUT)),
+        "taint": ["untrusted_user"],
+        "x_a2a_skill": "transfer",
+        "x_a2a_target": callee["url"],
+        "x_capability_proof_hash": CAP,
+    }
+    p.update(over)
+    return p
+
+
+def test_verifier_rejects_parentless_handoff(monkeypatch):
+    """Codex Medium: a signed-but-parentless agent_handoff (crafted outside
+    emit_handoff) must be rejected by the verifier, not only at emit."""
+    orch, caller, callee = _cards(skill_caps={"transfer": CAP})
+    # Re-key caller card to the orch we control here.
+    jws = _sign_custom(orch, _base_payload(orch, callee, parents=[]))
+    # Publish orch's key in the caller card so the signature verifies.
+    caller["metadata"] = a2a.card_metadata(
+        iss=ISS,
+        key_id=orch.key_id,
+        public_key_b64=a2a.issuer_public_b64(orch.public_key_pem()),
+    )
+    v = a2a.verify_handoff(jws, caller, callee)
+    assert not v.ok and "parent" in v.reason
+
+
+def test_verifier_rejects_extra_header_member():
+    """Codex Medium: header must be exactly the profile members; an extra
+    protected header member (even with a valid signature) is rejected."""
+    orch, _caller, callee = _cards(skill_caps={"transfer": CAP})
+    caller = {
+        "url": "https://agents.acme.example/orchestrator",
+        "metadata": a2a.card_metadata(
+            iss=ISS,
+            key_id=orch.key_id,
+            public_key_b64=a2a.issuer_public_b64(orch.public_key_pem()),
+        ),
+    }
+    jws = _sign_custom(orch, _base_payload(orch, callee), extra_header={"x_extra": "smuggled"})
+    v = a2a.verify_handoff(jws, caller, callee)
+    assert not v.ok and "header" in v.reason
+
+
 def test_demo_runs_and_exits_zero(tmp_path):
     demo = Path(__file__).resolve().parent.parent / "examples" / "a2a_handoff" / "demo.py"
     repo = demo.parent.parent.parent

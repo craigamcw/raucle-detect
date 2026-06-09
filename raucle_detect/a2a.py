@@ -225,6 +225,8 @@ def verify_handoff(
         return HandoffVerdict(False, f"unexpected typ {header.get('typ')!r}")
     if header.get("crit") != ["raucle/v1"] or header.get("raucle/v1") != "provenance":
         return HandoffVerdict(False, "receipt is not a Raucle provenance JWS")
+    if set(header) != {"alg", "typ", "kid", "crit", "raucle/v1"}:
+        return HandoffVerdict(False, "receipt header has unexpected members")
 
     try:
         payload = json.loads(_b64url_decode(payload_b64))
@@ -240,10 +242,20 @@ def verify_handoff(
         return HandoffVerdict(False, "header kid does not match payload agent_key_id")
 
     receipt_id = "sha256:" + _sha256_hex(receipt_jws.encode("ascii"))
-    if seen_receipt_ids is not None and receipt_id in seen_receipt_ids:
-        return HandoffVerdict(
-            False, "receipt has already been seen (replay)", receipt_id=receipt_id, payload=payload
-        )
+    if seen_receipt_ids is not None:
+        # Reserve the id up front (record-before-validate) so there is no
+        # check-then-add gap inside this call. For CONCURRENT callees the store
+        # must still be externally synchronised — a plain ``set`` is correct only
+        # single-threaded; in production back replay-protection with an atomic
+        # check-and-insert (e.g. a DB unique constraint on the receipt id).
+        if receipt_id in seen_receipt_ids:
+            return HandoffVerdict(
+                False,
+                "receipt has already been seen (replay)",
+                receipt_id=receipt_id,
+                payload=payload,
+            )
+        seen_receipt_ids.add(receipt_id)
     if expected_input is not _UNSET:
         want = _sha256_hex(_canonical_json(expected_input if expected_input is not None else {}))
         if payload.get("input_hash") != want:
@@ -257,6 +269,15 @@ def verify_handoff(
         return HandoffVerdict(
             False,
             f"operation is {payload.get('operation')!r}, expected agent_handoff",
+            payload=payload,
+            receipt_id=receipt_id,
+        )
+    # agent_handoff is a non-root operation: a parentless one is not wire-valid,
+    # so reject it on the verify side too (not only at emit).
+    if not payload.get("parents"):
+        return HandoffVerdict(
+            False,
+            "agent_handoff receipt has no parent (not wire-valid)",
             payload=payload,
             receipt_id=receipt_id,
         )
@@ -285,6 +306,4 @@ def verify_handoff(
             payload=payload,
             receipt_id=receipt_id,
         )
-    if seen_receipt_ids is not None:
-        seen_receipt_ids.add(receipt_id)  # record so a later replay is caught
     return HandoffVerdict(True, "", skill=skill, receipt_id=receipt_id, payload=payload)
