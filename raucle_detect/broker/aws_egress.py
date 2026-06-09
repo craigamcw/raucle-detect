@@ -8,8 +8,9 @@ return the response. The agent never holds an AWS credential, never sees the
 "no receipt = no action" holds: it cannot act because it holds no key.
 
 Scope (v1): narrow, non-streaming, fixed-body surfaces — DynamoDB ``GetItem``,
-S3 ``GetObject``/``PutObject``, and SQS ``SendMessage`` (a gated action/messaging
-surface). Streaming, presigned URLs, multipart, redirects, and automatic retries
+S3 ``GetObject``/``PutObject``, SQS ``SendMessage`` (a gated
+action/messaging surface), and Secrets Manager ``GetSecretValue`` (custody of
+secrets). Streaming, presigned URLs, multipart, redirects, and automatic retries
 are intentionally out of scope (see docs/proposals/aws-egress-gate.md). Each
 forwarded HTTP request gets its own receipt.
 
@@ -41,6 +42,8 @@ _DDB_TARGET_PREFIX = "DynamoDB_20120810"
 _DDB_CONTENT_TYPE = "application/x-amz-json-1.0"
 _SQS_TARGET = "AmazonSQS.SendMessage"
 _SQS_CONTENT_TYPE = "application/x-amz-json-1.0"
+_SM_TARGET = "secretsmanager.GetSecretValue"
+_SM_CONTENT_TYPE = "application/x-amz-json-1.1"
 
 
 class CapabilityDenied(Exception):
@@ -316,6 +319,42 @@ class AWSEgressGate:
             headers={
                 "content-type": _SQS_CONTENT_TYPE,
                 "x-amz-target": _SQS_TARGET,
+            },
+        )
+
+    # ── Secrets Manager (GetSecretValue — custody of secrets) ──────────────
+    def get_secret_value(
+        self,
+        token: Capability,
+        *,
+        secret_id: str,
+        agent_id: str | None = None,
+    ) -> EgressResult:
+        """Gate, sign, forward, and receipt a Secrets Manager ``GetSecretValue``.
+
+        The purest custody case: raucle holds the AWS credential, so an agent can
+        read a secret only for a ``SecretId`` its capability allows —
+        ``{"allowed_values": {"SecretId": [...]}}`` — and never sees the AWS
+        credential that fetched it. Each read is a per-action JWS receipt, so an
+        auditor can prove exactly which secrets an agent accessed and under which
+        authorisation. (The secret *value* is returned to the caller; gating
+        which secrets are reachable is the v1 control.)
+        """
+        wire = {"SecretId": secret_id}
+        body = json.dumps(wire, separators=(",", ":")).encode("utf-8")
+        return self._dispatch(
+            token,
+            action="secretsmanager.GetSecretValue",
+            args={"SecretId": secret_id},
+            agent_id=agent_id,
+            method="POST",
+            service="secretsmanager",
+            host=f"secretsmanager.{self._region}.amazonaws.com",
+            path="/",
+            body=body,
+            headers={
+                "content-type": _SM_CONTENT_TYPE,
+                "x-amz-target": _SM_TARGET,
             },
         )
 
