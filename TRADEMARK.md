@@ -1,8 +1,9 @@
 # Trademark policy
 
-**"Raucle"**, the Raucle logo, and **"raucle-detect"** are trademarks of
-epic28 Ltd (trading as Raucle) (the "Marks"), used to identify the official project and its
-origin. This policy explains how you may and may not use the Marks. It is
+**"Raucle"**, the Raucle logo, and **"raucle-detect"** are unregistered
+(common-law) trademarks of epic28 Ltd (trading as Raucle) (the "Marks"), used to
+identify the official project and its origin. This policy explains how you may
+and may not use the Marks. It is
 separate from, and additional to, the software licences in this
 repository: **a software licence grants rights in the *code*; it does not
 grant rights in the *name*.**
@@ -34,9 +35,9 @@ state factually that your work is "derived from raucle-detect."
 The Marks are how users, auditors, and regulated buyers know they are
 getting the genuine, maintained project with the formal guarantees it
 claims. Open code is the point; an open *name* would let anyone pass off
-unverified software as Raucle. Protecting the name protects users — this
-is the same posture used by essentially every open-source company
-(Linux, Sigstore, Hashicorp, GitLab, etc.).
+unverified software as Raucle. Protecting the name protects users — the same
+distinction (open code, protected name) that open-source projects from Linux to
+GitLab rely on, applied here at an early stage and through common-law rights.
 
 ## Questions / permission
 
