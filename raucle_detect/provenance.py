@@ -240,8 +240,29 @@ _MAX_SAFE_INT = 2**53 - 1
 _MIN_SAFE_INT = -(2**53 - 1)
 
 
+def _reject_lone_surrogates(s: str) -> None:
+    """Raise if *s* contains an unpaired UTF-16 surrogate code point.
+
+    In a Python ``str`` a valid non-BMP character is stored as a single code
+    point (e.g. U+1F511), so any code point in U+D800..U+DFFF is necessarily an
+    unpaired (lone) surrogate. Such a string cannot be encoded to UTF-8 and the
+    five reference implementations disagree on it: Python and Rust reject it,
+    Go and .NET silently substitute U+FFFD, and a JS ``JSON.stringify`` emits a
+    ``\\udXXX`` escape. Rejecting at sign/verify keeps signed material byte-
+    identical across all implementations (§4.3.x).
+    """
+    for ch in s:
+        if 0xD800 <= ord(ch) <= 0xDFFF:
+            raise ValueError(
+                "canonical JSON: lone surrogate "
+                f"U+{ord(ch):04X} is not permitted in v1 signed/hashed material "
+                "(unpaired surrogates are not cross-implementation stable)"
+            )
+
+
 def _reject_floats(obj: Any) -> None:
-    """Raise if *obj* contains a float, or an integer outside the safe range.
+    """Raise if *obj* contains a float, an integer outside the safe range, or a
+    string with an unpaired UTF-16 surrogate.
 
     The v1 payload schema uses only strings, integers, and arrays. Floats are
     rejected (not serialised) so the canonical bytes stay identical across the
@@ -263,8 +284,12 @@ def _reject_floats(obj: Any) -> None:
             f"range [{_MIN_SAFE_INT}, {_MAX_SAFE_INT}] (not representable in all "
             f"reference implementations)"
         )
+    elif isinstance(obj, str):
+        _reject_lone_surrogates(obj)
     if isinstance(obj, dict):
-        for v in obj.values():
+        for k, v in obj.items():
+            if isinstance(k, str):
+                _reject_lone_surrogates(k)
             _reject_floats(v)
     elif isinstance(obj, (list, tuple)):
         for v in obj:

@@ -41,6 +41,9 @@ func runCanon(sc *bufio.Scanner, out *bufio.Writer) {
 		if len(line) == 0 {
 			continue
 		}
+		if err := provenance.RejectLoneSurrogatesRaw(line); err != nil {
+			fail("decode", err)
+		}
 		var cr struct {
 			Obj any `json:"obj"`
 		}
@@ -63,6 +66,13 @@ func runEmit(sc *bufio.Scanner, out *bufio.Writer) {
 		line := sc.Bytes()
 		if len(line) == 0 {
 			continue
+		}
+		// Reject lone surrogates on the RAW request before Unmarshal: encoding/json
+		// silently substitutes U+FFFD, which would let Go sign a payload that
+		// Python/TS reject — the same cross-language divergence guarded in runCanon,
+		// but on the path that actually produces signed receipts.
+		if err := provenance.RejectLoneSurrogatesRaw(line); err != nil {
+			fail("decode", err)
 		}
 		var r req
 		if err := json.Unmarshal(line, &r); err != nil {

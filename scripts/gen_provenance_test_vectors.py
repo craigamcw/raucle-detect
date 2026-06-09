@@ -264,6 +264,17 @@ def _canonicalization_vectors() -> list[dict]:
             "out of the signed-material domain and MUST be rejected at sign/verify.",
             {"amount": 9007199254740991, "currency": "USD"},
         ),
+        vec(
+            "canon_control_char_escaping",
+            "C0 control characters in string values MUST use the two-char short "
+            "escapes \\b \\f \\n \\r \\t where defined, and \\u00XX (lowercase hex) "
+            "for every other code point < U+0020 (§4.3.4). '/' is NOT escaped; '\"' "
+            "and '\\\\' are. '<' '>' '&' are passed through literally (NOT HTML-"
+            "escaped). The five reference encoders are hand-aligned on this; this "
+            "vector pins it so a port that emits \\u0008 for backspace, uppercase "
+            "hex, or HTML-escapes diverges loudly instead of silently.",
+            {"ctl": "a\bb\tc\nd\re\ffg\x01h/i\"j\\k", "lt": "<x>&y"},
+        ),
     ]
 
 
@@ -291,6 +302,25 @@ def _invalid_canonicalization_vectors() -> list[dict]:
          "Non-integer numbers (floats) MUST be rejected, not serialised (§4.3.5): "
          "cross-implementation float canonicalisation is out of scope for v1.",
          {"amount": 1.5}),
+        ("invalid_lone_surrogate",
+         "An unpaired UTF-16 surrogate (here a lone HIGH surrogate U+D800 in a "
+         "string value) MUST be rejected at sign/verify (§4.3.4). It cannot be "
+         "encoded to UTF-8 and the ports otherwise disagree: Python and Rust "
+         "reject, Go and .NET substitute U+FFFD, and a JS JSON.stringify emits a "
+         "\\udXXX escape — a silent cross-implementation byte divergence. "
+         "Rejection is the only portable contract.",
+         {"corpus": "\ud800"}),
+        ("invalid_lone_surrogate_low",
+         "A lone LOW surrogate U+DC00 (not preceded by a high) in a string value "
+         "MUST be rejected (§4.3.4), same contract as a lone high surrogate. "
+         "Distinct code path from the high-surrogate case in every port.",
+         {"corpus": "\udc00"}),
+        ("invalid_lone_surrogate_key",
+         "A lone surrogate U+D800 in an OBJECT KEY (not a value) MUST be rejected "
+         "(§4.3.4): the rule applies to keys and values alike. Exercises the "
+         "key-validation path, which is separate from value validation in the "
+         "Python/TypeScript ports.",
+         {"\ud800": 1}),
     ]
     out = []
     for name, desc, obj in cases:

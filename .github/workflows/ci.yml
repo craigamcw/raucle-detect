@@ -122,10 +122,52 @@ jobs:
             python paper/eval/verify_policies.py paper/eval/policies/$s.json
           done
 
+  conformance:
+    name: Cross-language conformance (5 reference ports)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: '3.12'
+      - name: Install Python package (cryptography for the Python reference)
+        run: pip install -e ".[dev]"
+      # NOTE: the language-setup actions below use version tags, not SHA pins,
+      # unlike the rest of this file. Pin them to SHAs to match repo policy.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Install TypeScript reference deps
+        working-directory: reference/provenance-ts
+        run: npm ci
+      - name: Run cross-language conformance (all 5 ports must agree)
+        run: |
+          set -eo pipefail
+          echo "::group::canonicalisation parity"
+          python reference/canon_conformance.py | tee canon.out
+          echo "::endgroup::"
+          echo "::group::receipt byte-identity"
+          python reference/conformance.py | tee emit.out
+          echo "::endgroup::"
+          # The harness silently skips a language whose toolchain is absent and
+          # would still print PASS. Guard against that false green: every port
+          # must appear in the byte-identity RESULT line.
+          for lang in python go rust typescript csharp; do
+            grep -q "$lang" emit.out \
+              || { echo "::error::conformance skipped language '$lang' (toolchain not set up?)"; exit 1; }
+          done
+
   build:
     name: Build Package
     runs-on: ubuntu-latest
-    needs: [test, lint, cli-test]
+    needs: [test, lint, cli-test, conformance]
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0

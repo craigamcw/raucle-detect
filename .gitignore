@@ -26,3 +26,6 @@ paper/lean/.lake/
 paper/lean/lake-manifest.json
 .claude/
 /package-lock.json
+
+# compiled conformance helper binary
+reference/provenance-go/emit
