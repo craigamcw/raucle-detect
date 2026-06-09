@@ -73,15 +73,28 @@ def _http_transport(req: sigv4.SignedRequest) -> tuple[int, bytes]:
 
 @dataclass(frozen=True)
 class EgressResult:
-    """What the agent receives: the AWS response and the receipt that binds it.
+    """What the agent receives: the raw AWS response and the receipt that binds it.
 
     Deliberately contains **no** signed material (no ``Authorization`` header, no
-    credentials) — only the response the gate chose to return.
+    credentials) — only the response the gate chose to return. ``body`` is the
+    raw response bytes (S3 object content is binary; DynamoDB is JSON); use
+    :meth:`json` for JSON responses.
     """
 
     status: int
-    response: dict[str, Any]
+    body: bytes
     receipt: dict[str, Any]
+
+    def json(self) -> dict[str, Any]:
+        """Parse the response body as JSON (DynamoDB / AWS error documents)."""
+        if not self.body:
+            return {}
+        try:
+            return json.loads(self.body)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            # Binary S3 object bytes (or a non-JSON document) — never crash on a
+            # response the agent asked us to relay.
+            return {"_raw": self.body.decode("utf-8", "replace")}
 
 
 class AWSEgressGate:
@@ -127,7 +140,7 @@ class AWSEgressGate:
         self._transport = transport or _http_transport
         self._clock = clock or time.time
 
-    # ── DynamoDB GetItem (the v1 surface) ──────────────────────────────────
+    # ── DynamoDB ──────────────────────────────────────────────────────────
     def get_item(
         self,
         token: Capability,
@@ -144,57 +157,141 @@ class AWSEgressGate:
         """
         # raucle tool namespace (dot-delimited; the capability `tool` field does
         # not permit the colon of the IAM action name "dynamodb:GetItem").
-        action = "dynamodb.GetItem"
         args = {"TableName": table, "Key": key}
+        body = json.dumps(args, separators=(",", ":")).encode("utf-8")
+        return self._dispatch(
+            token,
+            action="dynamodb.GetItem",
+            args=args,
+            agent_id=agent_id,
+            method="POST",
+            service="dynamodb",
+            host=f"dynamodb.{self._region}.amazonaws.com",
+            path="/",
+            body=body,
+            headers={
+                "content-type": _DDB_CONTENT_TYPE,
+                "x-amz-target": f"{_DDB_TARGET_PREFIX}.GetItem",
+            },
+        )
 
+    # ── S3 (fixed-body GET / PUT; no streaming/presign/multipart) ──────────
+    def get_object(
+        self,
+        token: Capability,
+        *,
+        bucket: str,
+        key: str,
+        agent_id: str | None = None,
+    ) -> EgressResult:
+        """Gate, sign, forward, and receipt an S3 ``GetObject``. The response
+        ``body`` is the raw object bytes. Raises :class:`CapabilityDenied` on
+        deny (after a DENY receipt)."""
+        body = b""
+        return self._dispatch(
+            token,
+            action="s3.GetObject",
+            args={"Bucket": bucket, "Key": key},
+            agent_id=agent_id,
+            method="GET",
+            service="s3",
+            host=f"{bucket}.s3.{self._region}.amazonaws.com",
+            path="/" + key,
+            body=body,
+            headers={"x-amz-content-sha256": sigv4.payload_hash(body)},
+        )
+
+    def put_object(
+        self,
+        token: Capability,
+        *,
+        bucket: str,
+        key: str,
+        body: bytes,
+        content_type: str = "application/octet-stream",
+        agent_id: str | None = None,
+    ) -> EgressResult:
+        """Gate, sign, forward, and receipt an S3 ``PutObject`` with a fixed
+        (fully-in-memory) body. The receipt's request hash binds the exact body
+        written. Streaming/multipart uploads are out of scope (v1).
+
+        ``ContentLength`` and ``ContentSha256`` are included in the gated args so
+        a capability can *prevent* (not just audit) oversized or unexpected
+        writes — e.g. ``{"max_value": {"ContentLength": 1048576}}``. The body
+        itself is bound into the signed request and receipt via the payload hash.
+        """
+        content_hash = sigv4.payload_hash(body)
+        return self._dispatch(
+            token,
+            action="s3.PutObject",
+            args={
+                "Bucket": bucket,
+                "Key": key,
+                "ContentLength": len(body),
+                "ContentSha256": content_hash,
+            },
+            agent_id=agent_id,
+            method="PUT",
+            service="s3",
+            host=f"{bucket}.s3.{self._region}.amazonaws.com",
+            path="/" + key,
+            body=body,
+            headers={
+                "x-amz-content-sha256": content_hash,
+                "content-type": content_type,
+            },
+        )
+
+    # ── shared dispatch: gate → sign → receipt → forward ───────────────────
+    def _dispatch(
+        self,
+        token: Capability,
+        *,
+        action: str,
+        args: dict[str, Any],
+        agent_id: str | None,
+        method: str,
+        service: str,
+        host: str,
+        path: str,
+        body: bytes,
+        headers: dict[str, str],
+    ) -> EgressResult:
         decision = self._gate.check(token, tool=action, agent_id=agent_id, args=args)
         if not decision.allowed:
             self._emit(action, args, decision, request_binding=None)
             raise CapabilityDenied(action, decision.reason)
 
-        body = json.dumps(args, separators=(",", ":")).encode("utf-8")
-        host = f"dynamodb.{self._region}.amazonaws.com"
         amz_date = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(self._clock()))
         signed = sigv4.sign(
-            method="POST",
-            service="dynamodb",
+            method=method,
+            service=service,
             region=self._region,
             host=host,
-            path="/",
-            headers={
-                "content-type": _DDB_CONTENT_TYPE,
-                "x-amz-target": f"{_DDB_TARGET_PREFIX}.GetItem",
-            },
+            path=path,
+            headers=headers,
             body=body,
             access_key=self._access_key,
             secret_key=self._secret_key,
             amz_date=amz_date,
             session_token=self._session_token,
         )
-
         binding = {
-            "method": "POST",
+            "method": method,
             "host": host,
-            "path": "/",
+            "path": path,
             "region": self._region,
-            "service": "dynamodb",
+            "service": service,
             "amz_date": amz_date,
             "canonical_request_hash": signed.canonical_hash,
         }
-        # Emit the receipt for the signed request BEFORE forwarding. The receipt
-        # attests "raucle authorised and signed THIS exact request and is
-        # dispatching it"; emitting it first guarantees no request can reach AWS
-        # without a durable receipt, even if the transport then times out after
-        # the request was received ("no receipt = no action" holds on failure).
+        # Emit the receipt for the signed request BEFORE forwarding, so no request
+        # can reach AWS without a durable receipt even if the transport then fails
+        # after the request was received ("no receipt = no action" holds).
         receipt = self._emit(action, args, decision, request_binding=binding)
         status, raw = self._transport(signed)
-        try:
-            response = json.loads(raw) if raw else {}
-        except json.JSONDecodeError:
-            response = {"_raw": raw.decode("utf-8", "replace")}
-
         # Never return signed material (Authorization header / creds) to the agent.
-        return EgressResult(status=status, response=response, receipt=receipt)
+        return EgressResult(status=status, body=raw, receipt=receipt)
 
     # ── receipt construction ───────────────────────────────────────────────
     def _emit(
