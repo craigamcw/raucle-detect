@@ -29,3 +29,6 @@ paper/lean/lake-manifest.json
 
 # compiled conformance helper binary
 reference/provenance-go/emit
+
+# macOS Finder metadata
+.DS_Store
