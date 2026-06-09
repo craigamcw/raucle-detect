@@ -75,12 +75,12 @@ class _FakeTransport:
         return 200, b'{"Item":{"customer_id":{"S":"C-123"}}}'
 
 
-def _gate_and_token(constraints):
+def _gate_and_token(constraints, tool="dynamodb.GetItem"):
     issuer = CapabilityIssuer.generate(issuer="acme.bank")
     gate = CapabilityGate(trusted_issuers={issuer.key_id: issuer.public_key_pem})
     token = issuer.mint(
         agent_id="agent:kyc-prod",
-        tool="dynamodb.GetItem",
+        tool=tool,
         constraints=constraints,
         ttl_seconds=300,
     )
@@ -111,7 +111,7 @@ def test_allow_signs_forwards_and_receipts():
     )
 
     assert result.status == 200
-    assert result.response["Item"]["customer_id"]["S"] == "C-123"
+    assert result.json()["Item"]["customer_id"]["S"] == "C-123"
     assert len(tx.calls) == 1  # exactly one wire request
     # Receipt is bound to the exact signed request.
     assert result.receipt["decision"] == "ALLOW"
@@ -197,3 +197,129 @@ def test_receipt_emitted_before_dispatch_survives_transport_failure():
     assert len(sink.events) == 1
     assert sink.events[0]["decision"] == "ALLOW"
     assert sink.events[0]["request_binding"]["canonical_request_hash"].startswith("sha256:")
+
+
+# ---------------------------------------------------------------------------
+# S3 — SigV4 KAT (AWS-documented GetObject example) + gate behaviour
+# ---------------------------------------------------------------------------
+def test_sigv4_matches_aws_s3_get_object_vector():
+    """AWS-documented S3 GetObject SigV4 example (service=s3, with Range and
+    x-amz-content-sha256 signed headers). Validates S3-mode signing."""
+    empty_sha = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    signed = sigv4.sign(
+        method="GET",
+        service="s3",
+        region="us-east-1",
+        host="examplebucket.s3.amazonaws.com",
+        path="/test.txt",
+        headers={"range": "bytes=0-9", "x-amz-content-sha256": empty_sha},
+        body=b"",
+        access_key="AKIAIOSFODNN7EXAMPLE",
+        secret_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        amz_date="20130524T000000Z",
+    )
+    expected_sig = "f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41"
+    assert f"Signature={expected_sig}" in signed.headers["authorization"]
+    assert (
+        "SignedHeaders=host;range;x-amz-content-sha256;x-amz-date"
+        in (signed.headers["authorization"])
+    )
+
+
+class _S3GetTransport:
+    """Returns raw (binary) object bytes, as S3 GetObject does."""
+
+    def __init__(self, content: bytes):
+        self.content = content
+        self.calls = []
+
+    def __call__(self, req):
+        self.calls.append(req)
+        return 200, self.content
+
+
+def test_s3_get_object_returns_raw_bytes_and_binds_receipt():
+    gate, token = _gate_and_token(
+        {"allowed_values": {"Bucket": ["statements"]}}, tool="s3.GetObject"
+    )
+    tx = _S3GetTransport(b"\x89PNG\r\n\x1a\n binary object bytes")
+    egress = _egress(gate, tx)
+
+    result = egress.get_object(
+        token, bucket="statements", key="2026/06/stmt.pdf", agent_id="agent:kyc-prod"
+    )
+
+    assert result.status == 200
+    assert result.body == b"\x89PNG\r\n\x1a\n binary object bytes"  # raw bytes
+    assert result.receipt["decision"] == "ALLOW"
+    assert result.receipt["request_binding"]["service"] == "s3"
+    assert result.receipt["request_binding"]["path"] == "/2026/06/stmt.pdf"
+    # The signed request carries the S3-required payload-hash header.
+    assert "x-amz-content-sha256" in tx.calls[0].headers
+
+
+def test_s3_put_object_binds_body_to_receipt():
+    gate, token = _gate_and_token({"allowed_values": {"Bucket": ["uploads"]}}, tool="s3.PutObject")
+
+    def _put_hash(body: bytes) -> str:
+        tx = _S3GetTransport(b"")
+        egress = _egress(gate, tx)
+        r = egress.put_object(
+            token, bucket="uploads", key="a.txt", body=body, agent_id="agent:kyc-prod"
+        )
+        return r.receipt["request_binding"]["canonical_request_hash"]
+
+    # Different bodies must produce different receipts (the body is bound).
+    assert _put_hash(b"hello") != _put_hash(b"world")
+
+
+def test_s3_deny_never_forwards():
+    gate, token = _gate_and_token({"allowed_values": {"Bucket": ["allowed"]}}, tool="s3.GetObject")
+    tx = _S3GetTransport(b"x")
+    egress = _egress(gate, tx)
+    with pytest.raises(CapabilityDenied):
+        egress.get_object(token, bucket="secret-bucket", key="k", agent_id="agent:kyc-prod")
+    assert tx.calls == []
+
+
+def test_s3_put_object_size_can_be_gated():
+    """ContentLength is a gated arg, so a capability can PREVENT (not just audit)
+    an oversized write."""
+    gate, token = _gate_and_token(
+        {
+            "allowed_values": {"Bucket": ["uploads"]},
+            "max_value": {"ContentLength": 8},
+        },
+        tool="s3.PutObject",
+    )
+    tx = _S3GetTransport(b"")
+    egress = _egress(gate, tx)
+
+    # Within the size limit: allowed.
+    egress.put_object(
+        token, bucket="uploads", key="a.txt", body=b"small", agent_id="agent:kyc-prod"
+    )
+    assert len(tx.calls) == 1
+
+    # Over the size limit: denied, never forwarded.
+    with pytest.raises(CapabilityDenied):
+        egress.put_object(
+            token,
+            bucket="uploads",
+            key="a.txt",
+            body=b"this body is far too large",
+            agent_id="agent:kyc-prod",
+        )
+    assert len(tx.calls) == 1  # no new wire request
+
+
+def test_json_helper_does_not_crash_on_binary_body():
+    """EgressResult.json() must never crash on binary S3 object bytes."""
+    gate, token = _gate_and_token(
+        {"allowed_values": {"Bucket": ["statements"]}}, tool="s3.GetObject"
+    )
+    tx = _S3GetTransport(b"\x89PNG\r\n\xff\xfe not utf-8")
+    egress = _egress(gate, tx)
+    result = egress.get_object(token, bucket="statements", key="x.png", agent_id="agent:kyc-prod")
+    parsed = result.json()  # must not raise
+    assert "_raw" in parsed

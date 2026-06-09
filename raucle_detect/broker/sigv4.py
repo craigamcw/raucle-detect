@@ -34,6 +34,13 @@ def _sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def payload_hash(body: bytes) -> str:
+    """Hex SHA-256 of *body* — the value of the ``x-amz-content-sha256`` header
+    that S3 requires as a signed header. Exposed so a caller can set the header
+    to exactly the hash this module signs into the canonical request."""
+    return _sha256_hex(body)
+
+
 def _hmac(key: bytes, msg: str) -> bytes:
     return hmac.new(key, msg.encode("utf-8"), hashlib.sha256).digest()
 
