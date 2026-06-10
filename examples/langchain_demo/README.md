@@ -9,8 +9,8 @@ the three things raucle adds to a LangChain agent, end to end, in ~2 seconds:
    agent to wire $9,900 to an attacker; the gate denies it *before execution*,
    regardless of how convincing the injection was.
 3. **Both decisions are independently verifiable offline** — the signed,
-   hash-chained receipt log replays for any third party, and flipping a single
-   `DENY` to `ALLOW` in the log breaks verification.
+   hash-chained receipt log replays for any third party, and rewriting the
+   `DENY` receipt to claim `ALLOW` breaks verification.
 
 ```bash
 pip install 'raucle-detect[compliance,langchain]'
@@ -30,7 +30,7 @@ Scene 3 — offline verification of the signed receipt chain
   chain valid: True   events: 2   mode: signed
   receipt: ALLOW transfer_funds
   receipt: DENY  transfer_funds  (constraint violated: ...)
-  tampered copy valid: False  (one byte changed -> chain breaks)
+  tampered copy valid: False  (DENY flipped to ALLOW -> chain breaks)
 ```
 
 ## Why the "agent brain" is scripted

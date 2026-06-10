@@ -25,8 +25,12 @@ Run it:
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 from pathlib import Path
+
+# Make the demo runnable straight from a repo checkout (no install needed).
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from langchain_core.tools import tool
 
@@ -145,7 +149,9 @@ def main() -> int:
     ]
     tampered.write_text("\n".join(lines) + "\n")
     tampered_report = AuditVerifier(public_key_pem=signer.public_key_pem()).verify_chain(tampered)
-    print(f"  tampered copy valid: {tampered_report.valid}  (one byte changed -> chain breaks)")
+    print(
+        f"  tampered copy valid: {tampered_report.valid}  (DENY flipped to ALLOW -> chain breaks)"
+    )
 
     print()
     print(f"Receipt chain left at: {receipt_log}")

@@ -42,6 +42,17 @@ Quick start
     set_in_force_token(token)
     result = executor.invoke({"input": "What's the email for customer 12345?"})
 
+Availability note
+-----------------
+
+The handler runs with ``raise_error=True`` (load-bearing — without it
+langchain-core swallows the deny and the tool runs anyway). A consequence:
+if the receipt sink itself fails, the call is aborted even when the gate
+would ALLOW it. That is deliberate fail-closed accountability — an action
+without its receipt is treated as unauthorised — but it means an audit-sink
+outage halts tool traffic. Point the sink at storage with the same
+availability budget as the agent.
+
 Denial behaviour
 ----------------
 

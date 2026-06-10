@@ -1,5 +1,63 @@
 # Changelog
 
+## 0.20.0 (2026-06-10) — three fail-open fixes + MCP quickstart + LangChain demo
+
+A security release. A post-relicense scan-and-build pass over the repository
+surfaced **three fail-open/leak issues**, each found by actually exercising the
+shipped integration paths and each now pinned by regression tests.
+
+### Fixed — security
+
+- **LangChain integration was fail-open on DENY.** langchain-core's callback
+  manager swallows handler exceptions unless the handler sets ``raise_error``;
+  ``RaucleCallbackHandler`` did not, so the ``CapabilityDenied`` raised by
+  ``on_tool_start`` was logged as a warning and **the denied tool executed
+  anyway** — the gate was advisory. The handler now sets ``raise_error=True``
+  and ``run_inline=True`` (load-bearing, commented). End-to-end tests run the
+  real ``tool.run(..., callbacks=[handler])`` dispatch path; the ``langchain``
+  extra is now part of ``[dev]`` so CI exercises them.
+- **MCP server: missing required arguments were a clean verdict.** A
+  ``tools/call`` omitting a schema-required argument (e.g. ``detect_injection``
+  called with the wrong key) silently scanned the empty string and returned
+  CLEAN/ALLOW. The server now enforces each tool's declared
+  ``inputSchema.required`` (derived from the published definitions, so
+  enforcement cannot drift from ``tools/list``) and returns ``isError``.
+- **Gate constraint-evaluation errors leaked internals.** The caller-visible
+  DENY reason included the raw exception text; it is now generic, with the full
+  traceback logged server-side only.
+
+### Added
+
+- **``Scanner(require_receipts=True)``** — fail-loud mode: failure to issue
+  the verdict receipt, audit event, or provenance receipt raises
+  ``ReceiptEmissionError`` instead of warn-and-continue (default unchanged).
+- **Runnable LangChain demo** (``examples/langchain_demo/``) — no API key:
+  legitimate payment ALLOWED, prompt-injected transfer DENIED before
+  execution, signed receipt chain verified offline, tampering detected. Exit
+  code doubles as a CI self-test.
+- **MCP client quickstart** (``docs/getting-started/03-mcp-clients.md``) —
+  2-minute setup for Claude Desktop, Claude Code, Cursor, Cline/Continue.
+- **Registry publication pipeline** (``.github/workflows/publish-reference.yml``)
+  — tag ``ref-v<version>`` publishes ``@raucle/provenance`` (npm, with
+  provenance attestation), ``raucle-provenance`` (crates.io),
+  ``Raucle.Provenance`` (nuget.org) and tags the Go nested module, gated on
+  the 5-port cross-language conformance harness.
+- Issuer ↔ standalone ``cap-verifier`` conformance round-trip tests; first
+  test coverage for the REST server's auth fail-closed paths and the ML →
+  heuristic classifier fallback.
+
+### Fixed — other
+
+- ``provenance-rs`` ``spec_vectors`` test could not load the v0.18.0 vectors
+  file (the intentional lone-surrogate vector is unrepresentable in a Rust
+  ``String``); the test now neutralises lone-surrogate escapes at load and
+  skips ``must_reject`` vectors. This would have blocked ``cargo publish``.
+- Rust crate metadata pointed at the wrong repository URL.
+- CI language-setup actions pinned to commit SHAs (closing a documented
+  policy deviation); duplicate-key JSON rejection consolidated into a shared
+  ``_canon`` helper; proposal docs no longer reference phantom release
+  versions; retired ``commercial@raucle.com`` contact replaced.
+
 ## 0.19.0 (2026-06-08) — relicensed to Apache-2.0
 
 **The core package is now licensed under the Apache License, Version 2.0.**
