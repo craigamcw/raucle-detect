@@ -17,4 +17,4 @@ Each proposal:
 - Lists backwards-compatibility constraints.
 - Names a reference-implementation milestone schedule.
 
-Feedback: open an issue on the repository or email `commercial@raucle.com` for cross-organisation collaboration discussions.
+Feedback: open an issue on the repository or email `oss@raucle.com` for cross-organisation collaboration discussions.

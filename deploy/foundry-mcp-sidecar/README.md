@@ -176,4 +176,4 @@ The APIM policy and Bicep template ship today; an end-to-end recorded
 walkthrough lands in M4 alongside an opinionated sample MCP server.
 
 For questions or to discuss a production deployment, email
-`commercial@raucle.com`.
+`oss@raucle.com`.
