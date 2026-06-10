@@ -1,8 +1,8 @@
 # VCD for the Microsoft Agent Framework
 
-**Status:** Draft proposal + working skeleton, 2026-05-27.
+**Status:** Shipped — the middleware lives in `raucle_detect/integrations/` (originally drafted 2026-05-27).
 **Authors:** Raucle.
-**Target:** `raucle-detect` v0.11.0; `microsoft/agent-framework` ≥ 1.0.
+**Target:** shipped in `raucle-detect` ≥ v0.13.0; `microsoft/agent-framework` ≥ 1.0.
 
 ## Summary
 
