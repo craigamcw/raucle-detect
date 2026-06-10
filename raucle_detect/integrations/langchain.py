@@ -224,6 +224,16 @@ class RaucleCallbackHandler(BaseCallbackHandler):
                 "Install with: pip install 'raucle-detect[langchain]'"
             )
         super().__init__()
+        # SECURITY — load-bearing, do not remove. langchain-core's callback
+        # manager catches handler exceptions and logs them as warnings unless
+        # the handler sets ``raise_error``. With the default (False), the
+        # CapabilityDenied raised by on_tool_start is swallowed and the tool
+        # RUNS ANYWAY — the gate becomes advisory, a fail-open. raise_error
+        # makes the deny actually block the call. run_inline keeps the
+        # handler on the calling thread so the exception propagates to the
+        # tool invocation rather than a worker.
+        self.raise_error = True
+        self.run_inline = True
         self.gate = gate
         self.sink = sink
         self._resolver = token_resolver or _default_resolver
