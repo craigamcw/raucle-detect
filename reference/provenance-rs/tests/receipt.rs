@@ -184,6 +184,14 @@ fn spec_vectors() {
         "/../../docs/spec/provenance/v1/test-vectors.json"
     );
     let raw = std::fs::read_to_string(path).expect("read vectors");
+    // The vectors file deliberately contains a lone UTF-16 surrogate escape
+    // ("\ud800", the `invalid_lone_surrogate` must_reject vector). Rust strings
+    // are valid UTF-8 by construction, so serde_json refuses to parse the file
+    // at all — which is exactly the rejection §4.3.4 mandates, enforced one
+    // layer earlier than in the other ports. Neutralise lone-surrogate escapes
+    // (a high escape not followed by a low one, or a bare low one) so the rest
+    // of the vectors load; `must_reject` vectors are skipped below.
+    let raw = neutralise_lone_surrogate_escapes(&raw);
     let vf: Value = serde_json::from_str(&raw).unwrap();
 
     let seed = hex_to_bytes(vf["fixed_seed_hex"].as_str().unwrap());
@@ -195,8 +203,15 @@ fn spec_vectors() {
     let vectors = vf["vectors"].as_array().unwrap();
     assert!(!vectors.is_empty());
 
+    let mut checked = 0;
     for v in vectors {
         let name = v["name"].as_str().unwrap();
+        if v["must_reject"].as_bool() == Some(true) {
+            // Rejection-only vectors carry no JWS to re-emit. The lone-surrogate
+            // case is unrepresentable in a Rust `String`, so rejection is
+            // structural here (serde refuses the input before our code runs).
+            continue;
+        }
         let expected_jws = v["expected_jws"].as_str().unwrap();
         let expected_hash = v["expected_receipt_hash"].as_str().unwrap();
 
@@ -213,5 +228,54 @@ fn spec_vectors() {
             emit(&payload, &sk).unwrap_or_else(|e| panic!("{name}: emit failed: {e}"));
         assert_eq!(emitted.jws, expected_jws, "{name}: emitted JWS differs");
         assert_eq!(emitted.id, expected_hash, "{name}: emitted id differs");
+        checked += 1;
     }
+    assert!(checked > 0, "no emit/verify vectors were exercised");
+}
+
+/// Replace lone UTF-16 surrogate escapes (e.g. `\ud800` not part of a valid
+/// high+low pair) with `\uFFFD` so serde_json can load the vectors file.
+/// Valid surrogate *pairs* are left untouched.
+fn neutralise_lone_surrogate_escapes(raw: &str) -> String {
+    let bytes = raw.as_bytes();
+    let mut out = String::with_capacity(raw.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' && i + 5 < bytes.len() && bytes[i + 1] == b'u' {
+            let hex = &raw[i + 2..i + 6];
+            if let Ok(cu) = u16::from_str_radix(hex, 16) {
+                let is_high = (0xD800..=0xDBFF).contains(&cu);
+                let is_low = (0xDC00..=0xDFFF).contains(&cu);
+                if is_high {
+                    // Valid only if immediately followed by a low-surrogate escape.
+                    let next_ok = i + 11 < bytes.len()
+                        && bytes[i + 6] == b'\\'
+                        && bytes[i + 7] == b'u'
+                        && u16::from_str_radix(&raw[i + 8..i + 12], 16)
+                            .map(|n| (0xDC00..=0xDFFF).contains(&n))
+                            .unwrap_or(false);
+                    if next_ok {
+                        out.push_str(&raw[i..i + 12]);
+                        i += 12;
+                        continue;
+                    }
+                    out.push_str("\\uFFFD");
+                    i += 6;
+                    continue;
+                }
+                if is_low {
+                    // A low surrogate reached here is unpaired (paired ones are
+                    // consumed with their high half above).
+                    out.push_str("\\uFFFD");
+                    i += 6;
+                    continue;
+                }
+            }
+        }
+        // Copy one UTF-8 character (not byte) to stay on char boundaries.
+        let ch_len = raw[i..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+        out.push_str(&raw[i..i + ch_len]);
+        i += ch_len;
+    }
+    out
 }
