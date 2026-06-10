@@ -37,6 +37,24 @@ capability/proof artifacts live in
 [`../docs/spec/provenance/v1/test-vectors.json`](../docs/spec/provenance/v1/test-vectors.json)
 and [`../standards/test-vectors/`](../standards/test-vectors).
 
+## Installing from package registries
+
+Each implementation is published to its ecosystem's registry (all MIT;
+first registry release: `ref-v0.1.0`):
+
+```bash
+pip install raucle-detect          # Python — ships inside the main library
+npm install @raucle/provenance     # TypeScript / Node >= 20
+cargo add raucle-provenance        # Rust
+dotnet add package Raucle.Provenance   # C# / .NET 8+
+go get github.com/craigamcw/raucle-detect/reference/provenance-go  # Go
+```
+
+Registry releases are cut by tagging `ref-v<version>` (see
+[`.github/workflows/publish-reference.yml`](../.github/workflows/publish-reference.yml));
+a release only ships after the cross-language conformance harness passes on
+all five ports, and the npm package carries a provenance attestation.
+
 ## Building / testing each
 
 ```bash
