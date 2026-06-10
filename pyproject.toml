@@ -59,7 +59,7 @@ proof = [
     "z3-solver>=4.12",    # SMT engine for formal-verification provers
 ]
 dev = [
-    "raucle-detect[rules,server,compliance]",
+    "raucle-detect[rules,server,compliance,langchain]",
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "pytest-asyncio>=0.23",
