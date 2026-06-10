@@ -105,3 +105,29 @@ def test_demo_script_passes_self_check():
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "DENIED by gate" in proc.stdout
     assert "chain valid: True" in proc.stdout
+
+
+@pytest.mark.asyncio
+async def test_async_deny_blocks_arun(env):
+    """Pin the AsyncCallbackManager path (codex review follow-up): a deny must
+    propagate through `arun`, not only the sync dispatch."""
+    handler, *_ = env
+    with pytest.raises(CapabilityDenied):
+        await transfer_funds.arun({"to": "acct:attacker", "amount": 9900}, callbacks=[handler])
+
+
+@pytest.mark.asyncio
+async def test_async_deny_blocks_ainvoke_config_callbacks(env):
+    """Handler attached via RunnableConfig (the AgentExecutor-style wiring)."""
+    handler, *_ = env
+    with pytest.raises(CapabilityDenied):
+        await transfer_funds.ainvoke(
+            {"to": "acct:attacker", "amount": 9900}, config={"callbacks": [handler]}
+        )
+
+
+@pytest.mark.asyncio
+async def test_async_allow_executes(env):
+    handler, *_ = env
+    out = await transfer_funds.arun({"to": "acct:ok", "amount": 50}, callbacks=[handler])
+    assert out == "TRANSFERRED 50 -> acct:ok"
