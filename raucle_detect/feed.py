@@ -546,8 +546,8 @@ def _is_blocked_ip(ip: str) -> bool:
     )
 
 
-def _assert_safe_url(url: str) -> str:
-    """Validate ``url`` for SSRF safety, returning the hostname.
+def _assert_safe_url(url: str) -> tuple[str, str]:
+    """Validate ``url`` for SSRF safety, returning ``(hostname, pinned_ip)``.
 
     Enforces:
       * scheme must be exactly ``https`` (rejects file/ftp/http/etc.);

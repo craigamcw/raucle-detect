@@ -30,6 +30,13 @@ from raucle_detect.rules import load_rules_dir, load_yaml_file
 logger = logging.getLogger(__name__)
 
 
+class ReceiptEmissionError(RuntimeError):
+    """Raised when ``require_receipts=True`` and a receipt/audit/provenance
+    side effect cannot be produced. Fail-loud variant of the default
+    warn-and-continue behaviour: a scan without its evidence trail is treated
+    as a failure rather than silently succeeding."""
+
+
 def _input_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -143,6 +150,12 @@ class Scanner:
     model_path : str | None
         Path to the directory containing the ``semantic-classifier/`` model
         checkpoint.  Only relevant when *use_ml* is ``True``.
+    require_receipts : bool
+        When ``True``, a failure to issue the verdict receipt, write the audit
+        event, or emit the provenance receipt raises
+        :class:`ReceiptEmissionError` instead of logging a warning — a scan
+        without its evidence trail is treated as a failure. Defaults to
+        ``False`` (warn and continue).
     """
 
     def __init__(
@@ -158,6 +171,7 @@ class Scanner:
         provenance_logger: Any = None,
         input_store: Any = None,
         feed_store: Any = None,
+        require_receipts: bool = False,
     ) -> None:
         if mode not in _MODE_THRESHOLDS:
             raise ValueError(f"Unknown mode {mode!r}. Choose from: strict, standard, permissive")
@@ -197,6 +211,7 @@ class Scanner:
         self._input_store = input_store
         self._model_version = model_version
         self._tenant = tenant
+        self._require_receipts = require_receipts
         self._ruleset_hash_cached: str | None = None
 
     def _ruleset_hash(self) -> str:
@@ -227,6 +242,8 @@ class Scanner:
                 )
             except Exception as exc:
                 logger.warning("Failed to issue verdict receipt: %s", exc)
+                if self._require_receipts:
+                    raise ReceiptEmissionError(f"Failed to issue verdict receipt: {exc}") from exc
 
         if self._audit_sink is not None:
             try:
@@ -245,6 +262,8 @@ class Scanner:
                 )
             except Exception as exc:
                 logger.warning("Failed to write audit event: %s", exc)
+                if self._require_receipts:
+                    raise ReceiptEmissionError(f"Failed to write audit event: {exc}") from exc
 
         if self._provenance_logger is not None:
             try:
@@ -263,6 +282,8 @@ class Scanner:
                 )
             except Exception as exc:
                 logger.warning("Failed to emit provenance receipt: %s", exc)
+                if self._require_receipts:
+                    raise ReceiptEmissionError(f"Failed to emit provenance receipt: {exc}") from exc
 
         # Optionally persist the original input text so a later counterfactual
         # replay can re-run the scanner against the same prompts. The store

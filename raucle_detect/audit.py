@@ -56,6 +56,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Any
 
+from raucle_detect._canon import make_duplicate_key_rejecter as _make_duplicate_key_rejecter
+
 logger = logging.getLogger(__name__)
 
 
@@ -129,20 +131,8 @@ class Ed25519Signer:
 # ---------------------------------------------------------------------------
 
 
-def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    """``object_pairs_hook`` that rejects duplicate object keys.
-
-    A record like ``{"event":{"evil":1},...,"event":{"safe":1}}`` is a JSON
-    ambiguity: Python keeps the last value, but a first-key parser (another
-    language / tool) sees the other — so a signed chain could verify here while
-    presenting different content elsewhere (encoding malleability). Reject it.
-    """
-    seen: set[str] = set()
-    for k, _v in pairs:
-        if k in seen:
-            raise ValueError(f"duplicate key {k!r} in audit record (JSON ambiguity)")
-        seen.add(k)
-    return dict(pairs)
+#: Shared duplicate-key-rejecting ``object_pairs_hook`` (see ``_canon``).
+_reject_duplicate_keys = _make_duplicate_key_rejecter("audit record (JSON ambiguity)")
 
 
 def _loads_strict(line: str) -> Any:

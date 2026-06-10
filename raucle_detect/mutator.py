@@ -38,12 +38,15 @@ from __future__ import annotations
 
 import base64
 import codecs
+import logging
 import random
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
 from raucle_detect.scanner import Scanner, ScanResult
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Mutation strategies
@@ -311,7 +314,8 @@ class RuleFuzzer:
                     for _ in range(self._samples_per_seed):
                         try:
                             mutated = mutator_fn(seed)
-                        except Exception:
+                        except Exception as exc:
+                            logger.debug("mutation strategy %s failed on seed: %s", strategy, exc)
                             continue
                         result = self._scanner.scan(mutated)
                         detected = result.injection_detected or (rule_id in result.matched_rules)

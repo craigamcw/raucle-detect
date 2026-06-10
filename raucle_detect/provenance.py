@@ -78,6 +78,7 @@ from pathlib import Path
 from typing import Any
 
 from . import registry as _registry
+from ._canon import make_duplicate_key_rejecter as _make_duplicate_key_rejecter
 from ._canon import reject_lone_surrogates as _reject_lone_surrogates
 from ._canon import reorder_keys_utf16 as _reorder_keys_utf16
 from ._canon import utf16_key as _utf16_key
@@ -312,19 +313,8 @@ _UNDERSTOOD_CRIT = {"raucle/v1"}
 _REMOVED_PREFIX = "removed:"
 
 
-def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    """``object_pairs_hook`` that rejects JSON objects with duplicate keys.
-
-    Duplicate keys are valid per the JSON grammar but their handling is
-    implementation-defined, which lets an attacker craft a payload that one
-    parser reads differently from another. We refuse them outright.
-    """
-    seen: dict[str, Any] = {}
-    for key, value in pairs:
-        if key in seen:
-            raise ValueError(f"duplicate key {key!r} in JSON object")
-        seen[key] = value
-    return seen
+#: Shared duplicate-key-rejecting ``object_pairs_hook`` (see ``_canon``).
+_reject_duplicate_keys = _make_duplicate_key_rejecter("JSON object")
 
 
 def hash_text(text: str) -> str:

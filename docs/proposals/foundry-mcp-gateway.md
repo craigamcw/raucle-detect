@@ -2,7 +2,7 @@
 
 **Status:** Draft proposal, 2026-05-27.
 **Authors:** Raucle.
-**Target:** raucle-detect v0.12.0 (alongside the AGT PDP contract).
+**Target:** shipped — the sidecar lives in `deploy/foundry-mcp-sidecar/` (originally targeted alongside the AGT PDP contract).
 **Companion proposals:** [`agent-framework-middleware.md`](./agent-framework-middleware.md), [`agt-pdp-contract.md`](./agt-pdp-contract.md).
 
 ## Summary
@@ -52,7 +52,7 @@ Three reasons:
 
 ## What changes
 
-Three new artefacts ship in raucle-detect v0.12.0:
+Three artefacts ship in raucle-detect (see `deploy/foundry-mcp-sidecar/`):
 
 1. `deploy/foundry-mcp-sidecar/apim-policy.xml` — the inbound APIM
    policy that routes Foundry → raucle → customer MCP server.
@@ -171,7 +171,7 @@ resource sidecar 'Microsoft.App/containerApps@2025-01-01' = {
       containers: [
         {
           name: 'raucle'
-          image: 'ghcr.io/craigamcw/raucle-detect:v0.12.0'
+          image: 'ghcr.io/craigamcw/raucle-detect:latest'  # pin to a release tag in production
           env: [
             { name: 'RAUCLE_BACKEND_URL',        value: mcpBackendUrl }
             { name: 'RAUCLE_ISSUER_KEY_VAULT',   value: '...'        }

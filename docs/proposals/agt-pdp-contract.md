@@ -2,7 +2,7 @@
 
 **Status:** Draft proposal, 2026-05-27.
 **Authors:** Raucle.
-**Target:** upstream PR to [`microsoft/agent-governance-toolkit`](https://github.com/microsoft/agent-governance-toolkit); raucle-detect v0.12.0.
+**Target:** upstream PR to [`microsoft/agent-governance-toolkit`](https://github.com/microsoft/agent-governance-toolkit); the raucle-detect side has shipped (PDP adapter in current releases).
 **Companion proposal:** [`agent-framework-middleware.md`](./agent-framework-middleware.md).
 
 ## Summary

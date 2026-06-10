@@ -1166,8 +1166,11 @@ class CapabilityGate:
         # gate is a choke point and must never crash open.
         try:
             why = _check_constraints(token.constraints, args)
-        except Exception as exc:  # pragma: no cover - defensive
-            return GateDecision(False, f"constraint evaluation error (deny): {exc}", token.token_id)
+        except Exception:  # pragma: no cover - defensive
+            # Full traceback goes to the server-side log only; the decision
+            # reason is caller-visible and must not leak evaluation internals.
+            logger.exception("constraint evaluation raised for token %s; denying", token.token_id)
+            return GateDecision(False, "constraint evaluation error (deny)", token.token_id)
         if why:
             return GateDecision(False, f"constraint violated: {why}", token.token_id)
 

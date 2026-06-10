@@ -78,3 +78,24 @@ def reorder_keys_utf16(obj: Any) -> Any:
     if isinstance(obj, (list, tuple)):
         return [reorder_keys_utf16(v) for v in obj]
     return obj
+
+
+def make_duplicate_key_rejecter(context: str = "JSON object"):
+    """Return a ``json.loads`` ``object_pairs_hook`` that rejects duplicate keys.
+
+    Duplicate keys are valid per the JSON grammar but their handling is
+    implementation-defined (Python keeps the last value; a first-key parser
+    sees the other), so a signed payload could verify here while presenting
+    different content elsewhere — encoding malleability. We refuse them.
+    ``context`` names the payload kind in the error message.
+    """
+
+    def _hook(pairs: list) -> dict:
+        seen: dict = {}
+        for key, value in pairs:
+            if key in seen:
+                raise ValueError(f"duplicate key {key!r} in {context}")
+            seen[key] = value
+        return seen
+
+    return _hook
