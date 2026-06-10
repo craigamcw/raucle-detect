@@ -243,6 +243,11 @@ class MCPServer:
             "embed_canary": self._t_embed_canary,
             "check_canary_leak": self._t_check_canary_leak,
         }
+        # Required-argument map derived from the published tool schemas, so
+        # enforcement can never drift from what tools/list advertises.
+        self._tool_required: dict[str, list[str]] = {
+            t["name"]: t["inputSchema"].get("required", []) for t in _tool_definitions()
+        }
 
     # ------------------------------------------------------------------
     # Main loop
@@ -325,6 +330,22 @@ class MCPServer:
         if dispatch is None:
             return {
                 "error": {"code": -32602, "message": f"Unknown tool: {name}"},
+            }
+        # Enforce the tool's declared required arguments. Without this, a
+        # mis-integrated client calling e.g. detect_injection with the wrong
+        # argument key would silently scan the empty string and get
+        # CLEAN/ALLOW back forever — a fail-open. Missing required input is
+        # an error, never a clean verdict.
+        missing = [f for f in self._tool_required.get(name, []) if f not in arguments]
+        if missing:
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"Missing required argument(s) for {name}: {', '.join(missing)}",
+                    }
+                ],
+                "isError": True,
             }
         try:
             payload = dispatch(arguments)
