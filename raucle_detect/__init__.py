@@ -26,7 +26,15 @@ from raucle_detect.audit import (
     VerificationReport,
 )
 from raucle_detect.canary import CanaryCheckResult, CanaryManager, CanaryToken, EmbedStrategy
+from raucle_detect.compliance import ComplianceReport, build_report, supported_frameworks
 from raucle_detect.export import AttackLog, ExportFormat
+from raucle_detect.handshake import (
+    HandshakeRequest,
+    HandshakeResult,
+    accept_call,
+    build_request,
+    verify_ack,
+)
 from raucle_detect.middleware import RaucleMiddleware
 from raucle_detect.multimodal import (
     MultimodalFinding,
@@ -37,6 +45,7 @@ from raucle_detect.multimodal import (
     strip_invisible_unicode,
 )
 from raucle_detect.outcome import OutcomeReport, OutcomeStatus, OutcomeVerifier
+from raucle_detect.passport import AgentPassport, PassportVerdict, issue_passport, verify_passport
 from raucle_detect.provenance import (
     AgentIdentity,
     CapabilityStatement,
@@ -56,6 +65,7 @@ from raucle_detect.replay import (
 )
 from raucle_detect.scanner import Scanner, ScanResult
 from raucle_detect.session import SessionScanner, SessionScanResult
+from raucle_detect.trust_registry import RegistryIntegrityError, TrustRecord, TrustRegistry
 from raucle_detect.verdicts import (
     ReceiptPayload,
     VerdictSigner,
@@ -110,5 +120,21 @@ __all__ = [
     "strip_invisible_unicode",
     "detect_ascii_art",
     "has_suspicious_unicode",
+    # v0.21.0 platform trust layer (registry / handshake / passport / compliance)
+    "TrustRegistry",
+    "TrustRecord",
+    "RegistryIntegrityError",
+    "HandshakeRequest",
+    "HandshakeResult",
+    "build_request",
+    "accept_call",
+    "verify_ack",
+    "AgentPassport",
+    "PassportVerdict",
+    "issue_passport",
+    "verify_passport",
+    "ComplianceReport",
+    "build_report",
+    "supported_frameworks",
     "__version__",
 ]

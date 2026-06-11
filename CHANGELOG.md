@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased — platform trust layer (registry / handshake / passport / compliance)
+
+Four new modules forming the cross-organisation trust layer, hardened through
+**nine rounds of iterative adversarial security review** (independent codex
+auditor; find → fix → re-verify until clean of HIGH and MEDIUM findings).
+Every fix landed with a regression test.
+
+### Added
+
+- **Agent Trust Registry** (`raucle_detect.trust_registry`): append-only,
+  hash-chained, operator-signed JSONL directory of issuer keys. Fail-closed
+  revocation, canonical-issuer-name uniqueness (NFC + casefold), key_id↔PEM
+  invariant enforced on load, and a signed freshness anchor (per-entry `ts`,
+  `head()`, `min_index`/`expected_head_hash`/`max_age_seconds`) so a verifier
+  can reject a rolled-back signed snapshot that omits a later revocation.
+  CLI: `raucle-detect registry init|publish|list|resolve|revoke|verify`.
+- **Cross-org handshake** (`raucle_detect.handshake`):
+  `build_request`/`accept_call`/`verify_ack` — two organisations' agents
+  authenticate via the shared registry with no prior key exchange. Signed ack
+  receipts, responder-side replay rejection, and `verify_ack` requires a real
+  anti-replay binding (`expected_request` or `expected_nonce`) by default.
+- **Agent passport** (`raucle_detect.passport`): issuer-countersigned,
+  registry-anchored identity document wrapping a `CapabilityStatement` —
+  one portable artifact verifiable offline by any framework integration.
+  Fail-closed on malformed input including hostile-but-signed bodies.
+  CLI: `raucle-detect passport issue|verify`.
+- **Compliance evidence packs** (`raucle_detect.compliance`): maps a signed
+  receipt chain to EU AI Act / ISO/IEC 42001 / SOC 2 controls. Honest by
+  design: an evidence map, not a conformance attestation — SATISFIED requires
+  cryptographic chain verification; otherwise PARTIAL or OUT_OF_SCOPE.
+  CLI: `raucle-detect compliance report --framework eu-ai-act|iso-42001|soc2`.
+- All four modules exported from the top-level `raucle_detect` package.
+- Runnable two-org demo under `examples/cross_org_demo/`.
+
 ## 0.20.0 (2026-06-10) — three fail-open fixes + MCP quickstart + LangChain demo
 
 A security release. A post-relicense scan-and-build pass over the repository
