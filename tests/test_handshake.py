@@ -1,0 +1,148 @@
+"""Tests for the cross-org agent handshake (P2) — trust resolved from the registry."""
+
+from __future__ import annotations
+
+import pytest
+
+pytest.importorskip("cryptography")
+
+from raucle_detect.audit import Ed25519Signer  # noqa: E402
+from raucle_detect.capability import CapabilityIssuer  # noqa: E402
+from raucle_detect.handshake import (  # noqa: E402
+    HANDSHAKE_VERSION,
+    HandshakeRequest,
+    accept_call,
+    build_request,
+    verify_ack,
+)
+from raucle_detect.trust_registry import TrustRegistry  # noqa: E402
+
+
+@pytest.fixture
+def two_orgs(tmp_path):
+    """A shared registry with org A (an issuer) and org B (a responder),
+    with NO prior key exchange between them."""
+    reg = TrustRegistry(tmp_path / "reg.jsonl", operator_signer=Ed25519Signer.generate())
+    iss_a = CapabilityIssuer.generate(issuer="org-a.bank")
+    resp_b = Ed25519Signer.generate()
+    reg.publish(iss_a.public_key_pem, issuer="Org A")
+    reg.publish(resp_b.public_key_pem().decode(), issuer="Org B")
+    token = iss_a.mint(
+        agent_id="agent:a.payments",
+        tool="transfer_funds",
+        constraints={"max_value": {"amount": 100}, "allowed_values": {"to": ["acct:b-co"]}},
+        ttl_seconds=300,
+    )
+    return reg, iss_a, resp_b, token
+
+
+def test_accept_authorised_call(two_orgs):
+    reg, _iss_a, resp_b, token = two_orgs
+    req = build_request(
+        token, tool="transfer_funds", args={"to": "acct:b-co", "amount": 50}, nonce="n1"
+    )
+    res = accept_call(req, registry=reg, responder_signer=resp_b, responder_id="org-b.gateway")
+    assert res.accepted
+    assert res.ack_receipt["body"]["decision"] == "ACCEPT"
+    assert res.ack_receipt["body"]["version"] == HANDSHAKE_VERSION
+
+
+def test_initiator_verifies_responder_ack_via_registry(two_orgs):
+    reg, _iss_a, resp_b, token = two_orgs
+    req = build_request(
+        token, tool="transfer_funds", args={"to": "acct:b-co", "amount": 50}, nonce="n1"
+    )
+    res = accept_call(req, registry=reg, responder_signer=resp_b, responder_id="org-b.gateway")
+    ok, reason = verify_ack(res.ack_receipt, registry=reg, expected_nonce="n1")
+    assert ok and "ACCEPT" in reason
+
+
+def test_injected_call_denied(two_orgs):
+    reg, _iss_a, resp_b, token = two_orgs
+    req = build_request(
+        token, tool="transfer_funds", args={"to": "acct:attacker", "amount": 9900}, nonce="n2"
+    )
+    res = accept_call(req, registry=reg, responder_signer=resp_b, responder_id="org-b.gateway")
+    assert not res.accepted
+    assert res.ack_receipt["body"]["decision"] == "REJECT"
+    # The denial ack is itself signed and verifiable.
+    assert verify_ack(res.ack_receipt, registry=reg)[0]
+
+
+def test_revoked_initiator_rejected_before_gate(two_orgs):
+    reg, iss_a, resp_b, token = two_orgs
+    reg.revoke(iss_a.key_id, reason="compromised")
+    req = build_request(token, tool="transfer_funds", args={"to": "acct:b-co", "amount": 50})
+    res = accept_call(req, registry=reg, responder_signer=resp_b, responder_id="org-b.gateway")
+    assert not res.accepted
+    assert "revoked" in res.reason
+
+
+def test_unknown_initiator_rejected(tmp_path):
+    reg = TrustRegistry(tmp_path / "reg.jsonl")
+    resp_b = Ed25519Signer.generate()
+    reg.publish(resp_b.public_key_pem().decode(), issuer="Org B")
+    # Org A's issuer was NEVER published to this registry.
+    iss_a = CapabilityIssuer.generate(issuer="org-a")
+    token = iss_a.mint(agent_id="agent:a", tool="t", constraints={})
+    req = build_request(token, tool="t", args={})
+    res = accept_call(req, registry=reg, responder_signer=resp_b, responder_id="org-b")
+    assert not res.accepted
+    assert "not in the registry" in res.reason
+
+
+def test_ack_nonce_replay_rejected(two_orgs):
+    reg, _iss_a, resp_b, token = two_orgs
+    req = build_request(
+        token, tool="transfer_funds", args={"to": "acct:b-co", "amount": 50}, nonce="n1"
+    )
+    res = accept_call(req, registry=reg, responder_signer=resp_b, responder_id="org-b.gateway")
+    ok, reason = verify_ack(res.ack_receipt, registry=reg, expected_nonce="DIFFERENT")
+    assert not ok and "nonce" in reason
+
+
+def test_tampered_ack_signature_rejected(two_orgs):
+    reg, _iss_a, resp_b, token = two_orgs
+    req = build_request(token, tool="transfer_funds", args={"to": "acct:b-co", "amount": 50})
+    res = accept_call(req, registry=reg, responder_signer=resp_b, responder_id="org-b.gateway")
+    # Attacker flips the decision REJECT->ACCEPT in the body; signature no longer matches.
+    res.ack_receipt["body"]["decision"] = "ACCEPT"
+    res.ack_receipt["body"]["reason"] = "tampered"
+    ok, _ = verify_ack(res.ack_receipt, registry=reg)
+    assert not ok
+
+
+def test_malformed_token_rejected(two_orgs):
+    reg, _iss_a, resp_b, _token = two_orgs
+    req = HandshakeRequest(
+        capability_token={"not": "a token"}, tool="t", args={}, caller_agent_id="x"
+    )
+    res = accept_call(req, registry=reg, responder_signer=resp_b, responder_id="org-b")
+    assert not res.accepted
+    assert "malformed" in res.reason
+
+
+def test_request_round_trip():
+    reg_iss = CapabilityIssuer.generate(issuer="a")
+    token = reg_iss.mint(agent_id="agent:a", tool="t", constraints={})
+    req = build_request(token, tool="t", args={"x": 1}, nonce="n")
+    rebuilt = HandshakeRequest.from_dict(req.to_dict())
+    assert rebuilt.tool == "t" and rebuilt.nonce == "n" and rebuilt.args == {"x": 1}
+
+
+def test_demo_script_passes_self_check():
+    import pathlib
+    import subprocess
+    import sys
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    proc = subprocess.run(
+        [sys.executable, str(root / "examples" / "cross_org_demo" / "demo.py")],
+        capture_output=True,
+        text=True,
+        cwd=root,
+        timeout=120,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "ACCEPT" in proc.stdout and "REJECT" in proc.stdout
+    assert "revoked" in proc.stdout
