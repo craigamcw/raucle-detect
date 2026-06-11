@@ -10,6 +10,7 @@ Forward-looking design documents for the raucle project. Not yet implemented; in
 | [PDP plug-in contract for Microsoft Agent Governance Toolkit](agt-pdp-contract.md) | Draft 2026-05-27 | upstream PR to microsoft/agent-governance-toolkit; raucle-detect v0.12.0 |
 | ↳ [Upstream PR body](agt-pdp-contract.upstream-pr.md) + [shadow files](upstream-pr-files/) | Ready-to-submit 2026-05-27 · 10/10 contract tests passing | PR against microsoft/agent-governance-toolkit |
 | [Foundry MCP AI Gateway sidecar pattern](foundry-mcp-gateway.md) | Draft 2026-05-27 | raucle-detect v0.12.0 deployment recipe |
+| [raucle as a PDP for NemoClaw's OpenShell](openshell-pdp-bridge.md) | Draft 2026-06-12 · doc-only (NemoClaw alpha) | design input to NemoClaw/OpenShell; P1 decision-log ask upstream |
 
 Each proposal:
 - States the threat-model addition (if any) over the base VCD primitives in the IEEE S&P 2027 paper draft.
