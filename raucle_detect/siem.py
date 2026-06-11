@@ -143,7 +143,11 @@ class SIEMSink:
             raise ValueError("SIEMSink needs a file path, a syslog address, or both")
         self._inner = inner
         self._lock = threading.Lock()
-        self._fh = open(path, "a", encoding="utf-8") if path is not None else None
+        # Long-lived append handle for the sink's lifetime (closed in close());
+        # a context manager per append would defeat per-line flushing.
+        self._fh = (
+            open(path, "a", encoding="utf-8") if path is not None else None  # noqa: SIM115
+        )
         self._syslog_address = syslog_address
         self._sock = (
             socket.socket(socket.AF_INET, socket.SOCK_DGRAM) if syslog_address is not None else None

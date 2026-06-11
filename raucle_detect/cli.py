@@ -825,9 +825,8 @@ def _cmd_watch(args: argparse.Namespace) -> int:
             colored = paint(f"{verdict:5s}", "32" if verdict == "ALLOW" else "1;31")
             reason = ev.get("decision_reason") or ""
             detail = f"  ({reason})" if reason and verdict != "ALLOW" else ""
-            print(
-                f"{ts}  {colored}  gate  {ev.get('agent_id', '?'):28s} {ev.get('tool', '?')}{detail}"
-            )
+            agent = ev.get("agent_id", "?")
+            print(f"{ts}  {colored}  gate  {agent:28s} {ev.get('tool', '?')}{detail}")
         elif "verdict" in ev:
             verdict = ev["verdict"]
             if args.denies_only and verdict == "CLEAN":

@@ -573,7 +573,8 @@ _audit_path_for_stream = os.environ.get("RAUCLE_DETECT_AUDIT_PATH", "")
 
 _DASHBOARD_HTML = """<!doctype html>
 <html><head><meta charset="utf-8"><title>raucle live</title><style>
- body{font:13px/1.5 ui-monospace,Menlo,monospace;background:#0d1117;color:#c9d1d9;margin:0;padding:1.2rem}
+ body{font:13px/1.5 ui-monospace,Menlo,monospace;background:#0d1117;
+  color:#c9d1d9;margin:0;padding:1.2rem}
  h1{font-size:15px;color:#58a6ff;margin:0 0 .2rem} small{color:#8b949e}
  table{border-collapse:collapse;width:100%;margin-top:.8rem}
  td,th{padding:.25rem .6rem;border-bottom:1px solid #21262d;text-align:left;white-space:nowrap}
@@ -584,8 +585,10 @@ _DASHBOARD_HTML = """<!doctype html>
 </style></head><body>
 <h1>raucle-detect &mdash; live decisions</h1>
 <small>streaming from the audit chain via /events (newest first)</small>
-<div id="stats">allow <b id="na">0</b> &middot; deny <b id="nd">0</b> &middot; scans <b id="ns">0</b></div>
-<table><thead><tr><th>time</th><th>kind</th><th>outcome</th><th>who / what</th><th>detail</th></tr></thead>
+<div id="stats">allow <b id="na">0</b> &middot; deny <b id="nd">0</b>
+ &middot; scans <b id="ns">0</b></div>
+<table><thead><tr><th>time</th><th>kind</th><th>outcome</th>
+<th>who / what</th><th>detail</th></tr></thead>
 <tbody id="rows"></tbody></table>
 <script>
  const qs=new URLSearchParams(location.search);
@@ -594,9 +597,12 @@ _DASHBOARD_HTML = """<!doctype html>
  let na=0,nd=0,ns=0;
  es.onmessage=(m)=>{const e=JSON.parse(m.data);const tr=document.createElement("tr");
   let kind,outcome,who,detail;
-  if("decision" in e){kind="gate";outcome=e.decision;who=(e.agent_id||"?")+" \\u2192 "+(e.tool||"?");
-   detail=e.decision==="ALLOW"?"":(e.decision_reason||"");e.decision==="ALLOW"?na++:nd++;}
-  else if("verdict" in e){kind=e.kind||"scan";outcome=e.verdict;who=e.ruleset_hash?e.ruleset_hash.slice(0,12):"";
+  if("decision" in e){kind="gate";outcome=e.decision;
+   who=(e.agent_id||"?")+" \\u2192 "+(e.tool||"?");
+   detail=e.decision==="ALLOW"?"":(e.decision_reason||"");
+   e.decision==="ALLOW"?na++:nd++;}
+  else if("verdict" in e){kind=e.kind||"scan";outcome=e.verdict;
+   who=e.ruleset_hash?e.ruleset_hash.slice(0,12):"";
    detail=(e.matched_rules||[]).join(", ");ns++;}
   else{kind=e.kind||"event";outcome="";who="";detail="";}
   tr.innerHTML=`<td>${(e.timestamp||"").slice(0,19)}</td><td>${kind}</td>`+
