@@ -270,10 +270,11 @@ def _human_oversight(_ev: ChainEvidence) -> tuple[ControlStatus, str]:
 
 
 def _robustness(ev: ChainEvidence) -> tuple[ControlStatus, str]:
+    integrity = "authenticated" if ev.signature_verified else "unauthenticated"
     return ControlStatus.PARTIAL, (
         "Structural prompt-injection resistance on the tool-call surface (a call outside the "
-        f"signed capability cannot execute; {ev.deny} blocked here) plus signed-integrity of the "
-        "record. Not a full robustness/accuracy regime for model outputs."
+        f"signed capability cannot execute; {ev.deny} blocked here); the record's integrity is "
+        f"{integrity}. Not a full robustness/accuracy regime for model outputs."
     )
 
 

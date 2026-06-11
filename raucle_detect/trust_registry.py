@@ -55,6 +55,15 @@ REGISTRY_VERSION = "trust-registry/v1"
 _GENESIS = "0" * 64
 
 
+def _canon_issuer(name: str) -> str:
+    """Canonical form of an issuer name for uniqueness comparison: NFC-normalised,
+    case-folded, stripped. So "Acme Bank" and "acme bank " cannot both be active
+    (confusable-name impersonation)."""
+    import unicodedata
+
+    return unicodedata.normalize("NFC", str(name)).casefold().strip()
+
+
 def _key_id_for(public_key_pem: bytes | str) -> str:
     """The canonical ``key_id`` for a public key: first 16 hex of SHA-256 over
     the PEM (matches ``CapabilityIssuer.key_id`` / cap:v1)."""
@@ -249,11 +258,12 @@ class TrustRegistry:
         # authoritative identity verifiers match against, so the operator must not
         # let two different keys hold the same active issuer name (confusable-name
         # impersonation). Re-publishing the SAME key under its name is fine.
+        canon = _canon_issuer(issuer)
         for kid, rec in self._fold().items():
-            if not rec.revoked and rec.issuer == issuer and kid != key_id:
+            if not rec.revoked and _canon_issuer(rec.issuer) == canon and kid != key_id:
                 raise ValueError(
-                    f"issuer name {issuer!r} is already held by an active key ({kid}); "
-                    "revoke it first, or use a distinct issuer identity"
+                    f"issuer name {issuer!r} collides with an active key ({kid}, "
+                    f"issuer {rec.issuer!r}); revoke it first, or use a distinct issuer identity"
                 )
         self._write_entry(
             {
@@ -348,6 +358,20 @@ class TrustRegistry:
                         f"entry {i}: key_id does not match SHA-256 of its public key"
                     )
             prev = e["hash"]
+
+        # Enforce active issuer-name uniqueness on load — publish() alone does not
+        # protect a hand-crafted (even operator-signed) registry file (codex r3 #1).
+        seen_names: dict[str, str] = {}
+        for kid, rec in self._fold().items():
+            if rec.revoked:
+                continue
+            canon = _canon_issuer(rec.issuer)
+            if canon in seen_names and seen_names[canon] != kid:
+                raise RegistryIntegrityError(
+                    f"duplicate active issuer name {rec.issuer!r} "
+                    f"(keys {seen_names[canon]} and {kid})"
+                )
+            seen_names[canon] = kid
 
         header = self._entries[0] if self._entries else {}
         if header.get("signed"):

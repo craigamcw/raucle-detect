@@ -151,7 +151,7 @@ def test_duplicate_issuer_name_rejected(tmp_path):
     #3): the issuer string is the identity verifiers match on."""
     reg = TrustRegistry(tmp_path / "r.jsonl")
     reg.publish(_issuer("a").public_key_pem, issuer="Acme Bank")
-    with pytest.raises(ValueError, match="already held by an active key"):
+    with pytest.raises(ValueError, match="collides with an active key"):
         reg.publish(_issuer("b").public_key_pem, issuer="Acme Bank")  # different key, same name
     # Re-publishing the SAME key under its name is fine.
     same = _issuer("c")
@@ -165,3 +165,35 @@ def test_issuer_name_reusable_after_revoke(tmp_path):
     reg.revoke(k1)
     # After revocation the name is free for a new key.
     reg.publish(_issuer("b").public_key_pem, issuer="Acme Bank")  # no raise
+
+
+def test_duplicate_active_issuer_name_rejected_on_load(tmp_path):
+    """A hand-crafted (even operator-signed) registry with duplicate active issuer
+    names must be REJECTED on load, not just at publish (codex r3 #1)."""
+    op = Ed25519Signer.generate()
+    reg = TrustRegistry(tmp_path / "r.jsonl", operator_signer=op)
+    reg.publish(_issuer("a").public_key_pem, issuer="Acme Bank")
+    # Forge a second active register entry with the SAME name, different key
+    # (one issuer instance so key_id matches its own PEM — isolates the
+    # uniqueness check from the key_id-invariant check).
+    b = _issuer("b")
+    reg._write_entry(
+        {
+            "type": "register",
+            "key_id": b.key_id,
+            "public_key_pem": b.public_key_pem,
+            "issuer": "Acme Bank",
+            "created_at": 0,
+            "metadata": {},
+        }
+    )
+    with pytest.raises(RegistryIntegrityError, match="duplicate active issuer name"):
+        TrustRegistry.load(tmp_path / "r.jsonl")
+
+
+def test_confusable_issuer_names_rejected(tmp_path):
+    """Case/whitespace-confusable names cannot both be active (codex r3 #2)."""
+    reg = TrustRegistry(tmp_path / "r.jsonl")
+    reg.publish(_issuer("a").public_key_pem, issuer="Acme Bank")
+    with pytest.raises(ValueError, match="collides"):
+        reg.publish(_issuer("b").public_key_pem, issuer="acme bank ")  # casefold+strip collide
