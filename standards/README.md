@@ -7,11 +7,12 @@ Submissions to standards bodies and community working groups, proposing the Rauc
 | Track | Where | What we propose |
 |---|---|---|
 | OWASP AI Exchange | [owaspai.org](https://owaspai.org) — open knowledge base on AI security | Three control-pattern contributions: capability tokens for agent tools, verified policy proofs, gate decision profile |
+| Model Context Protocol (MCP) | [modelcontextprotocol.io](https://modelcontextprotocol.io) | `mcp-cap:v1` — bind capability tokens + signed-decision receipts to MCP tools via `_meta`, no protocol change ([standards/mcp/](mcp/)) |
 | NIST AI Risk Management Framework | [nist.gov/ai-rmf](https://www.nist.gov/itl/ai-risk-management-framework) | Map our primitives to specific Govern/Map/Measure/Manage controls; submit via public comment cycle |
 | CNCF / OpenSSF | tentative | If a relevant SIG forms around AI supply-chain attestation, propose the receipt format |
 | IETF | tentative | If the capability-token format stabilises and sees multi-vendor adoption, propose as Internet-Draft |
 
-This directory ships the OWASP AI Exchange track. The other tracks are scoped but not yet drafted.
+This directory ships the OWASP AI Exchange track and the MCP capability-binding profile ([`mcp/`](mcp/)). The other tracks are scoped but not yet drafted.
 
 ## Strategy
 

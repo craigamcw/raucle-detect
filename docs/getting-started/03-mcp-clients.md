@@ -90,6 +90,15 @@ raucle-detect mcp serve --mode strict        # stricter detection thresholds
 raucle-detect mcp serve --rules-dir ./rules  # load your custom YAML rules
 ```
 
+## Authorising your own MCP server's tools (mcp-cap:v1)
+
+If you *build* an MCP server, the `mcp-cap:v1` binding lets you advertise which
+tools are capability-gated and attach a signed decision receipt to every call —
+all via MCP's `_meta`, no protocol change. Clients can then fail closed on a
+gated tool they can't anchor to a trusted issuer. See the profile:
+[`standards/mcp/01-capability-binding.md`](../../standards/mcp/01-capability-binding.md)
+and the helpers in `raucle_detect/mcp_auth.py`.
+
 ## Vetting a third-party MCP server before you trust it
 
 MCP tool descriptions are a prompt-injection surface — a malicious server can
