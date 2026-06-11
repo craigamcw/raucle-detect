@@ -1,0 +1,383 @@
+"""Agent Trust Registry — the cross-organisation trust-anchor layer (P1).
+
+A capability token or provenance receipt is only as trustworthy as the verifier's
+ability to map its ``key_id`` to a public key it trusts. Today that mapping is
+either hardcoded (``CapabilityGate(trusted_issuers={key_id: pem})``) or pinned
+out of band (A2A cards). Neither scales across organisations: an agent in org B
+cannot verify an agent in org A's receipt without already holding A's key.
+
+The **Trust Registry** is the shared, resolvable, tamper-evident directory that
+closes this gap — the certificate-transparency analogue for agent issuers. An
+issuer *publishes* its public key once; any verifier in any org *resolves*
+``key_id -> public key`` from the registry and checks revocation. Each new
+publisher makes the next verification easier: the network effect that turns
+raucle from a per-org library into ecosystem infrastructure.
+
+Design (mirrors the proven append-only signed chain in ``audit.py``):
+
+- The registry is an **append-only JSONL log**. Each line is an entry:
+  a ``register`` (issuer + public key + metadata) or a ``revoke`` (key_id).
+  Nothing is ever mutated; revocation is a new entry, so history is auditable.
+- Entries are **hash-chained** (each carries the previous entry's hash), so a
+  consumer detects tampering or reordering.
+- The registry **operator signs** the head, so a consumer who trusts the
+  operator key can trust the whole log with one signature check
+  (transparency-log style). An unsigned registry is usable but only
+  integrity-checked (chain), not authenticated.
+
+Fail-closed: ``public_key(key_id)`` returns ``None`` for an unknown **or revoked**
+key, so a verifier built on the registry denies by default.
+
+CLI: ``raucle-detect registry init|publish|revoke|list|resolve``.
+Client for the hosted service: :meth:`TrustRegistry.from_url` fetches a published
+registry over HTTPS (SSRF-guarded) and verifies it before use.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from raucle_detect.audit import (
+    Ed25519Signer,
+    _canonical_json,
+    _sha256_hex,
+)
+
+logger = logging.getLogger(__name__)
+
+#: Registry format version, stamped on the header entry.
+REGISTRY_VERSION = "trust-registry/v1"
+
+_GENESIS = "0" * 64
+
+
+def _key_id_for(public_key_pem: bytes | str) -> str:
+    """The canonical ``key_id`` for a public key: first 16 hex of SHA-256 over
+    the PEM (matches ``CapabilityIssuer.key_id`` / cap:v1)."""
+    pem = public_key_pem.encode() if isinstance(public_key_pem, str) else public_key_pem
+    return _sha256_hex(pem)[:16]
+
+
+@dataclass
+class TrustRecord:
+    """The resolved state of an issuer in the registry."""
+
+    key_id: str
+    public_key_pem: str
+    issuer: str
+    created_at: int
+    revoked: bool = False
+    revoked_reason: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        d = {
+            "key_id": self.key_id,
+            "public_key_pem": self.public_key_pem,
+            "issuer": self.issuer,
+            "created_at": self.created_at,
+            "revoked": self.revoked,
+        }
+        if self.revoked_reason:
+            d["revoked_reason"] = self.revoked_reason
+        if self.metadata:
+            d["metadata"] = self.metadata
+        return d
+
+
+class RegistryIntegrityError(Exception):
+    """Raised when a registry's hash chain or operator signature does not verify."""
+
+
+class TrustRegistry:
+    """An append-only, hash-chained, optionally operator-signed trust directory.
+
+    Parameters
+    ----------
+    path : str | Path | None
+        Backing JSONL file. ``None`` for an in-memory registry (tests / transient).
+    operator_signer : Ed25519Signer | None
+        If given, the registry is authenticated: a signed head entry is appended
+        and consumers can verify the whole log against the operator public key.
+    """
+
+    def __init__(
+        self,
+        path: str | Path | None = None,
+        *,
+        operator_signer: Ed25519Signer | None = None,
+    ) -> None:
+        self._path = Path(path) if path is not None else None
+        self._signer = operator_signer
+        self._entries: list[dict[str, Any]] = []
+        self._tail_hash = _GENESIS
+        self._authenticated: bool | None = None
+        if self._path is not None and self._path.exists():
+            self._load_existing()
+        elif not self._entries:
+            self._append_header()
+
+    # -- construction / loading ---------------------------------------------
+
+    def _append_header(self) -> None:
+        header: dict[str, Any] = {
+            "type": "header",
+            "version": REGISTRY_VERSION,
+            "signed": self._signer is not None,
+        }
+        if self._signer is not None:
+            header["operator_key_id"] = _key_id_for(self._signer.public_key_pem())
+        self._write_entry(header)
+
+    def _load_existing(self) -> None:
+        assert self._path is not None
+        for line in self._path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            self._entries.append(json.loads(line))
+        if not self._entries:
+            self._append_header()
+            return
+        # Recompute the tail hash from the on-disk records.
+        self._tail_hash = self._entries[-1].get("hash", _GENESIS)
+
+    @classmethod
+    def load(cls, path: str | Path) -> TrustRegistry:
+        """Load and integrity-check a registry from disk."""
+        reg = cls(path)
+        reg.verify_integrity()
+        return reg
+
+    @classmethod
+    def from_jsonl(cls, text: str) -> TrustRegistry:
+        """Build an in-memory registry from JSONL text and integrity-check it."""
+        reg = cls()
+        reg._entries = []
+        for line in text.splitlines():
+            line = line.strip()
+            if line:
+                reg._entries.append(json.loads(line))
+        if not reg._entries:
+            reg._append_header()
+        else:
+            reg._tail_hash = reg._entries[-1].get("hash", _GENESIS)
+        reg.verify_integrity()
+        return reg
+
+    @classmethod
+    def from_url(
+        cls,
+        url: str,
+        *,
+        operator_public_pem: bytes | None = None,
+        timeout: float = 10.0,
+    ) -> TrustRegistry:
+        """Fetch a published registry over HTTPS (SSRF-guarded) and verify it.
+
+        This is the client for the hosted public verification service: a verifier
+        in any org points at the registry URL and gets a checked trust directory.
+        For a signed registry from an untrusted host, pass ``operator_public_pem``
+        to AUTHENTICATE it (pin the operator key); without it the fetched log is
+        only integrity-checked, which a wholesale forger could pass.
+        """
+        from raucle_detect.feed import fetch_https_pinned
+
+        body = fetch_https_pinned(url, timeout=timeout).decode("utf-8")
+        reg = cls()
+        reg._entries = []
+        for line in body.splitlines():
+            line = line.strip()
+            if line:
+                reg._entries.append(json.loads(line))
+        if not reg._entries:
+            reg._append_header()
+        else:
+            reg._tail_hash = reg._entries[-1].get("hash", _GENESIS)
+        reg.verify_integrity(operator_public_pem=operator_public_pem)
+        if reg._entries and reg._entries[0].get("signed") and reg._authenticated is not True:
+            logger.warning(
+                "fetched a SIGNED trust registry from %s without pinning the "
+                "operator key: integrity verified, authentication NOT verified. "
+                "Pass operator_public_pem to authenticate an untrusted source.",
+                url,
+            )
+        return reg
+
+    # -- writing -------------------------------------------------------------
+
+    def _write_entry(self, entry: dict[str, Any]) -> dict[str, Any]:
+        entry = dict(entry)
+        entry["index"] = len(self._entries)
+        entry["prev_hash"] = self._tail_hash
+        # Hash covers everything except the hash field and the operator signature.
+        body = {k: v for k, v in entry.items() if k not in ("hash", "operator_sig")}
+        entry_hash = _sha256_hex(_canonical_json(body))
+        entry["hash"] = entry_hash
+        if self._signer is not None:
+            entry["operator_sig"] = _b64(self._signer.sign(entry_hash.encode("ascii")))
+        self._entries.append(entry)
+        self._tail_hash = entry_hash
+        if self._path is not None:
+            with open(self._path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(entry, ensure_ascii=False, separators=(",", ":")) + "\n")
+        return entry
+
+    def publish(
+        self,
+        public_key_pem: bytes | str,
+        *,
+        issuer: str,
+        metadata: dict[str, Any] | None = None,
+        created_at: int = 0,
+    ) -> str:
+        """Register an issuer public key. Returns its ``key_id``.
+
+        Re-publishing a previously-revoked key reactivates it (a fresh
+        ``register`` entry supersedes the revocation, auditable in history).
+        """
+        pem = public_key_pem.decode() if isinstance(public_key_pem, bytes) else public_key_pem
+        key_id = _key_id_for(pem)
+        self._write_entry(
+            {
+                "type": "register",
+                "key_id": key_id,
+                "public_key_pem": pem,
+                "issuer": issuer,
+                "created_at": int(created_at),
+                "metadata": metadata or {},
+            }
+        )
+        return key_id
+
+    def revoke(self, key_id: str, *, reason: str = "") -> None:
+        """Revoke an issuer key. Append-only; history is preserved."""
+        self._write_entry({"type": "revoke", "key_id": key_id, "reason": reason})
+
+    # -- resolution (the consumer surface) ----------------------------------
+
+    def _fold(self) -> dict[str, TrustRecord]:
+        """Replay the log into current per-key state (last entry wins)."""
+        state: dict[str, TrustRecord] = {}
+        for e in self._entries:
+            t = e.get("type")
+            if t == "register":
+                state[e["key_id"]] = TrustRecord(
+                    key_id=e["key_id"],
+                    public_key_pem=e["public_key_pem"],
+                    issuer=e.get("issuer", ""),
+                    created_at=int(e.get("created_at", 0)),
+                    revoked=False,
+                    metadata=e.get("metadata") or {},
+                )
+            elif t == "revoke":
+                rec = state.get(e["key_id"])
+                if rec is not None:
+                    rec.revoked = True
+                    rec.revoked_reason = e.get("reason", "")
+        return state
+
+    def resolve(self, key_id: str) -> TrustRecord | None:
+        """Return the full record for ``key_id`` (including revoked ones), or None."""
+        return self._fold().get(key_id)
+
+    def public_key(self, key_id: str) -> str | None:
+        """Resolve ``key_id`` to a public-key PEM, **fail-closed**: returns None
+        for an unknown OR revoked key."""
+        rec = self._fold().get(key_id)
+        if rec is None or rec.revoked:
+            return None
+        return rec.public_key_pem
+
+    def is_revoked(self, key_id: str) -> bool:
+        rec = self._fold().get(key_id)
+        return rec is not None and rec.revoked
+
+    def as_issuer_map(self) -> dict[str, str]:
+        """``{key_id: pem}`` for all **active** issuers — drop-in for
+        ``CapabilityGate(trusted_issuers=...)``."""
+        return {kid: rec.public_key_pem for kid, rec in self._fold().items() if not rec.revoked}
+
+    def records(self) -> list[TrustRecord]:
+        return list(self._fold().values())
+
+    # -- integrity -----------------------------------------------------------
+
+    def verify_integrity(self, *, operator_public_pem: bytes | None = None) -> bool:
+        """Verify the hash chain and (if signed) the operator signatures.
+
+        Raises :class:`RegistryIntegrityError` on any break. ``operator_public_pem``
+        pins the expected operator key; if omitted, signatures are verified against
+        the key declared in the header (integrity, not external authentication).
+        """
+        prev = _GENESIS
+        op_pub = None
+        for i, e in enumerate(self._entries):
+            if e.get("index") != i:
+                raise RegistryIntegrityError(f"entry {i}: index mismatch")
+            if e.get("prev_hash") != prev:
+                raise RegistryIntegrityError(f"entry {i}: broken chain")
+            body = {k: v for k, v in e.items() if k not in ("hash", "operator_sig")}
+            expect = _sha256_hex(_canonical_json(body))
+            if e.get("hash") != expect:
+                raise RegistryIntegrityError(f"entry {i}: hash mismatch (tampered)")
+            prev = e["hash"]
+
+        header = self._entries[0] if self._entries else {}
+        if header.get("signed"):
+            from cryptography.exceptions import InvalidSignature
+            from cryptography.hazmat.primitives import serialization
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+                Ed25519PublicKey,
+            )
+
+            pem = operator_public_pem
+            if pem is None and self._signer is not None:
+                pem = self._signer.public_key_pem()
+            if pem is None:
+                # Chain integrity is verified (tamper-evidence within the log),
+                # but without the operator key we have NOT authenticated the log —
+                # a forger who rebuilt the whole chain would pass. That is a valid
+                # choice for a local, trusted file (load() does this quietly); the
+                # risky case (untrusted network source) is warned in from_url().
+                self._authenticated = False
+                return True
+            self._authenticated = True
+            loaded = serialization.load_pem_public_key(pem)
+            if not isinstance(loaded, Ed25519PublicKey):
+                raise RegistryIntegrityError("operator key is not Ed25519")
+            op_pub = loaded
+            for i, e in enumerate(self._entries):
+                sig = e.get("operator_sig")
+                if not sig:
+                    raise RegistryIntegrityError(f"entry {i}: missing operator signature")
+                try:
+                    op_pub.verify(_b64d(sig), e["hash"].encode("ascii"))
+                except (InvalidSignature, ValueError) as exc:
+                    raise RegistryIntegrityError(f"entry {i}: operator signature invalid") from exc
+        return True
+
+
+# Local copies of the b64url helpers (audit uses identical ones internally).
+import base64 as _base64  # noqa: E402
+
+
+def _b64(data: bytes) -> str:
+    return _base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _b64d(data: str) -> bytes:
+    padding = "=" * ((4 - len(data) % 4) % 4)
+    return _base64.urlsafe_b64decode(data + padding)
+
+
+__all__ = [
+    "REGISTRY_VERSION",
+    "TrustRecord",
+    "TrustRegistry",
+    "RegistryIntegrityError",
+]
