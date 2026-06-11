@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — platform trust layer (registry / handshake / passport / compliance)
+## 0.21.0 (2026-06-11) — platform trust layer (registry / handshake / passport / compliance)
 
 Four new modules forming the cross-organisation trust layer, hardened through
 **nine rounds of iterative adversarial security review** (independent codex
