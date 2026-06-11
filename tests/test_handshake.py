@@ -66,7 +66,7 @@ def test_injected_call_denied(two_orgs):
     assert not res.accepted
     assert res.ack_receipt["body"]["decision"] == "REJECT"
     # The denial ack is itself signed and verifiable.
-    assert verify_ack(res.ack_receipt, registry=reg)[0]
+    assert verify_ack(res.ack_receipt, registry=reg, require_binding=False)[0]
 
 
 def test_revoked_initiator_rejected_before_gate(two_orgs):
@@ -212,9 +212,20 @@ def test_responder_identity_impersonation_rejected(tmp_path):
     req = build_request(token, tool="transfer", args={}, nonce="n1")
     # Attacker signs an ACCEPT but lies that it is org-b.gateway.
     res = accept_call(req, registry=reg, responder_signer=attacker, responder_id="org-b.gateway")
-    ok, why = verify_ack(res.ack_receipt, registry=reg)
+    ok, why = verify_ack(res.ack_receipt, registry=reg, require_binding=False)
     assert not ok and "responder identity mismatch" in why
     # Honest case: the responder_id matches the registry record -> verifies.
     res2 = accept_call(req, registry=reg, responder_signer=attacker, responder_id="evil.gateway")
-    ok2, _ = verify_ack(res2.ack_receipt, registry=reg)
+    ok2, _ = verify_ack(res2.ack_receipt, registry=reg, require_binding=False)
     assert ok2  # signed name now matches the registry record
+
+
+def test_verify_ack_requires_binding_by_default(two_orgs):
+    """Without an anti-replay binding, verify_ack refuses to return ok (codex r5)."""
+    reg, _iss_a, resp_b, token = two_orgs
+    req = build_request(token, tool="transfer_funds", args={"to": "acct:b-co", "amount": 50})
+    res = accept_call(req, registry=reg, responder_signer=resp_b, responder_id="org-b.gateway")
+    ok, why = verify_ack(res.ack_receipt, registry=reg)  # no binding
+    assert not ok and "anti-replay binding" in why
+    # With a binding it verifies.
+    assert verify_ack(res.ack_receipt, registry=reg, expected_request=req)[0]

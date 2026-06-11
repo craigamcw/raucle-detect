@@ -259,6 +259,8 @@ class TrustRegistry:
         # let two different keys hold the same active issuer name (confusable-name
         # impersonation). Re-publishing the SAME key under its name is fine.
         canon = _canon_issuer(issuer)
+        if not canon:
+            raise ValueError("issuer name must be non-empty")
         for kid, rec in self._fold().items():
             if not rec.revoked and _canon_issuer(rec.issuer) == canon and kid != key_id:
                 raise ValueError(
@@ -366,6 +368,10 @@ class TrustRegistry:
             if rec.revoked:
                 continue
             canon = _canon_issuer(rec.issuer)
+            if not canon:
+                raise RegistryIntegrityError(
+                    f"active register entry for key {kid} has a blank issuer name"
+                )
             if canon in seen_names and seen_names[canon] != kid:
                 raise RegistryIntegrityError(
                     f"duplicate active issuer name {rec.issuer!r} "

@@ -263,6 +263,7 @@ def verify_ack(
     expected_request: HandshakeRequest | None = None,
     expected_decision: str | None = None,
     expected_responder: str | None = None,
+    require_binding: bool = True,
 ) -> tuple[bool, str]:
     """Initiator side: verify the responder's ack, resolving the responder's
     key from the **same registry** (no prior key exchange with org B either).
@@ -285,6 +286,17 @@ def verify_ack(
         return False, "malformed ack receipt"
     if body.get("version") != HANDSHAKE_VERSION:
         return False, f"unknown handshake version {body.get('version')!r}"
+
+    # Replay-safe by default: a successful verify must be BOUND to this handshake.
+    # The initiator always holds the request it sent, so it can always pass one of
+    # these. Without a binding an authentic-but-replayed ack would pass (codex r5).
+    if require_binding and not any(
+        x is not None for x in (expected_nonce, expected_token_id, expected_request)
+    ):
+        return False, (
+            "no anti-replay binding supplied: pass expected_request (or expected_nonce / "
+            "expected_token_id), or require_binding=False to only check authenticity"
+        )
 
     responder_key_id = body.get("responder_key_id", "")
     record = registry.resolve(responder_key_id)  # fail-closed

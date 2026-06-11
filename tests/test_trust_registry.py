@@ -197,3 +197,12 @@ def test_confusable_issuer_names_rejected(tmp_path):
     reg.publish(_issuer("a").public_key_pem, issuer="Acme Bank")
     with pytest.raises(ValueError, match="collides"):
         reg.publish(_issuer("b").public_key_pem, issuer="acme bank ")  # casefold+strip collide
+
+
+def test_blank_issuer_rejected(tmp_path):
+    """A blank/whitespace issuer name is refused (codex r5): an empty identity
+    must not be registrable."""
+    reg = TrustRegistry(tmp_path / "r.jsonl")
+    for bad in ("", "   ", "\t"):
+        with pytest.raises(ValueError, match="non-empty"):
+            reg.publish(_issuer("x").public_key_pem, issuer=bad)
