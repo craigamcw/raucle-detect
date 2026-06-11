@@ -19,6 +19,7 @@ This guide is task-first. Pick a path. Run the code. You'll have a working signe
 | You want to prove a policy is sound, not just configured | **[4. Prove a policy](06-prove-a-policy.md)** — SMT-backed `ProofResult`, content-addressed, citeable. | 10 min |
 | You run a SOC / need a SIEM feed + live view | **[8. SIEM export & live monitoring](08-siem-and-live-view.md)** — ECS JSON to Splunk/Sentinel, `raucle-detect watch`, and a live `/dashboard`. | 5 min |
 | You deploy OpenClaw / NemoClaw | **[9. Securing OpenClaw / NemoClaw](09-openclaw-nemoclaw.md)** — the reference pattern: raucle gates tool calls + emits verifiable evidence under NemoClaw's sandbox. | 5 min |
+| You verify agents across org boundaries | **[10. Trust Registry](10-trust-registry.md)** — publish your issuer key once; any org resolves and verifies it. The cross-org trust layer. | 5 min |
 
 ---
 

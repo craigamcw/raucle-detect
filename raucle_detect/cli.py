@@ -224,6 +224,39 @@ def _build_parser() -> argparse.ArgumentParser:
         "--denies-only", action="store_true", help="Show only DENY / non-CLEAN events"
     )
 
+    # -- registry (Agent Trust Registry, P1) --------------------------------
+    reg_p = subparsers.add_parser(
+        "registry", help="Agent Trust Registry — publish/resolve issuer trust anchors"
+    )
+    reg_sub = reg_p.add_subparsers(dest="registry_command")
+
+    reg_init = reg_sub.add_parser("init", help="Create a new (optionally signed) registry")
+    reg_init.add_argument("path", help="Registry JSONL file to create")
+    reg_init.add_argument("--operator-key", help="Operator private key PEM to sign the registry")
+
+    reg_pub = reg_sub.add_parser("publish", help="Publish an issuer public key to the registry")
+    reg_pub.add_argument("path", help="Registry JSONL file")
+    reg_pub.add_argument("pubkey", help="Issuer public-key PEM file to publish")
+    reg_pub.add_argument("--issuer", required=True, help="Issuer display name")
+    reg_pub.add_argument("--operator-key", help="Operator private key PEM (if signed)")
+
+    reg_rev = reg_sub.add_parser("revoke", help="Revoke an issuer key")
+    reg_rev.add_argument("path", help="Registry JSONL file")
+    reg_rev.add_argument("key_id", help="key_id to revoke")
+    reg_rev.add_argument("--reason", default="", help="Revocation reason")
+    reg_rev.add_argument("--operator-key", help="Operator private key PEM (if signed)")
+
+    reg_list = reg_sub.add_parser("list", help="List active issuers in the registry")
+    reg_list.add_argument("path", help="Registry JSONL file or https:// URL")
+
+    reg_res = reg_sub.add_parser("resolve", help="Resolve a key_id to its trust record")
+    reg_res.add_argument("path", help="Registry JSONL file or https:// URL")
+    reg_res.add_argument("key_id", help="key_id to resolve")
+
+    reg_verify = reg_sub.add_parser("verify", help="Verify a registry's integrity")
+    reg_verify.add_argument("path", help="Registry JSONL file")
+    reg_verify.add_argument("--operator-pubkey", help="Operator public-key PEM to authenticate")
+
     receipt_p = subparsers.add_parser("verify-receipt", help="Verify a signed JWS verdict receipt")
     receipt_p.add_argument("receipt", help="The compact JWS receipt string")
     receipt_p.add_argument("--pubkey", required=True, help="Path to Ed25519 public key PEM")
@@ -782,6 +815,75 @@ def _cmd_rules_fuzz(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
+
+def _cmd_registry(args: argparse.Namespace) -> int:
+    """Agent Trust Registry operations (publish/resolve/revoke/list/verify)."""
+    import json as _json
+
+    from raucle_detect.audit import Ed25519Signer
+    from raucle_detect.trust_registry import TrustRegistry
+
+    cmd = getattr(args, "registry_command", None)
+    if cmd is None:
+        print(
+            "error: registry needs a subcommand (init/publish/revoke/list/resolve/verify)",
+            file=sys.stderr,
+        )
+        return 2
+
+    def _signer(opt: str | None) -> Ed25519Signer | None:
+        if not opt:
+            return None
+        return Ed25519Signer.from_pem(Path(opt).read_bytes())
+
+    if cmd == "init":
+        TrustRegistry(args.path, operator_signer=_signer(args.operator_key))
+        signed = " (signed)" if args.operator_key else ""
+        print(f"Initialised trust registry at {args.path}{signed}")
+        return 0
+
+    if cmd == "publish":
+        reg = TrustRegistry(args.path, operator_signer=_signer(args.operator_key))
+        pem = Path(args.pubkey).read_text()
+        key_id = reg.publish(pem, issuer=args.issuer)
+        print(f"Published {args.issuer!r} -> key_id {key_id}")
+        return 0
+
+    if cmd == "revoke":
+        reg = TrustRegistry(args.path, operator_signer=_signer(args.operator_key))
+        reg.revoke(args.key_id, reason=args.reason)
+        print(f"Revoked key_id {args.key_id}")
+        return 0
+
+    if cmd in ("list", "resolve"):
+        if args.path.startswith("https://"):
+            reg = TrustRegistry.from_url(args.path)
+        else:
+            reg = TrustRegistry.load(args.path)
+        if cmd == "list":
+            active = [r for r in reg.records() if not r.revoked]
+            for r in active:
+                print(f"{r.key_id}  {r.issuer}")
+            print(f"({len(active)} active issuer(s))")
+            return 0
+        rec = reg.resolve(args.key_id)
+        if rec is None:
+            print(f"error: key_id {args.key_id} not in registry", file=sys.stderr)
+            return 1
+        print(_json.dumps(rec.to_dict(), indent=2))
+        return 0
+
+    if cmd == "verify":
+        op_pem = Path(args.operator_pubkey).read_bytes() if args.operator_pubkey else None
+        reg = TrustRegistry.load(args.path)
+        reg.verify_integrity(operator_public_pem=op_pem)
+        mode = "integrity + operator signature" if op_pem else "integrity (chain)"
+        print(f"Registry OK ({mode}); {len(reg.as_issuer_map())} active issuer(s)")
+        return 0
+
+    print(f"error: unknown registry subcommand {cmd!r}", file=sys.stderr)
+    return 2
 
 
 def _cmd_watch(args: argparse.Namespace) -> int:
@@ -1780,6 +1882,8 @@ def _dispatch(argv: list[str] | None = None) -> int:
         return _cmd_audit_keygen(args)
     elif args.command == "watch":
         return _cmd_watch(args)
+    elif args.command == "registry":
+        return _cmd_registry(args)
     elif args.command == "verify-receipt":
         return _cmd_verify_receipt(args)
     elif args.command == "audit-export":

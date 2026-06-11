@@ -596,14 +596,16 @@ def _assert_safe_url(url: str) -> tuple[str, str]:
     return host, resolved[0]
 
 
-def fetch_feed(url: str, *, timeout: float = 10.0) -> Feed:
-    """Fetch a feed over HTTPS. The caller MUST then verify against a pinned pubkey.
+def fetch_https_pinned(
+    url: str, *, timeout: float = 10.0, max_bytes: int = _MAX_FEED_BYTES
+) -> bytes:
+    """Fetch ``url`` over HTTPS and return the raw body, hardened against SSRF.
 
-    Hardened against SSRF: only ``https://`` URLs whose host resolves to a
-    public, routable IP are permitted; the connection is **pinned to the
-    validated IP** (no second DNS lookup at connect time, defeating
-    DNS-rebinding); redirects are NOT followed; and the response body is
-    capped at ``_MAX_FEED_BYTES``.
+    Only ``https://`` URLs whose host resolves to a public, routable IP are
+    permitted; the connection is **pinned to the validated IP** (no second DNS
+    lookup at connect time, defeating DNS-rebinding); redirects are NOT followed;
+    and the body is capped at ``max_bytes``. Shared by feed fetching and the
+    trust-registry client so the SSRF guard lives in exactly one place.
     """
     import http.client
     import ssl
@@ -616,12 +618,8 @@ def fetch_feed(url: str, *, timeout: float = 10.0) -> Feed:
     if parts.query:
         path += "?" + parts.query
 
-    # Connect to the pinned IP, but validate the certificate / send SNI for the
-    # real hostname.
     ctx = ssl.create_default_context()
-    # Pin a TLS 1.2 floor explicitly rather than relying on the interpreter's
-    # default (which is only guaranteed >= 1.2 on Python 3.10+). Defence in
-    # depth against a downgrade to a deprecated protocol (Sonar S4423).
+    # Pin a TLS 1.2 floor explicitly (defence in depth against downgrade).
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2
 
     class _PinnedHTTPSConnection(http.client.HTTPSConnection):
@@ -631,18 +629,21 @@ def fetch_feed(url: str, *, timeout: float = 10.0) -> Feed:
 
     conn = _PinnedHTTPSConnection(host, port, timeout=timeout)
     try:
-        conn.request("GET", path, headers={"User-Agent": "raucle-detect-feed/1", "Host": host})
+        conn.request("GET", path, headers={"User-Agent": "raucle-detect/1", "Host": host})
         resp = conn.getresponse()
         if resp.status in (301, 302, 303, 307, 308):
-            raise ValueError(
-                f"refusing to follow redirect (status {resp.status}) while fetching feed"
-            )
+            raise ValueError(f"refusing to follow redirect (status {resp.status})")
         if resp.status != 200:
-            raise ValueError(f"refusing to load feed: HTTP {resp.status}")
-        # Read one byte past the cap so we can detect oversize bodies.
-        data = resp.read(_MAX_FEED_BYTES + 1)
+            raise ValueError(f"refusing to load: HTTP {resp.status}")
+        data = resp.read(max_bytes + 1)
     finally:
         conn.close()
-    if len(data) > _MAX_FEED_BYTES:
-        raise ValueError(f"refusing to load feed: response body exceeds {_MAX_FEED_BYTES} bytes")
-    return Feed.from_dict(json.loads(data))
+    if len(data) > max_bytes:
+        raise ValueError(f"refusing to load: response body exceeds {max_bytes} bytes")
+    return data
+
+
+def fetch_feed(url: str, *, timeout: float = 10.0) -> Feed:
+    """Fetch a feed over HTTPS (SSRF-guarded). The caller MUST then verify
+    against a pinned pubkey."""
+    return Feed.from_dict(json.loads(fetch_https_pinned(url, timeout=timeout)))
