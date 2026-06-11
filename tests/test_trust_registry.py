@@ -144,3 +144,24 @@ class TestPersistenceRoundTrip:
         k2 = reg2.publish(_issuer("b").public_key_pem, issuer="B")
         reg3 = TrustRegistry(path)
         assert reg3.public_key(k1) and reg3.public_key(k2)
+
+
+def test_duplicate_issuer_name_rejected(tmp_path):
+    """Two different keys cannot hold the same active issuer name (codex re-review
+    #3): the issuer string is the identity verifiers match on."""
+    reg = TrustRegistry(tmp_path / "r.jsonl")
+    reg.publish(_issuer("a").public_key_pem, issuer="Acme Bank")
+    with pytest.raises(ValueError, match="already held by an active key"):
+        reg.publish(_issuer("b").public_key_pem, issuer="Acme Bank")  # different key, same name
+    # Re-publishing the SAME key under its name is fine.
+    same = _issuer("c")
+    reg.publish(same.public_key_pem, issuer="Other")
+    reg.publish(same.public_key_pem, issuer="Other")  # no raise
+
+
+def test_issuer_name_reusable_after_revoke(tmp_path):
+    reg = TrustRegistry(tmp_path / "r.jsonl")
+    k1 = reg.publish(_issuer("a").public_key_pem, issuer="Acme Bank")
+    reg.revoke(k1)
+    # After revocation the name is free for a new key.
+    reg.publish(_issuer("b").public_key_pem, issuer="Acme Bank")  # no raise

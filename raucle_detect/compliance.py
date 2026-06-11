@@ -248,13 +248,16 @@ def _monitoring(ev: ChainEvidence) -> tuple[ControlStatus, str]:
         return ControlStatus.PARTIAL, "chain failed verification; monitoring evidence not usable."
     if ev.deny == 0 and ev.scans == 0:
         return ControlStatus.PARTIAL, "no denial or scan signals recorded yet."
-    strength = (
-        "signed, verified" if ev.signature_verified else "hash-chained (signatures unverified)"
-    )
+    if not ev.signature_verified:
+        return ControlStatus.PARTIAL, (
+            f"{ev.deny} denied call(s) and {ev.flagged_scans} flagged scan(s) of {ev.scans} "
+            "recorded, but the chain is UNSIGNED / signatures not authenticated — an "
+            "unauthenticated detection record. Sign the chain and supply --pubkey for evidence."
+        )
     return ControlStatus.SATISFIED, (
         f"{ev.deny} denied call(s) and {ev.flagged_scans} flagged scan(s) of {ev.scans} "
-        f"recorded as {strength} anomaly signals — a continuous, attributable detection record "
-        "of policy-violating and adversarial activity."
+        "recorded as signed, verified anomaly signals — a continuous, attributable detection "
+        "record of policy-violating and adversarial activity."
     )
 
 
@@ -331,14 +334,17 @@ _FRAMEWORKS: dict[str, tuple[str, list[Control]]] = {
                 lambda ev: (
                     (
                         ControlStatus.SATISFIED,
-                        "Every decision is independently verifiable offline "
-                        "via the signed chain + bundled keys (audit-pack), needing no trust in the "
-                        "producing party.",
+                        "Every decision is independently verifiable offline via the signed chain "
+                        "+ bundled keys (audit-pack); signatures authenticated here, needing no "
+                        "trust in the producing party.",
                     )
-                    if ev.signed
+                    if ev.signature_verified
                     else (
                         ControlStatus.PARTIAL,
-                        "chain is unsigned; bundle a signed chain for independent auditability.",
+                        "not independently authenticated: supply the operator key (--pubkey) and a "
+                        "signed chain for verifiable auditability ("
+                        + ("signatures unauthenticated" if ev.signed else "chain unsigned")
+                        + ").",
                     )
                 ),
             ),

@@ -245,6 +245,16 @@ class TrustRegistry:
         """
         pem = public_key_pem.decode() if isinstance(public_key_pem, bytes) else public_key_pem
         key_id = _key_id_for(pem)
+        # Issuer NAME uniqueness (codex re-review #3): the issuer string is the
+        # authoritative identity verifiers match against, so the operator must not
+        # let two different keys hold the same active issuer name (confusable-name
+        # impersonation). Re-publishing the SAME key under its name is fine.
+        for kid, rec in self._fold().items():
+            if not rec.revoked and rec.issuer == issuer and kid != key_id:
+                raise ValueError(
+                    f"issuer name {issuer!r} is already held by an active key ({kid}); "
+                    "revoke it first, or use a distinct issuer identity"
+                )
         self._write_entry(
             {
                 "type": "register",

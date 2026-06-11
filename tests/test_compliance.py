@@ -150,3 +150,26 @@ class TestCLI:
         rc = main(["compliance", "report", str(_chain(tmp_path)[0]), "--framework", "pci"])
         assert rc == 2
         assert "supported" in capsys.readouterr().err
+
+
+def test_monitoring_partial_when_unsigned(tmp_path):
+    """Monitoring is not SATISFIED on an unauthenticated chain (codex re-review
+    #1): unsigned anomaly signals are not authenticated evidence."""
+    path, _ = _chain(tmp_path, signed=False, deny=2, scans=2, flagged=2)
+    report = build_report(path, framework="soc2")
+    cc72 = next(c for c in report.controls if c.id == "CC7.2")
+    assert cc72.status == ControlStatus.PARTIAL
+    assert "unauthenticated" in cc72.evidence.lower()
+
+
+def test_iso_a83_partial_without_authenticated_signatures(tmp_path):
+    """ISO A.8.3 requires authenticated signatures for SATISFIED, not just a
+    declared-signed flag (codex re-review #2)."""
+    path, signer = _chain(tmp_path)  # signed, but verify WITHOUT the key
+    report = build_report(path, framework="iso-42001")
+    a83 = next(c for c in report.controls if c.id == "A.8.3")
+    assert a83.status == ControlStatus.PARTIAL
+    # With the key, it authenticates -> SATISFIED.
+    report2 = build_report(path, framework="iso-42001", public_key_pem=signer.public_key_pem())
+    a83b = next(c for c in report2.controls if c.id == "A.8.3")
+    assert a83b.status == ControlStatus.SATISFIED
