@@ -21,6 +21,7 @@ This guide is task-first. Pick a path. Run the code. You'll have a working signe
 | You deploy OpenClaw / NemoClaw | **[9. Securing OpenClaw / NemoClaw](09-openclaw-nemoclaw.md)** — the reference pattern: raucle gates tool calls + emits verifiable evidence under NemoClaw's sandbox. | 5 min |
 | You verify agents across org boundaries | **[10. Trust Registry](10-trust-registry.md)** — publish your issuer key once; any org resolves and verifies it. The cross-org trust layer. | 5 min |
 | Agents from different companies need to trust each other | **[11. Cross-org handshake](11-cross-org-handshake.md)** — verifiable capability-gated calls across orgs, trust resolved from the shared registry. No prior key exchange. | 5 min |
+| You face an auditor / regulated procurement | **[12. Compliance evidence packs](12-compliance-evidence.md)** — one command maps your signed receipt chain to EU AI Act / ISO 42001 / SOC 2 controls. | 5 min |
 
 ---
 
