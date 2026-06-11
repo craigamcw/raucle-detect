@@ -175,8 +175,14 @@ def verify_passport(
         p = passport if isinstance(passport, AgentPassport) else AgentPassport.from_dict(passport)
         if not isinstance(p.statement, dict) or not isinstance(p.issuer_key_id, str):
             return PassportVerdict(False, "malformed passport (bad statement/issuer_key_id)")
-        if p.expires_at is not None:
-            int(p.expires_at)  # type-check; raises on a non-numeric expiry
+        # Strict expiry type: a numeric STRING would pass int() coercion and
+        # signature verification, then crash the ts >= expires_at comparison —
+        # a verifier DoS instead of fail-closed (codex r9). bool is an int
+        # subclass, so exclude it explicitly.
+        if p.expires_at is not None and (
+            not isinstance(p.expires_at, int) or isinstance(p.expires_at, bool)
+        ):
+            return PassportVerdict(False, "malformed passport (expires_at must be an integer)")
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
         return PassportVerdict(False, f"malformed passport: {type(exc).__name__}")
 

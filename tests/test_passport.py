@@ -234,3 +234,22 @@ def test_malformed_passport_fails_closed(tmp_path):
     ]:
         v = verify_passport(bad, registry=reg)
         assert not v.valid  # never raises
+
+
+def test_string_expiry_fails_closed_not_crash(tmp_path):
+    """A registry-valid issuer signing a passport whose expires_at is a numeric
+    STRING must yield an invalid verdict, not a TypeError at the ts comparison
+    (codex r9): fail-closed includes weird-but-signed inputs."""
+    org_signer = Ed25519Signer.generate()
+    reg = TrustRegistry(tmp_path / "reg.jsonl")
+    reg.publish(org_signer.public_key_pem().decode(), issuer="Org X")
+    agent = AgentIdentity.generate(agent_id="agent:x")
+    passport = issue_passport(agent.statement, issuer_signer=org_signer, issuer="Org X")
+    # Re-sign a body with a string expiry — a hostile-but-registered issuer.
+    from raucle_detect.audit import _canonical_json
+    from raucle_detect.passport import _b64
+
+    passport.expires_at = "9999999999"
+    passport.issuer_signature = _b64(org_signer.sign(_canonical_json(passport.body())))
+    v = verify_passport(passport.to_dict(), registry=reg, now=2)
+    assert not v.valid and "expires_at" in v.reason  # never raises
