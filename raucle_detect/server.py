@@ -390,6 +390,12 @@ async def _auth_and_rate_limit(request: Request, call_next):  # type: ignore[no-
 
     # API key authentication
     if _api_key:
+        # Browser EventSource cannot set an Authorization header, so the live
+        # view endpoints also accept ?access_token=<key> (constant-time check).
+        if request.url.path in ("/events", "/dashboard"):
+            qtoken = request.query_params.get("access_token", "")
+            if qtoken and secrets.compare_digest(qtoken.encode(), _api_key.encode()):
+                return await call_next(request)
         auth_header = request.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
             from fastapi.responses import JSONResponse
@@ -548,3 +554,127 @@ def audit_status() -> dict[str, Any]:
         "event_count": _audit_sink.event_count,
         "tail_hash": _audit_sink.tail_hash,
     }
+
+
+# ---------------------------------------------------------------------------
+# Live view — SSE event stream + minimal dashboard (v0.21.0)
+# ---------------------------------------------------------------------------
+#
+# Tails the audit chain file (RAUCLE_DETECT_AUDIT_PATH) and pushes each new
+# event to connected browsers via Server-Sent Events. The dashboard is a
+# single self-contained HTML page — no build step, no external assets.
+#
+# Auth: the global middleware applies. Because the browser EventSource API
+# cannot set an Authorization header, when an API key is configured the
+# dashboard and /events also accept ``?access_token=<key>`` (checked with a
+# constant-time compare in the middleware below).
+
+_audit_path_for_stream = os.environ.get("RAUCLE_DETECT_AUDIT_PATH", "")
+
+_DASHBOARD_HTML = """<!doctype html>
+<html><head><meta charset="utf-8"><title>raucle live</title><style>
+ body{font:13px/1.5 ui-monospace,Menlo,monospace;background:#0d1117;color:#c9d1d9;margin:0;padding:1.2rem}
+ h1{font-size:15px;color:#58a6ff;margin:0 0 .2rem} small{color:#8b949e}
+ table{border-collapse:collapse;width:100%;margin-top:.8rem}
+ td,th{padding:.25rem .6rem;border-bottom:1px solid #21262d;text-align:left;white-space:nowrap}
+ td.reason{white-space:normal;color:#8b949e}
+ .ALLOW,.CLEAN{color:#3fb950;font-weight:600}.DENY,.MALICIOUS{color:#f85149;font-weight:700}
+ .SUSPICIOUS{color:#d29922;font-weight:600}
+ #stats{margin-top:.4rem}#stats b{color:#c9d1d9}
+</style></head><body>
+<h1>raucle-detect &mdash; live decisions</h1>
+<small>streaming from the audit chain via /events (newest first)</small>
+<div id="stats">allow <b id="na">0</b> &middot; deny <b id="nd">0</b> &middot; scans <b id="ns">0</b></div>
+<table><thead><tr><th>time</th><th>kind</th><th>outcome</th><th>who / what</th><th>detail</th></tr></thead>
+<tbody id="rows"></tbody></table>
+<script>
+ const qs=new URLSearchParams(location.search);
+ const tok=qs.get("access_token");
+ const es=new EventSource("/events"+(tok?"?access_token="+encodeURIComponent(tok):""));
+ let na=0,nd=0,ns=0;
+ es.onmessage=(m)=>{const e=JSON.parse(m.data);const tr=document.createElement("tr");
+  let kind,outcome,who,detail;
+  if("decision" in e){kind="gate";outcome=e.decision;who=(e.agent_id||"?")+" \\u2192 "+(e.tool||"?");
+   detail=e.decision==="ALLOW"?"":(e.decision_reason||"");e.decision==="ALLOW"?na++:nd++;}
+  else if("verdict" in e){kind=e.kind||"scan";outcome=e.verdict;who=e.ruleset_hash?e.ruleset_hash.slice(0,12):"";
+   detail=(e.matched_rules||[]).join(", ");ns++;}
+  else{kind=e.kind||"event";outcome="";who="";detail="";}
+  tr.innerHTML=`<td>${(e.timestamp||"").slice(0,19)}</td><td>${kind}</td>`+
+   `<td class="${outcome}">${outcome}</td><td>${who}</td><td class="reason">${detail}</td>`;
+  const tb=document.getElementById("rows");tb.insertBefore(tr,tb.firstChild);
+  while(tb.children.length>500)tb.removeChild(tb.lastChild);
+  document.getElementById("na").textContent=na;document.getElementById("nd").textContent=nd;
+  document.getElementById("ns").textContent=ns;};
+</script></body></html>"""
+
+
+def _iter_audit_events(path: str, replay: int = 50, follow: bool = True):
+    """Yield audit events as SSE frames: last *replay* existing, then live.
+
+    ``follow=False`` ends the stream after the replay — used by clients that
+    want a snapshot, and by tests (an infinite generator cannot be cleanly
+    exhausted through a test client's thread portal).
+    """
+    import json as _json
+    import time as _time
+
+    def to_frame(line: str) -> str | None:
+        try:
+            rec = _json.loads(line)
+        except ValueError:
+            return None
+        if not isinstance(rec, dict) or "chain_meta" in rec or "checkpoint" in rec:
+            return None
+        ev = rec.get("event") if isinstance(rec.get("event"), dict) else rec
+        return "data: " + _json.dumps(ev, ensure_ascii=False) + "\n\n"
+
+    with open(path, encoding="utf-8") as fh:
+        tail = fh.readlines()[-replay:]
+        for line in tail:
+            frame = to_frame(line)
+            if frame:
+                yield frame
+        if not follow:
+            return
+        while True:
+            line = fh.readline()
+            if not line:
+                _time.sleep(0.5)
+                yield ": keepalive\n\n"
+                continue
+            frame = to_frame(line)
+            if frame:
+                yield frame
+
+
+@app.get("/dashboard")
+def dashboard() -> Any:
+    """Self-contained live dashboard (SSE-fed)."""
+    from fastapi.responses import HTMLResponse
+
+    if not _audit_path_for_stream:
+        raise HTTPException(
+            status_code=404,
+            detail="Live view disabled: set RAUCLE_DETECT_AUDIT_PATH to enable.",
+        )
+    return HTMLResponse(_DASHBOARD_HTML)
+
+
+@app.get("/events")
+def events(follow: bool = True) -> Any:
+    """Server-Sent Events stream of audit events (replays last 50, then live).
+
+    ``?follow=false`` returns the replay snapshot and closes the stream.
+    """
+    from fastapi.responses import StreamingResponse
+
+    if not _audit_path_for_stream or not os.path.exists(_audit_path_for_stream):
+        raise HTTPException(
+            status_code=404,
+            detail="Live view disabled: set RAUCLE_DETECT_AUDIT_PATH to enable.",
+        )
+    return StreamingResponse(
+        _iter_audit_events(_audit_path_for_stream, follow=follow),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

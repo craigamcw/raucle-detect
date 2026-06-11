@@ -210,6 +210,20 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # -- verify-receipt -----------------------------------------------------
+    watch_p = subparsers.add_parser(
+        "watch",
+        help="Live view of gate decisions / scan verdicts from an audit or SIEM JSONL file",
+    )
+    watch_p.add_argument("path", help="Audit chain or SIEM JSONL file to tail")
+    watch_p.add_argument(
+        "--no-follow",
+        action="store_true",
+        help="Print existing events and exit instead of tailing",
+    )
+    watch_p.add_argument(
+        "--denies-only", action="store_true", help="Show only DENY / non-CLEAN events"
+    )
+
     receipt_p = subparsers.add_parser("verify-receipt", help="Verify a signed JWS verdict receipt")
     receipt_p.add_argument("receipt", help="The compact JWS receipt string")
     receipt_p.add_argument("--pubkey", required=True, help="Path to Ed25519 public key PEM")
@@ -768,6 +782,87 @@ def _cmd_rules_fuzz(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
+
+def _cmd_watch(args: argparse.Namespace) -> int:
+    """Tail an audit-chain or SIEM JSONL file and render decisions live.
+
+    Accepts either format: hash-chain records (event nested under "event"),
+    raw event lines, or ECS documents (original event under "raucle").
+    """
+    import json as _json
+    import time as _time
+
+    path = Path(args.path)
+    if not path.exists():
+        print(f"error: no such file: {path}", file=sys.stderr)
+        return 1
+
+    use_color = sys.stdout.isatty()
+
+    def paint(text: str, code: str) -> str:
+        return f"\x1b[{code}m{text}\x1b[0m" if use_color else text
+
+    def extract(line: str) -> dict | None:
+        try:
+            rec = _json.loads(line)
+        except ValueError:
+            return None
+        if not isinstance(rec, dict):
+            return None
+        if "raucle" in rec and isinstance(rec["raucle"], dict):  # ECS doc
+            return rec["raucle"]
+        if "event" in rec and isinstance(rec["event"], dict):  # chain record
+            return rec["event"]
+        return rec
+
+    def render(ev: dict) -> None:
+        ts = str(ev.get("timestamp", ""))[:19]
+        if "decision" in ev:
+            verdict = ev["decision"]
+            if args.denies_only and verdict == "ALLOW":
+                return
+            colored = paint(f"{verdict:5s}", "32" if verdict == "ALLOW" else "1;31")
+            reason = ev.get("decision_reason") or ""
+            detail = f"  ({reason})" if reason and verdict != "ALLOW" else ""
+            print(
+                f"{ts}  {colored}  gate  {ev.get('agent_id', '?'):28s} {ev.get('tool', '?')}{detail}"
+            )
+        elif "verdict" in ev:
+            verdict = ev["verdict"]
+            if args.denies_only and verdict == "CLEAN":
+                return
+            code = {"CLEAN": "32", "SUSPICIOUS": "33", "MALICIOUS": "1;31"}.get(verdict, "0")
+            rules = ",".join(ev.get("matched_rules") or [])
+            detail = f"  [{rules}]" if rules else ""
+            print(f"{ts}  {paint(f'{verdict:10s}', code)}  scan  {ev.get('kind', 'scan')}{detail}")
+        elif rec_is_meta(ev):
+            return
+        else:
+            print(f"{ts}  {ev.get('kind', 'event')}")
+
+    def rec_is_meta(ev: dict) -> bool:
+        return "chain_meta" in ev or "checkpoint" in ev
+
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            ev = extract(line)
+            if ev is not None and not rec_is_meta(ev):
+                render(ev)
+        if args.no_follow:
+            return 0
+        print(paint("-- watching for new events (Ctrl-C to stop) --", "2"))
+        try:
+            while True:
+                line = fh.readline()
+                if not line:
+                    _time.sleep(0.3)
+                    continue
+                ev = extract(line)
+                if ev is not None and not rec_is_meta(ev):
+                    render(ev)
+        except KeyboardInterrupt:
+            return 0
 
 
 def _cmd_audit_verify(args: argparse.Namespace) -> int:
@@ -1684,6 +1779,8 @@ def _dispatch(argv: list[str] | None = None) -> int:
         return _cmd_audit_verify(args)
     elif args.command == "audit" and args.audit_command == "keygen":
         return _cmd_audit_keygen(args)
+    elif args.command == "watch":
+        return _cmd_watch(args)
     elif args.command == "verify-receipt":
         return _cmd_verify_receipt(args)
     elif args.command == "audit-export":

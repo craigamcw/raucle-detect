@@ -109,3 +109,50 @@ class TestAuthFailClosed:
         app = _fresh_app(monkeypatch, RAUCLE_DETECT_API_KEY="sekrit")
         client = TestClient(app)
         assert client.get("/health").status_code == 200
+
+
+class TestLiveView:
+    def test_dashboard_404_when_not_configured(self, monkeypatch):
+        monkeypatch.delenv("RAUCLE_DETECT_AUDIT_PATH", raising=False)
+        app = _fresh_app(monkeypatch)
+        client = TestClient(app)
+        assert client.get("/dashboard").status_code == 404
+
+    def test_dashboard_served_when_configured(self, monkeypatch, tmp_path):
+        log = tmp_path / "audit.jsonl"
+        log.write_text("")
+        app = _fresh_app(monkeypatch, RAUCLE_DETECT_AUDIT_PATH=str(log))
+        client = TestClient(app)
+        resp = client.get("/dashboard")
+        assert resp.status_code == 200
+        assert "live decisions" in resp.text
+
+    def test_events_streams_existing_records(self, monkeypatch, tmp_path):
+        import json as _json
+
+        log = tmp_path / "audit.jsonl"
+        rec = {"index": 0, "event": {"decision": "DENY", "agent_id": "a", "tool": "t"}}
+        log.write_text(_json.dumps(rec) + "\n")
+        app = _fresh_app(monkeypatch, RAUCLE_DETECT_AUDIT_PATH=str(log))
+        client = TestClient(app)
+        resp = client.get("/events?follow=false")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/event-stream")
+        frames = [line for line in resp.text.splitlines() if line.startswith("data: ")]
+        assert frames, "no SSE data frames in snapshot"
+        ev = _json.loads(frames[0][len("data: ") :])
+        assert ev["decision"] == "DENY"
+
+    def test_live_view_auth_query_token(self, monkeypatch, tmp_path):
+        log = tmp_path / "audit.jsonl"
+        log.write_text("")
+        app = _fresh_app(
+            monkeypatch, RAUCLE_DETECT_API_KEY="sekrit", RAUCLE_DETECT_AUDIT_PATH=str(log)
+        )
+        client = TestClient(app)
+        # No credentials -> blocked.
+        assert client.get("/dashboard").status_code in {401, 403}
+        # Wrong query token -> blocked.
+        assert client.get("/dashboard?access_token=wrong").status_code in {401, 403}
+        # Correct query token -> allowed (EventSource cannot set headers).
+        assert client.get("/dashboard?access_token=sekrit").status_code == 200

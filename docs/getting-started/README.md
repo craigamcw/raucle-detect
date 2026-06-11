@@ -16,6 +16,8 @@ This guide is task-first. Pick a path. Run the code. You'll have a working signe
 | Microsoft Agent Framework (GA April 2026) | **[2. Agent Framework](02-agent-framework.md)** — drop-in `FunctionMiddleware`. One line. | 10 min |
 | Claude Desktop / Claude Code / Cursor / Cline | **[3. MCP clients](03-mcp-clients.md)** — add raucle's detection tools to your assistant with one config block. | 2 min |
 | You want to prove a policy is sound, not just configured | **[4. Prove a policy](06-prove-a-policy.md)** — SMT-backed `ProofResult`, content-addressed, citeable. | 10 min |
+| You run a SOC / need a SIEM feed + live view | **[8. SIEM export & live monitoring](08-siem-and-live-view.md)** — ECS JSON to Splunk/Sentinel, `raucle-detect watch`, and a live `/dashboard`. | 5 min |
+| You deploy OpenClaw / NemoClaw | **[9. Securing OpenClaw / NemoClaw](09-openclaw-nemoclaw.md)** — the reference pattern: raucle gates tool calls + emits verifiable evidence under NemoClaw's sandbox. | 5 min |
 
 ---
 
