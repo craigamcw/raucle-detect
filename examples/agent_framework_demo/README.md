@@ -23,7 +23,7 @@ the issuer's published public key.
 ## Run
 
 ```bash
-pip install 'raucle-detect[agent-framework]'
+pip install 'raucle[agent-framework]'
 python examples/agent_framework_demo/demo.py
 ```
 

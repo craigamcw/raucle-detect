@@ -27,7 +27,7 @@ from agentdojo.types import (
     text_content_block_from_string,
 )
 
-from raucle_detect.capability import (
+from raucle.capability import (
     Capability,
     CapabilityGate,
     CapabilityIssuer,

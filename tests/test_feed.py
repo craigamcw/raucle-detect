@@ -9,8 +9,8 @@ import pytest
 
 pytest.importorskip("cryptography")
 
-from raucle_detect.feed import Feed, FeedStore, IOCSigner, SignedIOC
-from raucle_detect.scanner import Scanner
+from raucle.feed import Feed, FeedStore, IOCSigner, SignedIOC
+from raucle.scanner import Scanner
 
 
 def _make_signer(issuer: str = "test.example") -> IOCSigner:
@@ -200,7 +200,7 @@ def test_persisted_feed_survives_reload(tmp_path: Path):
 
 
 def test_drafts_to_signed_feed_pipeline(tmp_path: Path):
-    """Mirrors the `raucle-detect feed sign` flow end-to-end."""
+    """Mirrors the `raucle feed sign` flow end-to-end."""
     s = _make_signer()
     drafts = [
         {

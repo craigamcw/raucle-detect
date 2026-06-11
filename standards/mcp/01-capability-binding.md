@@ -3,8 +3,8 @@
 **Status:** Draft profile, 2026-06-12. Additive, backward-compatible.
 **Depends on:** [`cap:v1` capability tokens](../owasp-ai-exchange/01-capability-token.md),
 [Provenance Receipt v1](../../docs/spec/provenance/v1.md).
-**Reference implementation:** `raucle_detect/mcp_auth.py` (Apache-2.0);
-the credential-custody MCP server in `raucle_detect/broker/` is a conforming server.
+**Reference implementation:** `raucle/mcp_auth.py` (Apache-2.0);
+the credential-custody MCP server in `raucle/broker/` is a conforming server.
 
 ## What this profile addresses
 
@@ -117,7 +117,7 @@ error — the model should see it and may react, but it carries no signed materi
 ## 3. Client verification (fail-closed)
 
 ```python
-from raucle_detect.mcp_auth import verify_tool_annotation
+from raucle.mcp_auth import verify_tool_annotation
 ok, reason = verify_tool_annotation(tool, trusted_key_ids={"9f1c2a3b4d5e6f70"})
 if not ok:
     raise PermissionError(reason)   # do not call a gated tool you cannot anchor
@@ -153,7 +153,7 @@ receipt referencing a signed audit record for every gated `tools/call`;
 fail closed (DENY) on a missing/invalid token. A conforming **client** MUST
 implement §3.
 
-Reference: `raucle_detect/mcp_auth.py` provides
+Reference: `raucle/mcp_auth.py` provides
 `tool_capability_annotation()`, `receipt_meta()`, and `verify_tool_annotation()`;
 `tests/test_mcp_auth.py` is the conformance test for the block shapes and the
 fail-closed client check.

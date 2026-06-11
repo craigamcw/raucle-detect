@@ -9,7 +9,7 @@ from paper.eval import agentdojo_patches  # noqa
 from paper.eval.agentdojo_adapter import run
 
 MODEL = "deepseek-v4-pro"
-ROOT = Path("/root/raucle-paper/raucle-detect/runs")
+ROOT = Path("/root/raucle-paper/raucle/runs")
 DEFENCES = ["none", "spotlight", "shields", "vcd_text", "vcd_full", "vcd_cap_only"]
 
 all_results = []

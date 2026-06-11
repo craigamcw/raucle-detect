@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from raucle_detect.classifier import HeuristicClassifier, MLClassifier
-from raucle_detect.scanner import Scanner
+from raucle.classifier import HeuristicClassifier, MLClassifier
+from raucle.scanner import Scanner
 
 
 class TestHeuristicClassifier:

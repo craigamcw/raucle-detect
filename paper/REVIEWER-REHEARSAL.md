@@ -30,7 +30,7 @@ The reviewer will ask: is the intent extractor secure under the same threat mode
 
 ### M3. The static upper bound (0/2737) is convincing but informal.
 
-§6.2.1's static result is reported. The implicit claim is that the verifier's logic is identical to the runtime gate's logic. It is — `verify_policies.py` and `raucle_detect.capability._check_constraints` share the same constraint vocabulary. But there is no formal statement of this equivalence anywhere in the paper. A reviewer who cares about this will ask "why should I believe your verifier doesn't accidentally permit something the runtime gate denies?"
+§6.2.1's static result is reported. The implicit claim is that the verifier's logic is identical to the runtime gate's logic. It is — `verify_policies.py` and `raucle.capability._check_constraints` share the same constraint vocabulary. But there is no formal statement of this equivalence anywhere in the paper. A reviewer who cares about this will ask "why should I believe your verifier doesn't accidentally permit something the runtime gate denies?"
 
 **Action:** add a half-paragraph in §6.2.1 or §4 noting that the verifier is a 30-line script that calls into the same `Policy.satisfiesArgs` function as the gate at runtime, and citing the relevant file in the open-source repo.
 

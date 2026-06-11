@@ -14,10 +14,10 @@ import pytest
 
 cryptography = pytest.importorskip("cryptography")
 
-from raucle_detect.audit_pack import build_pack, verify_pack
-from raucle_detect.broker import AWSEgressGate, CapabilityDenied
-from raucle_detect.capability import CapabilityGate, CapabilityIssuer
-from raucle_detect.provenance import AgentIdentity, ProvenanceLogger
+from raucle.audit_pack import build_pack, verify_pack
+from raucle.broker import AWSEgressGate, CapabilityDenied
+from raucle.capability import CapabilityGate, CapabilityIssuer
+from raucle.provenance import AgentIdentity, ProvenanceLogger
 
 
 class _FakeTransport:
@@ -142,7 +142,7 @@ def test_pack_detects_a_forged_manifest_body(tmp_path):
     new_bytes = json.dumps(manifest, indent=2, ensure_ascii=False).encode("utf-8")
     manifest_path.write_bytes(new_bytes)
     index = json.loads((out / "PACK.json").read_text())
-    from raucle_detect.provenance import _sha256_hex
+    from raucle.provenance import _sha256_hex
 
     for m in index["members"]:
         if m["path"] == "manifest.json":
@@ -159,7 +159,7 @@ def test_pack_detects_a_forged_manifest_body(tmp_path):
 def test_cli_build_and_verify_roundtrip(tmp_path, capsys):
     """`raucle audit-pack build` then `verify` — the regulator's one-command,
     fully-offline check returns exit 0 on a clean pack."""
-    from raucle_detect.cli import main
+    from raucle.cli import main
 
     chain, broker = _gate_chain(tmp_path)
     # The broker public key as a capability statement (the --pubkeys input).
@@ -194,7 +194,7 @@ def test_cli_build_and_verify_roundtrip(tmp_path, capsys):
 def test_pack_detects_doctored_report_html(tmp_path):
     """Codex High: report.html must match the signed manifest's own rendering —
     re-indexing a doctored human report must NOT verify."""
-    from raucle_detect.provenance import _sha256_hex
+    from raucle.provenance import _sha256_hex
 
     chain, broker = _gate_chain(tmp_path)
     out = tmp_path / "pack"
@@ -277,7 +277,7 @@ def test_index_signature_binds_the_member_set(tmp_path):
     cannot be added/forged and re-indexed (even one whose bytes never reach the
     manifest body) without the audit key. Re-indexing without re-signing the
     index is caught by the index signature."""
-    from raucle_detect.provenance import _sha256_hex
+    from raucle.provenance import _sha256_hex
 
     chain, broker = _gate_chain(tmp_path)
     out = tmp_path / "pack"

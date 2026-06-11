@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 
-from raucle_detect.audit import (
+from raucle.audit import (
     AuditVerifier,
     Ed25519Signer,
     HashChainSink,

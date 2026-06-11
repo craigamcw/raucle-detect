@@ -1,6 +1,6 @@
 """End-to-end demo: scan → proof → capability → tool exec → receipt → audit.
 
-Runs one realistic agent interaction through every primitive raucle-detect
+Runs one realistic agent interaction through every primitive raucle
 has shipped this year, and prints every hash and signature at every step so
 the trust graph is visible.
 
@@ -16,7 +16,7 @@ tool. The platform's guardrails:
 
 Run::
 
-    pip install 'raucle-detect[compliance,proof]'
+    pip install 'raucle[compliance,proof]'
     python examples/end_to_end/demo.py
 
 The script writes audit + receipts under ``./demo-output/``.
@@ -28,11 +28,11 @@ import json
 import sys
 from pathlib import Path
 
-from raucle_detect import Scanner
-from raucle_detect.audit import AuditVerifier, Ed25519Signer, HashChainSink
-from raucle_detect.capability import CapabilityGate, CapabilityIssuer
-from raucle_detect.prove import JSONSchemaProver
-from raucle_detect.verdicts import VerdictSigner
+from raucle import Scanner
+from raucle.audit import AuditVerifier, Ed25519Signer, HashChainSink
+from raucle.capability import CapabilityGate, CapabilityIssuer
+from raucle.prove import JSONSchemaProver
+from raucle.verdicts import VerdictSigner
 
 OUT = Path("demo-output")
 OUT.mkdir(exist_ok=True)
@@ -209,9 +209,9 @@ print(
 )
 print(
     f"  All artefacts in ./{OUT}/ — load + verify offline with:\n"
-    f"    raucle-detect audit verify {OUT}/audit.jsonl --pubkey {OUT}/audit.pub.pem\n"
-    f"    raucle-detect verify-receipt '<receipt>' --pubkey {OUT}/verdict.pub.pem\n"
-    f"    raucle-detect cap verify {OUT}/token.json --pubkey {OUT}/cap.pub.pem\n"
+    f"    raucle audit verify {OUT}/audit.jsonl --pubkey {OUT}/audit.pub.pem\n"
+    f"    raucle verify-receipt '<receipt>' --pubkey {OUT}/verdict.pub.pem\n"
+    f"    raucle cap verify {OUT}/token.json --pubkey {OUT}/cap.pub.pem\n"
 )
 
 print(

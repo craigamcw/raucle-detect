@@ -185,11 +185,11 @@ Fully additive:
 
 ## Reference implementation / future consumer
 
-raucle ([github.com/craigamcw/raucle-detect](https://github.com/craigamcw/raucle-detect))
+raucle ([github.com/craigamcw/raucle](https://github.com/craigamcw/raucle))
 is a Verified Capability Discipline implementation — Z3-verified policy
 gates with Ed25519-signed capability tokens and a Lean 4 soundness
 theorem development. Its AGT integration
-([`raucle_detect/integrations/agt.py`](https://github.com/craigamcw/raucle-detect/blob/main/raucle_detect/integrations/agt.py))
+([`raucle/integrations/agt.py`](https://github.com/craigamcw/raucle/blob/main/raucle/integrations/agt.py))
 will be reworked to implement `ExternalPolicyBackend` directly once
 this PR lands, populating both new fields. Linked here as evidence
 that the contract change is implementable and that at least one
@@ -206,7 +206,7 @@ change rather than a redesign.
 
 ## Once accepted
 
-1. raucle reworks `raucle_detect.integrations.agt` to implement
+1. raucle reworks `raucle.integrations.agt` to implement
    `ExternalPolicyBackend`, populating `proof_artefact` (the
    capability-receipt hash) and `verification_pointers` (issuer
    public-key URL, policy-registry URL, Lean theorem URL).
@@ -232,8 +232,8 @@ cd agent-governance-toolkit
 git checkout -b feat/backend-decision-assurance-fields
 
 # apply the patch
-git apply /path/to/raucle-detect/docs/proposals/upstream-pr-files/patch/backends-assurance-fields.patch
-cp /path/to/raucle-detect/docs/proposals/upstream-pr-files/tests/test_backend_decision_assurance_fields.py \
+git apply /path/to/raucle/docs/proposals/upstream-pr-files/patch/backends-assurance-fields.patch
+cp /path/to/raucle/docs/proposals/upstream-pr-files/tests/test_backend_decision_assurance_fields.py \
    agent-governance-python/agent-os/tests/
 
 # verify

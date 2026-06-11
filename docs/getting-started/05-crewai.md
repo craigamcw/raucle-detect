@@ -5,7 +5,7 @@ signed capability token and records each ALLOW/DENY as a verifiable receipt —
 without changing how your tools look to the agent.
 
 ```bash
-pip install 'raucle-detect[compliance,crewai]'
+pip install 'raucle[compliance,crewai]'
 ```
 
 ## Wrap your tools
@@ -14,9 +14,9 @@ pip install 'raucle-detect[compliance,crewai]'
 `description` / `args_schema`, so the agent is unchanged:
 
 ```python
-from raucle_detect.audit import Ed25519Signer, HashChainSink
-from raucle_detect.capability import CapabilityGate, CapabilityIssuer
-from raucle_detect.integrations.crewai import guard_tools, set_in_force_token
+from raucle.audit import Ed25519Signer, HashChainSink
+from raucle.capability import CapabilityGate, CapabilityIssuer
+from raucle.integrations.crewai import guard_tools, set_in_force_token
 
 issuer = CapabilityIssuer.generate(issuer="acme.platform")
 gate   = CapabilityGate(trusted_issuers={issuer.key_id: issuer.public_key_pem})
@@ -43,8 +43,8 @@ other.
 Verify the evidence offline:
 
 ```bash
-raucle-detect audit verify receipts.jsonl
-raucle-detect watch receipts.jsonl --denies-only   # live SOC view
+raucle audit verify receipts.jsonl
+raucle watch receipts.jsonl --denies-only   # live SOC view
 ```
 
 See the runnable [examples/crewai_demo](../../examples/crewai_demo/) (no API key)

@@ -1,4 +1,4 @@
-"""Unit tests for raucle_detect.integrations.agent_framework.
+"""Unit tests for raucle.integrations.agent_framework.
 
 These tests do NOT require the real ``agent-framework`` package to be
 installed. They exercise the middleware contract via a mock invocation
@@ -31,8 +31,8 @@ import pytest
 # constructs receipts via Ed25519 primitives that require it.
 pytest.importorskip("cryptography")
 
-from raucle_detect.capability import CapabilityGate, CapabilityIssuer  # noqa: E402
-from raucle_detect.integrations.agent_framework import (  # noqa: E402
+from raucle.capability import CapabilityGate, CapabilityIssuer  # noqa: E402
+from raucle.integrations.agent_framework import (  # noqa: E402
     CapabilityReceipt,
     MiddlewareTermination,
     RaucleFunctionMiddleware,
@@ -96,7 +96,7 @@ async def _consume_call_next(invoked: list[bool]):
 
 # Force the middleware to behave as if agent-framework is installed —
 # we test the logic, not the import guard.
-import raucle_detect.integrations.agent_framework as af  # noqa: E402
+import raucle.integrations.agent_framework as af  # noqa: E402
 
 af._HAS_AGENT_FRAMEWORK = True
 

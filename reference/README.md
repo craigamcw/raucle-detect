@@ -7,7 +7,7 @@ receipt IDs** — a receipt produced by any one verifies in the others.
 
 | Language | Directory | Crypto | Notes |
 |---|---|---|---|
-| **Python** | (in the main library: [`raucle_detect/provenance.py`](../raucle_detect/provenance.py)) | `cryptography` (Ed25519) | The canonical reference; ships with the engine. |
+| **Python** | (in the main library: [`raucle/provenance.py`](../raucle/provenance.py)) | `cryptography` (Ed25519) | The canonical reference; ships with the engine. |
 | **TypeScript** | [`provenance-ts/`](./provenance-ts) | Node `webcrypto` (Ed25519) | Zero runtime deps. |
 | **Go** | [`provenance-go/`](./provenance-go) | stdlib `crypto/ed25519` | stdlib-only. |
 | **Rust** | [`provenance-rs/`](./provenance-rs) | `ed25519-dalek` | `cargo test`. |
@@ -43,11 +43,11 @@ Each implementation is published to its ecosystem's registry (all MIT;
 first registry release: `ref-v0.1.0`):
 
 ```bash
-pip install raucle-detect          # Python — ships inside the main library
+pip install raucle          # Python — ships inside the main library
 npm install @raucle/provenance     # TypeScript / Node >= 20
 cargo add raucle-provenance        # Rust
 dotnet add package Raucle.Provenance   # C# / .NET 8+
-go get github.com/craigamcw/raucle-detect/reference/provenance-go  # Go
+go get github.com/craigamcw/raucle/reference/provenance-go  # Go
 ```
 
 Registry releases are cut by tagging `ref-v<version>` (see
@@ -87,4 +87,4 @@ vector above and add a parity test.
   (`ai` ≥ 4) tool calls against a capability policy and emit a signed
   receipt per decision, built on the TypeScript implementation above.
   (Python integrations for the Microsoft Agent Framework, LangChain, and
-  AutoGen live in [`raucle_detect/integrations/`](../raucle_detect/integrations).)
+  AutoGen live in [`raucle/integrations/`](../raucle/integrations).)

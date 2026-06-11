@@ -6,9 +6,9 @@ import pytest
 
 pytest.importorskip("cryptography")
 
-from raucle_detect.audit import Ed25519Signer  # noqa: E402
-from raucle_detect.capability import CapabilityGate, CapabilityIssuer  # noqa: E402
-from raucle_detect.trust_registry import (  # noqa: E402
+from raucle.audit import Ed25519Signer  # noqa: E402
+from raucle.capability import CapabilityGate, CapabilityIssuer  # noqa: E402
+from raucle.trust_registry import (  # noqa: E402
     REGISTRY_VERSION,
     RegistryIntegrityError,
     TrustRegistry,

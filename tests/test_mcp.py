@@ -6,13 +6,13 @@ import json
 
 import pytest
 
-from raucle_detect.mcp_scanner import (
+from raucle.mcp_scanner import (
     Severity,
     findings_to_sarif,
     scan_manifest,
     scan_manifest_file,
 )
-from raucle_detect.mcp_server import MCPServer
+from raucle.mcp_server import MCPServer
 
 # ---------------------------------------------------------------------------
 # Manifest scanner
@@ -91,7 +91,7 @@ class TestMCPScanner:
         findings = scan_manifest(manifest)
         sarif = findings_to_sarif(findings)
         assert sarif["version"] == "2.1.0"
-        assert sarif["runs"][0]["tool"]["driver"]["name"] == "raucle-detect"
+        assert sarif["runs"][0]["tool"]["driver"]["name"] == "raucle"
         assert len(sarif["runs"][0]["results"]) == len(findings)
 
     def test_scan_manifest_file(self, tmp_path):

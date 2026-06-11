@@ -1,4 +1,4 @@
-"""Unit tests for raucle_detect.integrations.agt.RauclePolicyProvider.
+"""Unit tests for raucle.integrations.agt.RauclePolicyProvider.
 
 Exercises the four contract paths of the proposed AGT PDP interface
 (see docs/proposals/agt-pdp-contract.md) against the real raucle
@@ -14,9 +14,9 @@ import pytest
 
 pytest.importorskip("cryptography")
 
-from raucle_detect.capability import CapabilityGate, CapabilityIssuer  # noqa: E402
-from raucle_detect.integrations.agent_framework import set_in_force_token  # noqa: E402
-from raucle_detect.integrations.agt import (  # noqa: E402
+from raucle.capability import CapabilityGate, CapabilityIssuer  # noqa: E402
+from raucle.integrations.agent_framework import set_in_force_token  # noqa: E402
+from raucle.integrations.agt import (  # noqa: E402
     RAUCLE_PROVIDER_VERSION,
     PolicyDecision,
     RauclePolicyProvider,

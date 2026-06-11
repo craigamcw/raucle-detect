@@ -1,6 +1,6 @@
 # Trademark policy
 
-**"Raucle"**, the Raucle logo, and **"raucle-detect"** are unregistered
+**"Raucle"**, the Raucle logo, and **"raucle"** are unregistered
 (common-law) trademarks of epic28 Ltd (trading as Raucle) (the "Marks"), used to
 identify the official project and its origin. This policy explains how you may
 and may not use the Marks. It is
@@ -13,7 +13,7 @@ grant rights in the *name*.**
 - ✅ You may use the code under its applicable licence (Apache-2.0
   for the engine; MIT for the spec reference implementations; CC-BY-4.0
   for the specification text).
-- ✅ You may say your product "uses raucle-detect", "is built on Raucle",
+- ✅ You may say your product "uses raucle", "is built on Raucle",
   or "is compatible with the Raucle Provenance Receipt spec" —
   *factual, descriptive* references ("nominative use") are fine.
 - ❌ You may **not** name a fork, derivative, product, service, or
@@ -28,7 +28,7 @@ grant rights in the *name*.**
 You are free to fork the code under its licence. If you distribute a
 modified version, you must **use a different name** and remove the Raucle
 Marks and logo, so users are not misled about origin or support. You may
-state factually that your work is "derived from raucle-detect."
+state factually that your work is "derived from raucle."
 
 ## Why this exists
 

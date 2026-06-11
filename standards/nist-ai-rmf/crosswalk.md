@@ -78,7 +78,7 @@ Sub-category identifiers follow the NIST notation: `<FUNCTION>-<CATEGORY>.<SUB>`
 
 | | |
 |---|---|
-| **Raucle control** | Receipt-chain primitive (`raucle_detect.provenance`, shipped in v0.5) records signed receipts for every scan, model call, and tool invocation, linked by Merkle DAG. |
+| **Raucle control** | Receipt-chain primitive (`raucle.provenance`, shipped in v0.5) records signed receipts for every scan, model call, and tool invocation, linked by Merkle DAG. |
 | **Evidence** | Receipt files; chain-of-custody report for any specific output. |
 | **Auditor check** | Pick any agent output. Walk the receipt chain back to the user input that originated it. Verify every link's signature. |
 

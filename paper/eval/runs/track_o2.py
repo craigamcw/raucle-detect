@@ -10,7 +10,7 @@ DeepSeek (MoE) + Qwen (MoE) + Kimi (MoE) + Gemma (dense).
 import json, os, subprocess, sys, time
 from pathlib import Path
 
-ROOT = Path("/root/raucle-paper/raucle-detect/runs")
+ROOT = Path("/root/raucle-paper/raucle/runs")
 MODEL = "gemma3:27b"
 SHORT = "gemma3-27b"
 
@@ -52,7 +52,7 @@ def run_cell(model, short, defence, parallel):
     t0 = time.time()
     proc = subprocess.run(
         [sys.executable, "-c", code],
-        cwd="/root/raucle-paper/raucle-detect",
+        cwd="/root/raucle-paper/raucle",
         env={**os.environ, "PYTHONPATH": "."},
         capture_output=True, text=True,
     )

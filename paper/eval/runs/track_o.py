@@ -20,7 +20,7 @@ import sys
 import time
 from pathlib import Path
 
-ROOT = Path("/root/raucle-paper/raucle-detect/runs")
+ROOT = Path("/root/raucle-paper/raucle/runs")
 
 CELLS = []
 MODELS = ["qwen3.5:397b", "kimi-k2.6", "mistral-large-3:675b"]
@@ -62,7 +62,7 @@ def run_cell(model, short, defence, parallel):
     t0 = time.time()
     proc = subprocess.run(
         [sys.executable, "-c", code],
-        cwd="/root/raucle-paper/raucle-detect",
+        cwd="/root/raucle-paper/raucle",
         env={**os.environ, "PYTHONPATH": "."},
         capture_output=True, text=True,
     )

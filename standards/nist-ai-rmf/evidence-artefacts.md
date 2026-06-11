@@ -19,7 +19,7 @@ For each Raucle primitive, this document lists the specific artefacts an audit t
 | Proof artefacts | One JSON file per `(schema, policy)` pair the operator runs in production | Verify Ed25519 signature. Verify `status: PROVEN`. Re-run the proof locally against the prover named in `prover` field. |
 | Schema files | Same repo as the agent code | Hash the schema; confirm matches `proof.schema_hash`. |
 | Cross-validation proofs | Recommended: a second `proof:v1` artefact produced by a different SMT solver | Verify both proofs reach `status: PROVEN`. |
-| Lean development | `paper/lean/` in the raucle-detect repo | Run `lake build`. Confirm zero `sorry`s, zero errors. Toolchain pinned in `lean-toolchain`. |
+| Lean development | `paper/lean/` in the raucle repo | Run `lake build`. Confirm zero `sorry`s, zero errors. Toolchain pinned in `lean-toolchain`. |
 
 ## Gate decision events (`gate-decision:v1`)
 
@@ -30,7 +30,7 @@ For each Raucle primitive, this document lists the specific artefacts an audit t
 | Audit-signing public key | Public file (e.g. `audit.pub.pem` distributed with the agent's docs) | Re-verify the most recent checkpoint signature using the published public key. |
 | SIEM rules | SIEM platform configuration | Verify alerts fire on (a) chain-integrity failure, (b) abnormal denial-rate spike, (c) unknown `deny_check` identifier (vendor-specific extension). |
 
-## Receipt chain (provenance, `raucle_detect.provenance`)
+## Receipt chain (provenance, `raucle.provenance`)
 
 | Artefact | Where it lives | Auditor verification |
 |---|---|---|

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from raucle_detect.mcp_auth import (
+from raucle.mcp_auth import (
     MCP_CAP_VERSION,
     receipt_meta,
     tool_capability_annotation,

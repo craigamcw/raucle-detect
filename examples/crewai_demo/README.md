@@ -13,7 +13,7 @@ to a CrewAI crew:
    receipt to claim `ALLOW` breaks verification.
 
 ```bash
-pip install 'raucle-detect[compliance,crewai]'
+pip install 'raucle[compliance,crewai]'
 python examples/crewai_demo/demo.py
 ```
 

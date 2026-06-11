@@ -9,7 +9,7 @@ import stat
 
 import pytest
 
-from raucle_detect.capability import (
+from raucle.capability import (
     _AGENT_ID_RE,
     CapabilityGate,
     CapabilityIssuer,

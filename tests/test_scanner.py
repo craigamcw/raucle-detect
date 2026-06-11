@@ -12,8 +12,8 @@ import textwrap
 
 import pytest
 
-from raucle_detect.classifier import HeuristicClassifier
-from raucle_detect.scanner import MAX_INPUT_LENGTH, Scanner, ScanResult
+from raucle.classifier import HeuristicClassifier
+from raucle.scanner import MAX_INPUT_LENGTH, Scanner, ScanResult
 
 # ---------------------------------------------------------------------------
 # Fixtures

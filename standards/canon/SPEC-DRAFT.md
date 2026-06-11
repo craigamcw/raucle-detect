@@ -2,7 +2,7 @@
 
 > **STATUS: DRAFT. NOT PUBLISHED, NOT CITABLE, NOT FROZEN.**
 > This is the working draft of the normative profile that will be published at
-> raucle-detect 1.0. Until 1.0 it MAY change without notice and MUST NOT be cited
+> raucle 1.0. Until 1.0 it MAY change without notice and MUST NOT be cited
 > by external submissions (OWASP / A2A / NIST) or referenced as a stable version.
 > The settled, code-enforced description of current behaviour lives in
 > [`RULES.md`](RULES.md); this document is its normative-language form, prepared
@@ -10,8 +10,8 @@
 >
 > The single source of truth for byte-level behaviour is
 > [`../../docs/spec/provenance/v1/test-vectors.json`](../../docs/spec/provenance/v1/test-vectors.json),
-> generated from the Python canonicaliser (`raucle_detect/provenance.py`, built on
-> `raucle_detect/_canon.py`). Where this prose and the vectors disagree, the
+> generated from the Python canonicaliser (`raucle/provenance.py`, built on
+> `raucle/_canon.py`). Where this prose and the vectors disagree, the
 > vectors win.
 
 ## 1. Scope and purpose
@@ -167,7 +167,7 @@ a full implementation, against a stated profile version.
 - Capability-token canonicalisation: **done.** `capability.py` and the standalone
   `cap_verifier.py` now enforce R8 **explicitly** — a lone surrogate is rejected
   with a clean `ValueError` at sign/verify, not incidentally via a later UTF-8
-  encode (shared helper `raucle_detect._canon.reject_lone_surrogates`; the
+  encode (shared helper `raucle._canon.reject_lone_surrogates`; the
   standalone verifier inlines an equivalent check to stay import-free). Covered by
   `tests/test_capability.py::test_canonical_json_rejects_lone_surrogates_explicitly`
   and `::test_standalone_cap_verifier_rejects_lone_surrogates`.

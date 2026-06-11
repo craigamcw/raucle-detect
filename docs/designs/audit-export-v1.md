@@ -40,12 +40,12 @@ the report.
 
 ## Verifiability
 The manifest embeds the SHA-256 of every input. An examiner re-runs
-`raucle-detect provenance verify` and recomputes proof hashes over the same
+`raucle provenance verify` and recomputes proof hashes over the same
 inputs and reproduces every status. A "Verify this report" appendix gives the
 exact commands.
 
 ## CLI
-`raucle-detect audit-export <chain.jsonl> --pubkeys <...> [--proofs <...>] --sign-key <pem> --out report.html`
+`raucle audit-export <chain.jsonl> --pubkeys <...> [--proofs <...>] --sign-key <pem> --out report.html`
 (also writes `<out>.manifest.json`, signed).
 
 ## NOT in v1

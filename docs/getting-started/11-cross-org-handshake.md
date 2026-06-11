@@ -6,13 +6,13 @@ shared [Trust Registry](10-trust-registry.md). This is the interop primitive for
 multi-agent ecosystems: trust comes from the registry, not a bilateral key swap.
 
 ```bash
-pip install 'raucle-detect[compliance]'
+pip install 'raucle[compliance]'
 ```
 
 ## The flow
 
 ```python
-from raucle_detect.handshake import build_request, accept_call, verify_ack
+from raucle.handshake import build_request, accept_call, verify_ack
 
 # Org A (initiator): present a minted capability token + the concrete call.
 request = build_request(token, tool="transfer_funds",

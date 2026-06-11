@@ -1,6 +1,6 @@
 """Tests for CLI exit-code contracts that CI / automation rely on.
 
-FIX 2.2 of the HOLD SCOPE review — ``raucle-detect prove`` must return a
+FIX 2.2 of the HOLD SCOPE review — ``raucle prove`` must return a
 NON-ZERO exit code on REFUTED and UNDECIDED so that CI / shell pipelines
 treat "not proven" as failure. Plus the new ``cap mint --require-proof``
 strict-mode exits.
@@ -62,7 +62,7 @@ def tmp_schema_policy_files(tmp_path):
 def _run(*argv):
     """Invoke the CLI in a subprocess and return ``(returncode, stdout, stderr)``."""
     return subprocess.run(
-        [sys.executable, "-m", "raucle_detect", *argv],
+        [sys.executable, "-m", "raucle", *argv],
         capture_output=True,
         text=True,
         check=False,

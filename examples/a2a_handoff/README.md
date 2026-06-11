@@ -5,7 +5,7 @@ A runnable two-agent demo of the **Raucle ⇄ A2A binding**
 authorisation for Agent-to-Agent calls, with no change to A2A's wire format.
 
 ```
-pip install 'raucle-detect[compliance]'
+pip install 'raucle[compliance]'
 python examples/a2a_handoff/demo.py
 ```
 
@@ -39,7 +39,7 @@ Whoever fills A2A's per-skill-authorisation slot with a portable, verifiable
 mechanism sets the pattern. This binding does it with an artifact any party
 checks offline against a pinned key — exactly what a regulator examining a
 multi-agent workflow needs, and what an unsigned RPC or a single-vendor guardrail
-cannot provide. The Python helper is `raucle_detect/a2a.py`; the TypeScript
+cannot provide. The Python helper is `raucle/a2a.py`; the TypeScript
 sibling is [`reference/a2a-provenance`](../../reference/a2a-provenance), and the
 receipts share the Raucle provenance header + canonical JSON, so they are
 wire-compatible across implementations.

@@ -2,7 +2,7 @@
 
 **Status:** Draft v3 — incorporates two cross-model (Codex) design-review passes (§8); not yet implemented. Second pass verdict: "yes-with-changes"; this v3 makes those changes (executable registry with full columns + CLI/adapter dimensions + drift test; enumerated collection semantics §8.6; unresolved-chain added to live bugs §8.10; versioned-extension rule).
 **Author:** drafted 2026-06-01 after six cross-model (Codex) adversarial rounds
-**Scope:** `raucle_detect/prove.py`, `raucle_detect/capability.py`, `raucle_detect/provenance.py`
+**Scope:** `raucle/prove.py`, `raucle/capability.py`, `raucle/provenance.py`
 **Non-goal:** this does NOT replace a human security review / pentest of the same modules.
 
 ## 1. Why

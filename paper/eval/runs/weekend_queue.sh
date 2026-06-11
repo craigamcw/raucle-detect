@@ -4,7 +4,7 @@
 set -uo pipefail
 
 WAIT_PID="${1:-1405866}"
-WORKDIR="/root/raucle-paper/raucle-detect"
+WORKDIR="/root/raucle-paper/raucle"
 LOGROOT="$WORKDIR/runs/_weekend"
 mkdir -p "$LOGROOT"
 QUEUE_LOG="$LOGROOT/queue.log"

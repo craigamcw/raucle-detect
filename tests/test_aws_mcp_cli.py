@@ -12,7 +12,7 @@ import pytest
 
 cryptography = pytest.importorskip("cryptography")
 
-from raucle_detect.broker import cli
+from raucle.broker import cli
 
 
 def _fake_transport(req):

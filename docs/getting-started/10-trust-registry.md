@@ -13,15 +13,15 @@ publishes its public key once; any verifier in any org resolves
 publisher makes the next verification easier.
 
 ```bash
-pip install 'raucle-detect[compliance]'
+pip install 'raucle[compliance]'
 ```
 
 ## Publish your issuer key (once)
 
 ```bash
 # Operator (whoever runs the registry) generates a signing key, then:
-raucle-detect registry init   trust.jsonl --operator-key operator.key.pem
-raucle-detect registry publish trust.jsonl org-a.pub.pem --issuer "Org A" \
+raucle registry init   trust.jsonl --operator-key operator.key.pem
+raucle registry publish trust.jsonl org-a.pub.pem --issuer "Org A" \
   --operator-key operator.key.pem
 ```
 
@@ -32,8 +32,8 @@ trusts the whole log with one signature check.
 ## Verify across orgs (no prior key exchange)
 
 ```python
-from raucle_detect.trust_registry import TrustRegistry
-from raucle_detect.capability import CapabilityGate
+from raucle.trust_registry import TrustRegistry
+from raucle.capability import CapabilityGate
 
 # Fetch the shared registry (pin the operator key for an untrusted source).
 registry = TrustRegistry.from_url(
@@ -53,7 +53,7 @@ unknown *or revoked* key, so a verifier built on the registry denies by default.
 ## Revoke (fail-closed, history preserved)
 
 ```bash
-raucle-detect registry revoke trust.jsonl <key_id> --reason "key compromised" \
+raucle registry revoke trust.jsonl <key_id> --reason "key compromised" \
   --operator-key operator.key.pem
 ```
 
@@ -63,9 +63,9 @@ immediately; history stays auditable.
 ## Inspect / verify
 
 ```bash
-raucle-detect registry list    trust.jsonl                 # active issuers
-raucle-detect registry resolve trust.jsonl <key_id>        # full record (incl. revoked)
-raucle-detect registry verify  trust.jsonl --operator-pubkey operator.pub.pem
+raucle registry list    trust.jsonl                 # active issuers
+raucle registry resolve trust.jsonl <key_id>        # full record (incl. revoked)
+raucle registry verify  trust.jsonl --operator-pubkey operator.pub.pem
 ```
 
 `verify` checks the hash chain (tamper-evidence) always, and the operator
@@ -82,4 +82,4 @@ authentication live in the format, verified client-side.
 ---
 
 Next: cross-org agent handoffs that resolve trust from this registry — see the
-[A2A binding](../../raucle_detect/a2a.py) and the upcoming cross-org handshake.
+[A2A binding](../../raucle/a2a.py) and the upcoming cross-org handshake.

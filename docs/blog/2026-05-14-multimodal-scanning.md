@@ -1,6 +1,6 @@
 # The Attacks You Can't See — Multimodal Prompt Injection in 2026
 
-*Published 14 May 2026 · Raucle Engineering · Release: [raucle-detect v0.7.0](https://github.com/craigamcw/raucle-detect/releases/tag/v0.7.0)*
+*Published 14 May 2026 · Raucle Engineering · Release: [raucle v0.7.0](https://github.com/craigamcw/raucle/releases/tag/v0.7.0)*
 
 ---
 
@@ -10,14 +10,14 @@ A help-desk agent pastes a customer's chat message into your support bot. The me
 
 Neither of these involves a single visible character of "ignore all previous instructions". The PDF has a font stream with hidden text. The chat message has zero-width Unicode characters between every visible letter, spelling out the attack. Your text-only guardrail sees `Hi, I need help with my order #12345`. The LLM sees a different prompt entirely.
 
-This is what prompt injection looks like in 2026. Today, **raucle-detect v0.7.0** ships the detection layer for it.
+This is what prompt injection looks like in 2026. Today, **raucle v0.7.0** ships the detection layer for it.
 
 ## The visible demo
 
 The simplest of these attacks is also the most common, and the one our `scrub` command takes out in a single line:
 
 ```bash
-$ raucle-detect scrub "i​g​n​o​re all previous"
+$ raucle scrub "i​g​n​o​re all previous"
 
 Found 4 invisible codepoint(s) across 1 kind(s):
   - U+200B (×4)
@@ -35,7 +35,7 @@ The `scrub` command is the lowest-cost integration: pipe untrusted input through
 
 ## Four classes, four detectors
 
-raucle-detect v0.7.0 ships four detectors covering distinct evasion surfaces. The first two have **zero dependencies** and run by default. The other two are gated behind a `[multimodal]` extra so the core install stays lean.
+raucle v0.7.0 ships four detectors covering distinct evasion surfaces. The first two have **zero dependencies** and run by default. The other two are gated behind a `[multimodal]` extra so the core install stays lean.
 
 ### 1. Invisible / formatting Unicode
 
@@ -72,8 +72,8 @@ It doesn't do full OCR — exotic typefaces, narrow fonts, and stylised art will
 ### 3. Image scanning (OCR + EXIF)
 
 ```python
-from raucle_detect import Scanner
-from raucle_detect.multimodal import MultimodalScanner
+from raucle import Scanner
+from raucle.multimodal import MultimodalScanner
 
 mm = MultimodalScanner(Scanner(mode="standard"))
 result = mm.scan_image("uploaded.png")
@@ -120,8 +120,8 @@ The composition is transparent. You configure the underlying `Scanner` once, wra
 ## The three-line install
 
 ```bash
-pip install raucle-detect                    # core, dep-free detectors
-pip install 'raucle-detect[multimodal]'      # adds image + PDF scanning
+pip install raucle                    # core, dep-free detectors
+pip install 'raucle[multimodal]'      # adds image + PDF scanning
 # Plus tesseract on PATH:
 brew install tesseract                       # macOS
 apt install tesseract-ocr                    # Debian / Ubuntu
@@ -130,9 +130,9 @@ apt install tesseract-ocr                    # Debian / Ubuntu
 After that:
 
 ```bash
-raucle-detect scrub        "untrusted text"  # invisible-Unicode inspection
-raucle-detect scan-image   uploaded.png      # full multimodal pipeline
-raucle-detect scan-pdf     report.pdf        # PDF stream + OCR + text
+raucle scrub        "untrusted text"  # invisible-Unicode inspection
+raucle scan-image   uploaded.png      # full multimodal pipeline
+raucle scan-pdf     report.pdf        # PDF stream + OCR + text
 ```
 
 The CLI exit codes are `0 / 1 / 2` for `CLEAN / SUSPICIOUS / MALICIOUS`, so you can drop these straight into a CI gate or a webhook.
@@ -150,7 +150,7 @@ Calling these out so nobody assumes they're handled when they aren't:
 If you are running a gateway in front of an LLM and you accept anything other than plain typed input — chat with file uploads, RAG pipelines that consume external docs, customer support with screenshot attachments — you are exposed to at least one of these classes today. The cheapest first step is one line of Python:
 
 ```python
-from raucle_detect.multimodal import strip_invisible_unicode
+from raucle.multimodal import strip_invisible_unicode
 text, hidden = strip_invisible_unicode(user_input)
 if hidden:
     block_or_log_or_alert(...)
@@ -164,6 +164,6 @@ We will be writing about that in due course.
 
 ---
 
-*Discussion: [Hacker News](https://news.ycombinator.com/submit) · [Lobste.rs](https://lobste.rs/) · [/r/MachineLearning](https://reddit.com/r/MachineLearning) · [GitHub Issues](https://github.com/craigamcw/raucle-detect/issues?q=label%3Amultimodal)*
+*Discussion: [Hacker News](https://news.ycombinator.com/submit) · [Lobste.rs](https://lobste.rs/) · [/r/MachineLearning](https://reddit.com/r/MachineLearning) · [GitHub Issues](https://github.com/craigamcw/raucle/issues?q=label%3Amultimodal)*
 
 *Raucle is an open-source AI security project. The runtime detection engine, the provenance receipt format, the input store, the multimodal scanner, and all reference implementations are MIT-licensed.*

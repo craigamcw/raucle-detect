@@ -7,7 +7,7 @@ Intended for:
   - shipping with the OWASP standards submission as proof the spec is
     implementable by anyone in ~150 lines;
   - dropping into CI pipelines as a yes/no token-validity check;
-  - cross-validating the main `raucle_detect.capability` implementation
+  - cross-validating the main `raucle.capability` implementation
     by an independent code path.
 
 Usage:
@@ -75,7 +75,7 @@ def _reject_lone_surrogates(s) -> None:
     """Reject any unpaired UTF-16 surrogate (U+D800..U+DFFF) in a string or key.
     Such material cannot encode to UTF-8 and the five reference implementations
     disagree on it, so it is rejected at sign/verify (Profile R8). This mirrors
-    raucle_detect._canon.reject_lone_surrogates, inlined here so this verifier
+    raucle._canon.reject_lone_surrogates, inlined here so this verifier
     stays self-contained (no package import)."""
     for ch in s:
         if 0xD800 <= ord(ch) <= 0xDFFF:
@@ -89,7 +89,7 @@ def _reject_lone_surrogates(s) -> None:
 def _reject_floats(obj) -> None:
     """Reject any float, or any string/key carrying a lone surrogate, in signed
     token material (cap:v1 numeric constraints are integer-only; Profile R8),
-    mirroring raucle_detect.capability._reject_floats. bool is an int subclass and
+    mirroring raucle.capability._reject_floats. bool is an int subclass and
     is allowed. Float bounds / NaN would otherwise serialize and verify here while
     the real gate denies them."""
     if isinstance(obj, float):
@@ -112,7 +112,7 @@ def _reject_floats(obj) -> None:
 def canonical_json(obj) -> bytes:
     """Canonical JSON: object keys ordered by UTF-16 code unit (§4.3.1 / RFC
     8785), no whitespace, UTF-8, ensure_ascii=False, integer-only (floats and
-    NaN/Infinity rejected). Matches the raucle_detect capability signer so
+    NaN/Infinity rejected). Matches the raucle capability signer so
     token_ids/signatures are byte-identical and the same material is rejected."""
     _reject_floats(obj)
     return json.dumps(
@@ -158,9 +158,9 @@ _BODY_FIELDS = (
 
 
 def token_body(token: dict) -> dict:
-    """Build the canonical body, applying default values consistent with raucle_detect's encoding."""
+    """Build the canonical body, applying default values consistent with raucle's encoding."""
     out = {}
-    # Constraints are normalised before hashing (mirrors raucle_detect.capability._normalise_constraints).
+    # Constraints are normalised before hashing (mirrors raucle.capability._normalise_constraints).
     if "constraints" in token:
         out["constraints"] = _normalise_constraints(token["constraints"])
     for f in _BODY_FIELDS:
@@ -229,7 +229,7 @@ def _field_mapping(kind: str, c: dict) -> dict:
 
 
 def _normalise_constraints(c: dict) -> dict:
-    """Normalisation logic mirroring raucle_detect.capability._normalise_constraints.
+    """Normalisation logic mirroring raucle.capability._normalise_constraints.
     Raises ValueError on invalid signed material (unknown kinds, non-dict mappings,
     NFC-colliding field names, malformed value shapes, non-int numeric bounds) so
     verify_token DENIES (fail-closed) rather than silently accepting or crashing."""
@@ -436,7 +436,7 @@ def _verify_token_impl(
 
 def _flatten_scalars(val):
     """Yield every scalar in *val*, recursing into list/tuple/set/dict (dict keys
-    included). Mirrors raucle_detect.capability._flatten_scalars so a forbidden
+    included). Mirrors raucle.capability._flatten_scalars so a forbidden
     value hidden inside a collection cannot slip past."""
     if isinstance(val, dict):
         for k, v in val.items():
@@ -474,7 +474,7 @@ _KNOWN_CONSTRAINT_KINDS = frozenset({
 
 
 def _check_constraints(c: dict, args: dict) -> str | None:
-    """Faithful port of raucle_detect.capability CapabilityGate constraint
+    """Faithful port of raucle.capability CapabilityGate constraint
     semantics: forbidden = EXISTS_DENY over flattened scalars; allowed/starts_with/
     max/min REQUIRE the field present (absence denies) and check every flattened
     scalar; empty collections deny; numeric bounds require finite non-bool numbers;

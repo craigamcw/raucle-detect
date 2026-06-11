@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from raucle_detect import Scanner
-from raucle_detect.patterns import (
+from raucle import Scanner
+from raucle.patterns import (
     _PER_PATTERN_MAX_LENGTH,
     _SCAN_TIME_BUDGET_S,
     PatternLayer,

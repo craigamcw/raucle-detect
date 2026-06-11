@@ -6,7 +6,7 @@ import pytest
 
 z3 = pytest.importorskip("z3")
 
-from raucle_detect.prove import (
+from raucle.prove import (
     JSONSchemaProver,
     ProofResult,
     SQLClauseProver,
@@ -238,7 +238,7 @@ def test_proof_result_hash_is_canonical():
 
 def test_url_max_path_depth_is_undecidable_not_proven():
     """max_path_depth over a prefix grammar cannot be PROVEN (segments appendable)."""
-    from raucle_detect.prove import URLPolicyProver
+    from raucle.prove import URLPolicyProver
 
     grammar = {
         "schemes": ["https"],
@@ -258,7 +258,7 @@ def test_url_max_path_depth_is_undecidable_not_proven():
 
 def test_sql_comma_join_not_falsely_proven():
     """A forbidden table reached via a comma-join must not yield PROVEN (soundness)."""
-    from raucle_detect.prove import SQLClauseProver
+    from raucle.prove import SQLClauseProver
 
     p = SQLClauseProver()
     r = p.prove(
@@ -281,7 +281,7 @@ def test_sql_unmodelled_constructs_undecided():
     """§8.4: SQL constructs the regex extractor cannot model soundly must yield
     UNDECIDED on the allowed_tables (PROVEN-eligible) path, never a false PROVEN.
     """
-    from raucle_detect.prove import SQLClauseProver
+    from raucle.prove import SQLClauseProver
 
     p = SQLClauseProver()
     pol = {"allowed_tables": ["customers"]}
@@ -308,7 +308,7 @@ def test_sql_unmodelled_constructs_undecided():
 def test_url_prover_unknown_keys_undecided():
     """B1/§8.1: URLPolicyProver must NOT certify a grammar/policy carrying a key
     it does not model — unknown key → UNDECIDED (never a false PROVEN)."""
-    from raucle_detect.prove import URLPolicyProver
+    from raucle.prove import URLPolicyProver
 
     p = URLPolicyProver()
     base_grammar = {"schemes": ["https"], "hosts": ["api.example.com"]}
@@ -324,7 +324,7 @@ def test_url_prover_unknown_keys_undecided():
 def test_sql_unmodelled_construct_undecided_without_allowed_tables():
     """B2/§8.4: the unmodelled-SQL net must run even when no allowed_tables is
     set — otherwise UNNEST / quoted idents / recursive CTEs return false PROVEN."""
-    from raucle_detect.prove import SQLClauseProver
+    from raucle.prove import SQLClauseProver
 
     p = SQLClauseProver()
     # No allowed_tables in policy at all.
@@ -338,7 +338,7 @@ def test_sql_unmodelled_construct_undecided_without_allowed_tables():
 
 def test_sql_unknown_policy_key_undecided():
     """B2/§8.1: an unknown SQL policy key → UNDECIDED."""
-    from raucle_detect.prove import SQLClauseProver
+    from raucle.prove import SQLClauseProver
 
     p = SQLClauseProver()
     r = p.prove({"templates": ["SELECT id FROM customers"]}, {"unmodelled_sql_obligation": 1})

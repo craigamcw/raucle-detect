@@ -17,13 +17,13 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from raucle_detect import capability as _cap_mod
-from raucle_detect.capability import (
+from raucle import capability as _cap_mod
+from raucle.capability import (
     Capability,
     CapabilityGate,
     CapabilityIssuer,
 )
-from raucle_detect.prove import JSONSchemaProver
+from raucle.prove import JSONSchemaProver
 
 OUT = Path(__file__).parent
 

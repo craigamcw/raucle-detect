@@ -26,8 +26,8 @@ The DCO check runs automatically on all pull requests and must pass before mergi
 
 ```bash
 # Fork and clone
-git clone https://github.com/YOUR_USERNAME/raucle-detect.git
-cd raucle-detect
+git clone https://github.com/YOUR_USERNAME/raucle.git
+cd raucle
 
 # Install in development mode
 pip install -e ".[dev]"
@@ -36,7 +36,7 @@ pip install -e ".[dev]"
 python -m pytest tests/ -v
 
 # Run a quick scan
-raucle-detect scan "test prompt"
+raucle scan "test prompt"
 ```
 
 ## What We Welcome

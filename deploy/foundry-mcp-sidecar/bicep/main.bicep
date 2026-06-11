@@ -1,6 +1,6 @@
 // raucle sidecar — Bicep template for Azure AI Foundry MCP gateway integration.
 //
-// Provisions a Container App running the raucle-detect HTTP server inside
+// Provisions a Container App running the raucle HTTP server inside
 // the same VNet as the customer's Foundry-attached APIM instance, plus
 // an APIM Backend pool member pointing at it. Run via:
 //
@@ -38,8 +38,8 @@ param auditStorageAccountId string
 @description('Blob container name for the hash-chained audit log.')
 param auditContainerName string = 'raucle-audit'
 
-@description('raucle-detect container image. Defaults to the latest GA tag on GHCR.')
-param raucleImage string = 'ghcr.io/craigamcw/raucle-detect:v0.12.0'
+@description('raucle container image. Defaults to the latest GA tag on GHCR.')
+param raucleImage string = 'ghcr.io/craigamcw/raucle:v0.12.0'
 
 @description('Issuer string (e.g. "acme.bank.kyc-platform"). Embedded in every emitted receipt.')
 param issuerId string
@@ -127,7 +127,7 @@ resource sidecar 'Microsoft.App/containerApps@2025-01-01' = {
             memory: '1Gi'
           }
           command: [
-            'raucle-detect'
+            'raucle'
             'serve'
             '--port'
             '8080'

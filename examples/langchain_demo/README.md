@@ -13,7 +13,7 @@ the three things raucle adds to a LangChain agent, end to end, in ~2 seconds:
    `DENY` receipt to claim `ALLOW` breaks verification.
 
 ```bash
-pip install 'raucle-detect[compliance,langchain]'
+pip install 'raucle[compliance,langchain]'
 python examples/langchain_demo/demo.py
 ```
 
@@ -45,7 +45,7 @@ a real `create_tool_calling_agent` + LLM and the gate's behaviour is
 byte-for-byte identical.
 
 To wire a real agent, see the quick-start in
-[`raucle_detect/integrations/langchain.py`](../../raucle_detect/integrations/langchain.py)
+[`raucle/integrations/langchain.py`](../../raucle/integrations/langchain.py)
 — the handler attaches to an `AgentExecutor` via `callbacks=[handler]`.
 
 The exit code is a self-check (0 = allow ran, deny blocked, chain verified,

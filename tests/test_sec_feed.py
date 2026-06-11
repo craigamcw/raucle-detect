@@ -1,4 +1,4 @@
-"""Security regression tests for raucle_detect.feed.
+"""Security regression tests for raucle.feed.
 
 Covers:
   * FEED-SSRF: fetch_feed must reject non-https schemes, private/loopback/
@@ -13,8 +13,8 @@ import stat
 
 import pytest
 
-from raucle_detect import feed
-from raucle_detect.feed import IOCSigner, fetch_feed
+from raucle import feed
+from raucle.feed import IOCSigner, fetch_feed
 
 # ---------------------------------------------------------------------------
 # FEED-SSRF

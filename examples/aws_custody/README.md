@@ -5,7 +5,7 @@ two AWS calls through the raucle **AWS Egress Gate**, and the result is a
 self-contained pack a regulator verifies **fully offline**.
 
 ```
-pip install 'raucle-detect[compliance]'
+pip install 'raucle[compliance]'
 python examples/aws_custody/demo.py
 ```
 

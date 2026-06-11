@@ -1,6 +1,6 @@
 """CI drift guard for the Modelled Language Registry (§8.1).
 
-The registry (``raucle_detect/registry.py``) is the executable source of truth
+The registry (``raucle/registry.py``) is the executable source of truth
 for the capability/policy constraint language. These tests fail if any consumer
 (the gate/mint layer, the SMT prover) models a set of keys that diverges from
 what the registry declares — the mechanism that prevents code and registry from
@@ -16,7 +16,7 @@ from __future__ import annotations
 import inspect
 import re
 
-from raucle_detect import capability, prove, registry
+from raucle import capability, prove, registry
 
 
 def _all_get_keys(src: str, accessor: str) -> set:

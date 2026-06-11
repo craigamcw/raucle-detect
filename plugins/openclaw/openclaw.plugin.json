@@ -10,7 +10,7 @@
     },
     "serverPort": {
       "label": "Server Port",
-      "help": "Port for the raucle-detect REST API (default: 8900)"
+      "help": "Port for the raucle REST API (default: 8900)"
     },
     "rulesDir": {
       "label": "Rules Directory",

@@ -54,7 +54,7 @@ LANGS = [
 def _py_verify(reqs: list[dict]) -> list[dict]:
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-    from raucle_detect.provenance import ProvenanceReceipt, _b64url_decode
+    from raucle.provenance import ProvenanceReceipt, _b64url_decode
 
     out = []
     for r in reqs:

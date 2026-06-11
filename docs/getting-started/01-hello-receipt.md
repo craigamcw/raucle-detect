@@ -17,7 +17,7 @@ No agent framework. No LLM. No network. Just the gate and the primitives.
 ## Step 1 — install
 
 ```bash
-pip install 'raucle-detect[compliance]'
+pip install 'raucle[compliance]'
 ```
 
 The `[compliance]` extra pulls in `cryptography`, which the capability tokens, signed audit chain, and receipts all depend on.
@@ -33,7 +33,7 @@ Issuers mint capability tokens. In production, you'd run one issuer per platform
 Create `hello_receipt.py`:
 
 ```python
-from raucle_detect.capability import CapabilityIssuer, CapabilityGate
+from raucle.capability import CapabilityIssuer, CapabilityGate
 
 # An issuer + its keypair. In production, persist this PEM somewhere
 # safe (HashiCorp Vault, AWS KMS-wrapped, etc.). For this tutorial,
@@ -133,7 +133,7 @@ Receipts are the audit artefact. Each decision is appended to a hash-chained, ap
 
 ```python
 import hashlib, json
-from raucle_detect.audit import HashChainSink, Ed25519Signer
+from raucle.audit import HashChainSink, Ed25519Signer
 
 signer = Ed25519Signer.generate()
 sink = HashChainSink("./receipts.log", signer=signer)
@@ -183,7 +183,7 @@ with open("audit_pub.pem", "wb") as f:
 Then verify the chain from the command line:
 
 ```bash
-raucle-detect audit verify receipts.log --pubkey audit_pub.pem
+raucle audit verify receipts.log --pubkey audit_pub.pem
 ```
 
 (In a real flow, you'd publish the signer's public key alongside the chain and the verifier loads it once. The verifier never needs the private key or any network access.)

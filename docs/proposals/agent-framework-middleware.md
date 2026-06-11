@@ -1,8 +1,8 @@
 # VCD for the Microsoft Agent Framework
 
-**Status:** Shipped — the middleware lives in `raucle_detect/integrations/` (originally drafted 2026-05-27).
+**Status:** Shipped — the middleware lives in `raucle/integrations/` (originally drafted 2026-05-27).
 **Authors:** Raucle.
-**Target:** shipped in `raucle-detect` ≥ v0.13.0; `microsoft/agent-framework` ≥ 1.0.
+**Target:** shipped in `raucle` ≥ v0.13.0; `microsoft/agent-framework` ≥ 1.0.
 
 ## Summary
 
@@ -17,7 +17,7 @@ for every tool call its agent makes, with no architectural change to
 the deployer's code beyond adding one line to the agent constructor.
 
 A skeleton implementation ships alongside this design doc at
-`raucle_detect/integrations/agent_framework.py`.
+`raucle/integrations/agent_framework.py`.
 
 ## Why now
 
@@ -48,9 +48,9 @@ Three convergent timing pressures:
 
 ```python
 from agent_framework import ChatAgent
-from raucle_detect.capability import CapabilityGate, CapabilityIssuer
-from raucle_detect.audit import HashChainSink
-from raucle_detect.integrations.agent_framework import RaucleFunctionMiddleware
+from raucle.capability import CapabilityGate, CapabilityIssuer
+from raucle.audit import HashChainSink
+from raucle.integrations.agent_framework import RaucleFunctionMiddleware
 
 issuer = CapabilityIssuer.load("issuer.key")
 gate   = CapabilityGate(issuer_pubkey=issuer.public_key)
@@ -106,10 +106,10 @@ A `Raucle.AgentFramework` NuGet ships in M3 below.
 
 ## The skeleton at a glance
 
-The implementation in `raucle_detect/integrations/agent_framework.py`:
+The implementation in `raucle/integrations/agent_framework.py`:
 
 - Imports `agent_framework` types lazily (try/except), so installing
-  `raucle-detect` without the `agent-framework` extra does not break.
+  `raucle` without the `agent-framework` extra does not break.
 - Defines `RaucleFunctionMiddleware` with a single async `process`
   method matching the documented contract.
 - Resolves the in-force capability token via a pluggable
@@ -149,7 +149,7 @@ questions).
 agent-framework = ["agent-framework>=1.0"]
 ```
 
-`pip install 'raucle-detect[agent-framework]'` pulls Microsoft's package
+`pip install 'raucle[agent-framework]'` pulls Microsoft's package
 alongside the integration layer.
 
 ## Threat-model deltas
@@ -177,7 +177,7 @@ Compared to the base raucle deployment:
 
 | M | Deliverable | Target |
 |---|---|---|
-| M1 | `raucle_detect/integrations/agent_framework.py` skeleton (this commit) | 2026-05-27 |
+| M1 | `raucle/integrations/agent_framework.py` skeleton (this commit) | 2026-05-27 |
 | M2 | Working two-tool demo: ALLOW + DENY captured by canonical AgentDojo banking scenario, run end-to-end inside Agent Framework's `ChatAgent`. Tagged in `examples/agent_framework_demo/`. | 2 weeks |
 | M3 | `Raucle.AgentFramework` NuGet (.NET equivalent), with the same one-line `AddSingleton<IFunctionMiddleware>` integration. | 5 weeks |
 | M4 | Streaming-safe receipt emission (content-addresses the materialised stream) + `SealedSubChain` wrapper preventing downstream-middleware result mutation. | 8 weeks |
@@ -236,6 +236,6 @@ Three reasons:
    construction.
 3. **It is the on-ramp every Microsoft customer recognises.** When a
    regulated-industry buyer asks *"how do I try this?"*, the answer
-   becomes `pip install raucle-detect[agent-framework]` and three
+   becomes `pip install raucle[agent-framework]` and three
    lines in their existing agent. The friction of evaluating raucle
    drops to the floor.

@@ -75,7 +75,7 @@ KNOWN_LEGITIMATE_COINCIDENCES = {
 
 
 def policy_allows(tool_policy: dict | None, args: dict) -> tuple[bool, str]:
-    """Same constraint logic as raucle_detect.capability._check_constraints."""
+    """Same constraint logic as raucle.capability._check_constraints."""
     if tool_policy is None:
         return False, "no token for this tool"
     for fld, bads in tool_policy.get("forbidden_values", {}).items():

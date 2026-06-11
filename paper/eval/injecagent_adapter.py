@@ -42,7 +42,7 @@ import agentdojo.task_suite  # noqa: F401
 
 from paper.eval import agentdojo_patches  # noqa: F401 — model registry
 
-from raucle_detect.capability import (
+from raucle.capability import (
     Capability,
     CapabilityGate,
     CapabilityIssuer,

@@ -8,7 +8,7 @@ import pytest
 
 pytest.importorskip("cryptography")
 
-from raucle_detect.capability import (
+from raucle.capability import (
     Capability,
     CapabilityGate,
     CapabilityIssuer,
@@ -289,7 +289,7 @@ def _proven_proof(
     grammar_hash: str = "sha256:" + "g" * 64,
     policy_hash: str = "sha256:" + "p" * 64,
 ):
-    from raucle_detect.prove import ProofResult
+    from raucle.prove import ProofResult
 
     return ProofResult(
         status="PROVEN",
@@ -301,7 +301,7 @@ def _proven_proof(
 
 
 def _undecided_proof():
-    from raucle_detect.prove import ProofResult
+    from raucle.prove import ProofResult
 
     return ProofResult(
         status="UNDECIDED",
@@ -314,7 +314,7 @@ def _undecided_proof():
 
 
 def _refuted_proof():
-    from raucle_detect.prove import ProofResult
+    from raucle.prove import ProofResult
 
     return ProofResult(
         status="REFUTED",
@@ -338,7 +338,7 @@ def test_default_mode_unchanged():
 
 
 def test_strict_mint_refuses_without_proof():
-    from raucle_detect.errors import PolicyUnproven
+    from raucle.errors import PolicyUnproven
 
     iss = CapabilityIssuer.generate(issuer="p.x", require_proof=True)
     assert iss.require_proof is True
@@ -347,7 +347,7 @@ def test_strict_mint_refuses_without_proof():
 
 
 def test_strict_mint_refuses_undecided():
-    from raucle_detect.errors import PolicyUnproven
+    from raucle.errors import PolicyUnproven
 
     iss = CapabilityIssuer.generate(issuer="p.x", require_proof=True)
     with pytest.raises(PolicyUnproven, match="PROVEN.*UNDECIDED"):
@@ -355,7 +355,7 @@ def test_strict_mint_refuses_undecided():
 
 
 def test_strict_mint_refuses_refuted():
-    from raucle_detect.errors import PolicyUnproven
+    from raucle.errors import PolicyUnproven
 
     iss = CapabilityIssuer.generate(issuer="p.x", require_proof=True)
     with pytest.raises(PolicyUnproven, match="PROVEN.*REFUTED"):
@@ -392,7 +392,7 @@ def test_mint_rejects_conflicting_policy_proof_hash_and_proof_result():
 
 
 def test_mint_rejects_grammar_hash_mismatch_against_proof():
-    from raucle_detect.errors import PolicyUnproven
+    from raucle.errors import PolicyUnproven
 
     iss = _issuer()
     proof = _proven_proof()
@@ -408,7 +408,7 @@ def test_mint_rejects_grammar_hash_mismatch_against_proof():
 def test_env_var_enables_strict_mode(monkeypatch):
     """``RAUCLE_REQUIRE_PROOF=1`` enables strict mode without changing
     construction sites."""
-    from raucle_detect.errors import PolicyUnproven
+    from raucle.errors import PolicyUnproven
 
     monkeypatch.setenv("RAUCLE_REQUIRE_PROOF", "1")
     iss = CapabilityIssuer.generate(issuer="p.env")
@@ -477,7 +477,7 @@ def test_gate_proof_mode_strict_denies_token_with_no_proof_hash():
 
 def test_gate_proof_mode_strict_allows_matching_proof():
     """Strict mode allows only when the proof is bound to the ENFORCED constraints (H3)."""
-    from raucle_detect.prove import JSONSchemaProver
+    from raucle.prove import JSONSchemaProver
 
     iss = _issuer()
     schema = {
@@ -499,7 +499,7 @@ def test_gate_proof_mode_strict_allows_matching_proof():
 
 def test_gate_proof_mode_strict_denies_proof_unbound_to_constraints():
     """H3: a token citing a valid proof but enforcing DIFFERENT constraints is denied."""
-    from raucle_detect.prove import JSONSchemaProver
+    from raucle.prove import JSONSchemaProver
 
     iss = _issuer()
     schema = {
@@ -535,7 +535,7 @@ def test_unknown_constraint_key_raises_not_silently_dropped():
     """
     import pytest
 
-    from raucle_detect.capability import _normalise_constraints
+    from raucle.capability import _normalise_constraints
 
     with pytest.raises(ValueError, match="unknown constraint key"):
         _normalise_constraints({"allowedValues": {"invoice": ["4471"]}})
@@ -547,7 +547,7 @@ def test_unknown_constraint_key_raises_not_silently_dropped():
 
 def test_starts_with_constraint_allows_and_denies():
     """`starts_with` (the README hero example) enforces a string prefix."""
-    from raucle_detect.capability import CapabilityGate, CapabilityIssuer
+    from raucle.capability import CapabilityGate, CapabilityIssuer
 
     issuer = CapabilityIssuer.generate(issuer="acme.bank.kyc")
     gate = CapabilityGate(trusted_issuers={issuer.key_id: issuer.public_key_pem})
@@ -566,7 +566,7 @@ def test_starts_with_constraint_allows_and_denies():
 
 
 def test_starts_with_attenuation_narrows_not_broadens():
-    from raucle_detect.capability import CapabilityIssuer
+    from raucle.capability import CapabilityIssuer
 
     issuer = CapabilityIssuer.generate(issuer="acme.bank.kyc")
     parent = issuer.mint(
@@ -586,14 +586,14 @@ def test_starts_with_attenuation_narrows_not_broadens():
 
 def test_package_version_matches_metadata():
     """__version__ must match the installed package metadata (regression: was 0.7.0)."""
-    import raucle_detect
+    import raucle
 
-    assert raucle_detect.__version__ == "0.21.0"
+    assert raucle.__version__ == "0.22.0"
 
 
 def test_revocation_denylist_refuses_token_and_children():
     """A revoked token (and children citing it as parent) is DENY'd before expiry."""
-    from raucle_detect.capability import CapabilityGate, CapabilityIssuer
+    from raucle.capability import CapabilityGate, CapabilityIssuer
 
     issuer = CapabilityIssuer.generate(issuer="acme.bank")
     tok = issuer.mint(agent_id="agent:ops", tool="lookup_customer", ttl_seconds=300)
@@ -619,7 +619,7 @@ def test_revocation_denylist_refuses_token_and_children():
 
 
 def test_revocation_via_constructor():
-    from raucle_detect.capability import CapabilityGate, CapabilityIssuer
+    from raucle.capability import CapabilityGate, CapabilityIssuer
 
     issuer = CapabilityIssuer.generate(issuer="acme.bank")
     tok = issuer.mint(agent_id="agent:ops", tool="lookup_customer", ttl_seconds=300)
@@ -634,7 +634,7 @@ def test_revocation_via_constructor():
 
 
 def _issuer_gate():
-    from raucle_detect.capability import CapabilityGate, CapabilityIssuer
+    from raucle.capability import CapabilityGate, CapabilityIssuer
 
     i = CapabilityIssuer.generate(issuer="acme.bank")
     g = CapabilityGate(trusted_issuers={i.key_id: i.public_key_pem})
@@ -720,7 +720,7 @@ def test_canonical_json_rejects_nan_infinity():
     """NaN/Infinity are not valid JSON — canonicalisation must raise, not emit."""
     import pytest
 
-    from raucle_detect.capability import _canonical_json
+    from raucle.capability import _canonical_json
 
     for bad in [float("nan"), float("inf"), float("-inf")]:
         with pytest.raises(ValueError):
@@ -733,7 +733,7 @@ def test_canonical_json_rejects_lone_surrogates_explicitly():
     from a later .encode('utf-8'). Covers both value and key position."""
     import pytest
 
-    from raucle_detect.capability import _canonical_json
+    from raucle.capability import _canonical_json
 
     lone = "tok\ud83d"  # unpaired high surrogate U+D83D
     for obj in ({"x": lone}, {lone: 1}, {"nested": [{"y": lone}]}):
@@ -744,7 +744,7 @@ def test_canonical_json_rejects_lone_surrogates_explicitly():
     # The constraint-normalisation pre-sort runs the UTF-16 sort-key helpers
     # BEFORE _canonical_json's explicit rejector; those helpers must also raise
     # the clean R8 ValueError (not an incidental UnicodeEncodeError from encode).
-    from raucle_detect._canon import utf16_key, value_sort_key
+    from raucle._canon import utf16_key, value_sort_key
 
     for fn in (utf16_key, value_sort_key):
         with pytest.raises(ValueError) as exc:
@@ -780,7 +780,7 @@ def test_standalone_cap_verifier_rejects_lone_surrogates():
 
 def test_cli_errors_are_clean_not_tracebacks(capsys):
     """CLI prints 'error: ...' for expected user errors, never a raw traceback."""
-    from raucle_detect.cli import main
+    from raucle.cli import main
 
     rc = main(
         [

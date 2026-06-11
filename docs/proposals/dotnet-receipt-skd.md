@@ -22,7 +22,7 @@ NuGet packages:
 
 2. **`Raucle.AgentFramework`** — middleware for the .NET Agent
    Framework runtime (`Microsoft.AgentFramework` ≥ 1.0). Equivalent
-   surface to `raucle_detect.integrations.agent_framework` in Python:
+   surface to `raucle.integrations.agent_framework` in Python:
    a `RaucleFunctionMiddleware` that hooks `FunctionInvocationContext`,
    checks an in-force capability token, emits a signed receipt, and
    short-circuits on deny.

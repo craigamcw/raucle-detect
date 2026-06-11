@@ -14,12 +14,12 @@ from unittest import mock
 
 import pytest
 
-from raucle_detect.audit import _canonical_json as audit_canon
-from raucle_detect.audit import _merkle_root
-from raucle_detect.feed import _assert_safe_url
-from raucle_detect.feed import _canonical_json as feed_canon
-from raucle_detect.prove import SQLClauseProver, URLPolicyProver
-from raucle_detect.provenance import (
+from raucle.audit import _canonical_json as audit_canon
+from raucle.audit import _merkle_root
+from raucle.feed import _assert_safe_url
+from raucle.feed import _canonical_json as feed_canon
+from raucle.prove import SQLClauseProver, URLPolicyProver
+from raucle.provenance import (
     AgentIdentity,
     CapabilityStatement,
     ProvenanceLogger,
@@ -83,7 +83,7 @@ def test_forbid_query_keys_closed_grammar_proves_or_refutes():
 def _stmt(idn, **ov):
     import base64
 
-    from raucle_detect.provenance import _canonical_json
+    from raucle.provenance import _canonical_json
 
     s = idn.statement
     stmt = CapabilityStatement(
@@ -203,7 +203,7 @@ def test_feed_fetch_pins_validated_ip_and_resolves_once():
     """
     import socket as _socket
 
-    from raucle_detect.feed import fetch_feed
+    from raucle.feed import fetch_feed
 
     safe_ip = "93.184.216.34"
     getaddr = mock.Mock(return_value=[(2, 1, 6, "", (safe_ip, 443))])
@@ -229,7 +229,7 @@ def test_feed_fetch_pins_validated_ip_and_resolves_once():
 def test_feed_fetch_rejects_url_whose_host_resolves_to_blocked_ip():
     import socket as _socket
 
-    from raucle_detect.feed import fetch_feed
+    from raucle.feed import fetch_feed
 
     with (
         mock.patch.object(_socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("10.0.0.5", 443))]),
@@ -241,7 +241,7 @@ def test_feed_fetch_rejects_url_whose_host_resolves_to_blocked_ip():
 # --- Codex F1: JSONSchemaProver + additionalProperties soundness -------------
 def test_jsonschema_forbidden_value_on_undeclared_field_not_proven():
     pytest.importorskip("z3")  # JSONSchemaProver needs the [proof] extra
-    from raucle_detect.prove import JSONSchemaProver
+    from raucle.prove import JSONSchemaProver
 
     # additionalProperties default-true: an attacker can supply 'role', so a
     # blacklist on it cannot be PROVEN — {"x":"ok","role":"admin"} is valid.
@@ -256,7 +256,7 @@ def test_jsonschema_forbidden_value_on_undeclared_field_not_proven():
 
 def test_jsonschema_closed_schema_makes_undeclared_blacklist_vacuous():
     pytest.importorskip("z3")  # JSONSchemaProver needs the [proof] extra
-    from raucle_detect.prove import JSONSchemaProver
+    from raucle.prove import JSONSchemaProver
 
     schema = {
         "type": "object",
@@ -293,7 +293,7 @@ def test_strict_from_jws_rejects_bad_typ_and_marker(tmp_path):
 
 # --- LangChain blacklist-on-opaque-string guard (#3b/#5) ---------------------
 def test_langchain_blacklist_helper():
-    lc = pytest.importorskip("raucle_detect.integrations.langchain")
+    lc = pytest.importorskip("raucle.integrations.langchain")
 
     class T:
         def __init__(self, c):
@@ -312,7 +312,7 @@ def test_langchain_blacklist_helper():
 # --- F1: malformed caller agent_id must not pass the descendant prefix check --
 def test_gate_rejects_malformed_caller_agent_id():
     pytest.importorskip("cryptography")
-    from raucle_detect.capability import CapabilityGate, CapabilityIssuer
+    from raucle.capability import CapabilityGate, CapabilityIssuer
 
     iss = CapabilityIssuer.generate("issuer")
     tok = iss.mint(agent_id="agent:a", tool="t")
@@ -325,7 +325,7 @@ def test_gate_rejects_malformed_caller_agent_id():
 
 # --- F2: SQL prover must check the FULL qualified table name -----------------
 def test_sql_schema_qualified_table_not_proven_when_only_schema_allowed():
-    from raucle_detect.prove import SQLClauseProver
+    from raucle.prove import SQLClauseProver
 
     p = SQLClauseProver()
     assert (
@@ -344,7 +344,7 @@ def test_sql_schema_qualified_table_not_proven_when_only_schema_allowed():
 
 # --- F3: verifier rejects structurally invalid receipts ----------------------
 def test_verifier_rejects_tool_call_without_parents_or_output_hash(tmp_path):
-    from raucle_detect.provenance import (
+    from raucle.provenance import (
         AgentIdentity,
         Operation,
         ProvenanceReceipt,
@@ -368,7 +368,7 @@ def test_verifier_rejects_tool_call_without_parents_or_output_hash(tmp_path):
 
 # --- F4: canonical JSON rejects floats (cross-impl parity with TS/Go/Rust/C#) -
 def test_provenance_canonical_json_rejects_floats():
-    from raucle_detect.provenance import _canonical_json
+    from raucle.provenance import _canonical_json
 
     with pytest.raises(ValueError, match="float"):
         _canonical_json({"x": 1.0})
@@ -378,7 +378,7 @@ def test_provenance_canonical_json_rejects_floats():
 
 # --- F6: wildcard host pattern does not match the apex -----------------------
 def test_url_wildcard_does_not_match_apex():
-    from raucle_detect.prove import URLPolicyProver
+    from raucle.prove import URLPolicyProver
 
     u = URLPolicyProver()
     g = {"schemes": ["https"], "path_prefixes": ["/"], "query_keys_closed": True}
@@ -399,7 +399,7 @@ def test_jsonschema_patternproperties_not_proven():
     """patternProperties can admit a field additionalProperties:false appears to
     forbid, so the prover must NOT certify PROVEN (round-3 run-3 F1)."""
     pytest.importorskip("z3")
-    from raucle_detect.prove import JSONSchemaProver
+    from raucle.prove import JSONSchemaProver
 
     s = {
         "type": "object",
@@ -415,7 +415,7 @@ def test_jsonschema_patternproperties_not_proven():
 def test_capability_token_rejects_float_bounds():
     """cap:v1 numeric constraints are integer-only (run-3 F5)."""
     pytest.importorskip("cryptography")
-    from raucle_detect.capability import CapabilityIssuer
+    from raucle.capability import CapabilityIssuer
 
     iss = CapabilityIssuer.generate("issuer")
     with pytest.raises(ValueError, match="float"):
@@ -430,7 +430,7 @@ def test_verifier_rejects_unsorted_taint_and_bad_payload_typ(tmp_path):
     pytest.importorskip("cryptography")
     import hashlib
 
-    from raucle_detect.provenance import (
+    from raucle.provenance import (
         _EXPECTED_TYP,
         AgentIdentity,
         ProvenanceVerifier,
@@ -478,7 +478,7 @@ def test_forbidden_values_catches_value_in_collection_arg():
     """A forbidden value hidden in a list/dict argument must still be denied
     (capability-constraint bypass: forbidden_values only checked scalar ==)."""
     pytest.importorskip("cryptography")
-    from raucle_detect.capability import CapabilityGate, CapabilityIssuer
+    from raucle.capability import CapabilityGate, CapabilityIssuer
 
     iss = CapabilityIssuer.generate("issuer")
     g = CapabilityGate(trusted_issuers={iss.key_id: iss.public_key_pem})
@@ -505,7 +505,7 @@ def test_verifier_rejects_forged_capability_statement(tmp_path):
     by the trusted key) must be rejected, not trusted to widen allowed_tools
     (round-4 F2)."""
     pytest.importorskip("cryptography")
-    from raucle_detect.provenance import (
+    from raucle.provenance import (
         AgentIdentity,
         CapabilityStatement,
         Operation,
@@ -560,7 +560,7 @@ def test_scalar_forbidden_values_rejected_at_mint():
     """A scalar (string) forbidden_values value must be rejected, not sorted
     into characters (which silently disables the blacklist) — round-5 F1."""
     pytest.importorskip("cryptography")
-    from raucle_detect.capability import CapabilityIssuer
+    from raucle.capability import CapabilityIssuer
 
     iss = CapabilityIssuer.generate("issuer")
     with pytest.raises(ValueError, match="must be a list"):
@@ -574,7 +574,7 @@ def test_scalar_forbidden_values_rejected_at_mint():
 def test_audit_loads_strict_rejects_duplicate_keys():
     """Audit chain records with duplicate keys are a JSON ambiguity (last-key
     wins here, first-key elsewhere) and must be rejected — round-5 F2."""
-    from raucle_detect.audit import _loads_strict
+    from raucle.audit import _loads_strict
 
     with pytest.raises(ValueError, match="duplicate key"):
         _loads_strict('{"event":{"a":1},"index":0,"event":{"b":2}}')
@@ -589,7 +589,7 @@ def test_strict_verify_rejects_non_canonical_jws(tmp_path):
     pytest.importorskip("cryptography")
     import hashlib
 
-    from raucle_detect.provenance import (
+    from raucle.provenance import (
         _EXPECTED_TYP,
         AgentIdentity,
         ProvenanceVerifier,
@@ -634,7 +634,7 @@ def test_strict_verify_rejects_non_canonical_jws(tmp_path):
 
 def test_sql_grammar_allowed_tables_cannot_broaden_policy():
     """grammar.allowed_tables must not broaden the policy allowlist (round-6 F1)."""
-    from raucle_detect.prove import SQLClauseProver, UnsupportedGrammar
+    from raucle.prove import SQLClauseProver, UnsupportedGrammar
 
     p = SQLClauseProver()
     # both present: policy dominates, grammar's broader entry ignored
@@ -656,7 +656,7 @@ def test_sql_grammar_allowed_tables_cannot_broaden_policy():
 def test_sql_non_select_table_access_undecided():
     """Table-bearing forms the FROM/JOIN extractor can't cover → UNDECIDED, not
     a false PROVEN (round-6 F2)."""
-    from raucle_detect.prove import SQLClauseProver
+    from raucle.prove import SQLClauseProver
 
     p = SQLClauseProver()
     assert (
@@ -676,8 +676,8 @@ def test_gate_rejects_broadened_attenuation_chain():
     """A child citing a parent but carrying BROADER constraints is rejected by
     the chain walk (round-6 F3)."""
     pytest.importorskip("cryptography")
-    import raucle_detect.capability as cap
-    from raucle_detect.capability import CapabilityGate, CapabilityIssuer
+    import raucle.capability as cap
+    from raucle.capability import CapabilityGate, CapabilityIssuer
 
     iss = CapabilityIssuer.generate("issuer")
     parent = iss.mint(
@@ -699,7 +699,7 @@ def test_gate_rejects_broadened_attenuation_chain():
 def test_strict_verify_rejects_extra_jose_header(tmp_path):
     """Header with a key outside the fixed set is rejected (round-6 F6)."""
     pytest.importorskip("cryptography")
-    from raucle_detect.provenance import (
+    from raucle.provenance import (
         _EXPECTED_TYP,
         AgentIdentity,
         ProvenanceReceipt,

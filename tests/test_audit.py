@@ -8,7 +8,7 @@ import pytest
 
 cryptography = pytest.importorskip("cryptography")
 
-from raucle_detect.audit import (
+from raucle.audit import (
     AuditVerifier,
     Ed25519Signer,
     HashChainSink,
@@ -224,7 +224,7 @@ class TestEd25519SignerFailLoud:
     yield a public key."""
 
     def test_raises_configuration_error_on_bad_private_key(self):
-        from raucle_detect.errors import ConfigurationError
+        from raucle.errors import ConfigurationError
 
         # ``object()`` has no ``public_key()`` method — Ed25519Signer's
         # try/except previously swallowed this and produced a signer
@@ -238,8 +238,8 @@ class TestSinkFromEnv:
     audit-key env var is set but unparseable."""
 
     def test_refuses_bad_audit_key(self, tmp_path, monkeypatch):
-        from raucle_detect.audit import sink_from_env
-        from raucle_detect.errors import ConfigurationError
+        from raucle.audit import sink_from_env
+        from raucle.errors import ConfigurationError
 
         monkeypatch.setenv("RAUCLE_DETECT_AUDIT_PATH", str(tmp_path / "audit.jsonl"))
         monkeypatch.setenv("RAUCLE_DETECT_AUDIT_PRIVATE_KEY_PEM", "not a real PEM")
@@ -247,7 +247,7 @@ class TestSinkFromEnv:
             sink_from_env()
 
     def test_absent_audit_path_returns_none(self, monkeypatch):
-        from raucle_detect.audit import sink_from_env
+        from raucle.audit import sink_from_env
 
         monkeypatch.delenv("RAUCLE_DETECT_AUDIT_PATH", raising=False)
         assert sink_from_env() is None

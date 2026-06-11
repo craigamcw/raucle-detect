@@ -6,16 +6,16 @@ import pytest
 
 pytest.importorskip("cryptography")
 
-from raucle_detect.audit import Ed25519Signer  # noqa: E402
-from raucle_detect.capability import CapabilityIssuer  # noqa: E402
-from raucle_detect.handshake import (  # noqa: E402
+from raucle.audit import Ed25519Signer  # noqa: E402
+from raucle.capability import CapabilityIssuer  # noqa: E402
+from raucle.handshake import (  # noqa: E402
     HANDSHAKE_VERSION,
     HandshakeRequest,
     accept_call,
     build_request,
     verify_ack,
 )
-from raucle_detect.trust_registry import TrustRegistry  # noqa: E402
+from raucle.trust_registry import TrustRegistry  # noqa: E402
 
 
 @pytest.fixture

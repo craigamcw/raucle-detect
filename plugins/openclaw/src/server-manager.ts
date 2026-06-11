@@ -1,5 +1,5 @@
 /**
- * Manages the lifecycle of the raucle-detect Python REST server.
+ * Manages the lifecycle of the raucle Python REST server.
  *
  * Starts the server as a child process when the plugin loads,
  * monitors health, and restarts on failure.
@@ -29,7 +29,7 @@ export class ServerManager {
     this.port = opts.port;
     this.mode = opts.mode;
     this.rulesDir = opts.rulesDir;
-    this.pythonPath = opts.pythonPath || "raucle-detect";
+    this.pythonPath = opts.pythonPath || "raucle";
     this.logger = opts.logger;
   }
 
@@ -42,7 +42,7 @@ export class ServerManager {
         signal: AbortSignal.timeout(1000),
       });
       if (resp.ok) {
-        this.logger.info(`raucle-detect server already running on port ${this.port}`);
+        this.logger.info(`raucle server already running on port ${this.port}`);
         return;
       }
     } catch {
@@ -58,7 +58,7 @@ export class ServerManager {
           "--mode", this.mode,
         ]
       : [
-          "-m", "raucle_detect",
+          "-m", "raucle",
           "serve",
           "--host", "127.0.0.1",
           "--port", String(this.port),
@@ -69,7 +69,7 @@ export class ServerManager {
       args.push("--rules-dir", this.rulesDir);
     }
 
-    this.logger.info(`Starting raucle-detect server on port ${this.port} (mode: ${this.mode})`);
+    this.logger.info(`Starting raucle server on port ${this.port} (mode: ${this.mode})`);
 
     this.process = spawn(this.pythonPath, args, {
       stdio: ["ignore", "pipe", "pipe"],
@@ -78,25 +78,25 @@ export class ServerManager {
 
     this.process.stdout?.on("data", (data: Buffer) => {
       const line = data?.toString?.()?.trim?.();
-      if (line) this.logger.info(`[raucle-detect] ${line}`);
+      if (line) this.logger.info(`[raucle] ${line}`);
     });
 
     this.process.stderr?.on("data", (data: Buffer) => {
       const line = data?.toString?.()?.trim?.();
-      if (line) this.logger.warn(`[raucle-detect] ${line}`);
+      if (line) this.logger.warn(`[raucle] ${line}`);
     });
 
     this.process.on("exit", (code) => {
-      this.logger.warn(`raucle-detect server exited with code ${code}`);
+      this.logger.warn(`raucle server exited with code ${code}`);
       this.process = null;
       if (!this.stopped && !this.restarting) {
         this.restarting = true;
         setTimeout(() => {
           this.restarting = false;
           if (!this.stopped) {
-            this.logger.info("Restarting raucle-detect server...");
+            this.logger.info("Restarting raucle server...");
             this.start().catch((e) =>
-              this.logger.error(`Failed to restart raucle-detect: ${e}`)
+              this.logger.error(`Failed to restart raucle: ${e}`)
             );
           }
         }, 10000);
@@ -115,7 +115,7 @@ export class ServerManager {
           signal: AbortSignal.timeout(2000),
         });
         if (resp.ok) {
-          this.logger.info(`raucle-detect server ready on port ${this.port}`);
+          this.logger.info(`raucle server ready on port ${this.port}`);
           return;
         }
       } catch {
@@ -123,13 +123,13 @@ export class ServerManager {
       }
       await new Promise((r) => setTimeout(r, 500));
     }
-    this.logger.warn("raucle-detect server did not become ready in time — will retry on first scan");
+    this.logger.warn("raucle server did not become ready in time — will retry on first scan");
   }
 
   async stop(): Promise<void> {
     this.stopped = true;
     if (this.process) {
-      this.logger.info("Stopping raucle-detect server");
+      this.logger.info("Stopping raucle server");
       this.process.kill("SIGTERM");
       this.process = null;
     }

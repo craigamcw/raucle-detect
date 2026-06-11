@@ -13,10 +13,10 @@ verify against everyone else's. This directory is how you prove that.
 
 | Artifact | Role |
 |---|---|
-| [`../../docs/spec/provenance/v1/test-vectors.json`](../../docs/spec/provenance/v1/test-vectors.json) | The vectors. Generated from the Python canonicaliser (`raucle_detect/provenance.py`, which uses the `raucle_detect/_canon.py` ordering helpers), never hand-written. Single source of truth for expected bytes. |
+| [`../../docs/spec/provenance/v1/test-vectors.json`](../../docs/spec/provenance/v1/test-vectors.json) | The vectors. Generated from the Python canonicaliser (`raucle/provenance.py`, which uses the `raucle/_canon.py` ordering helpers), never hand-written. Single source of truth for expected bytes. |
 | [`../../reference/canon_conformance.py`](../../reference/canon_conformance.py) | Runs every vector against all reference languages and checks agreement + published-hash match + rejection. |
 | [`../../reference/conformance.py`](../../reference/conformance.py) | Full provenance-receipt byte-identity (JWS emit + cross-verify) across the five languages. |
-| [`../../reference/provenance-{go,rs,ts,cs}/`](../../reference/) | The four non-Python reference ports. Python is `raucle_detect/provenance.py` (canonicaliser + validation) on top of `raucle_detect/_canon.py` (UTF-16 ordering helpers). |
+| [`../../reference/provenance-{go,rs,ts,cs}/`](../../reference/) | The four non-Python reference ports. Python is `raucle/provenance.py` (canonicaliser + validation) on top of `raucle/_canon.py` (UTF-16 ordering helpers). |
 
 Vectors are generated, not authored:
 `python scripts/gen_provenance_test_vectors.py > docs/spec/provenance/v1/test-vectors.json`.

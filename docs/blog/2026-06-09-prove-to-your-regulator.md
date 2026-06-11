@@ -1,6 +1,6 @@
 # How to Prove to Your Regulator What Your Agent Did — Without Trusting Your Cloud Provider
 
-*Published 9 June 2026 · Raucle Engineering · Release: [raucle-detect v0.19.0](https://github.com/craigamcw/raucle-detect)*
+*Published 9 June 2026 · Raucle Engineering · Release: [raucle v0.19.0](https://github.com/craigamcw/raucle)*
 
 ---
 
@@ -32,7 +32,7 @@ That last clause is the whole point. The examiner does not have to trust AWS. Th
 
 ## The two-minute demo
 
-raucle-detect ships a runnable demo of exactly this flow — no AWS account needed, because the transport is stubbed:
+raucle ships a runnable demo of exactly this flow — no AWS account needed, because the transport is stubbed:
 
 ```bash
 $ python examples/aws_custody/demo.py
@@ -84,7 +84,7 @@ The hard version of the examiner's question is multi-agent: *agent A asked agent
 
 There is a reason banks don't run on "trust the application log," and it is the same reason AI agents shouldn't: the entire value of an audit is that it does not depend on the good behaviour — or continued existence — of any single party. Cryptographic, portable, offline-verifiable evidence is what *survives* a provider change, a vendor outage, a hostile insider, or an adversarial examiner. It is the standard regulated industries already demand for everything else. Agentic AI is the first technology in a decade that arrived in production *before* anyone built that standard for it.
 
-raucle-detect is open source. The custody gate, the audit pack, the A2A binding, and the demos above are all in the box:
+raucle is open source. The custody gate, the audit pack, the A2A binding, and the demos above are all in the box:
 
 - `examples/aws_custody/demo.py` — the credential-custody flow end to end
 - `raucle audit-pack build | verify` — bundle and offline-verify the evidence
@@ -94,4 +94,4 @@ If you are the person who will eventually sit across from that examiner, clone i
 
 ---
 
-*raucle-detect is [open source on GitHub](https://github.com/craigamcw/raucle-detect). Building AI agent security to the standard regulated industries already demand — formal, mechanised, provable.*
+*raucle is [open source on GitHub](https://github.com/craigamcw/raucle). Building AI agent security to the standard regulated industries already demand — formal, mechanised, provable.*

@@ -1,11 +1,11 @@
 # Governance
 
-This document describes how the **raucle-detect** project and the
+This document describes how the **raucle** project and the
 **Raucle Provenance Receipt** specification are governed.
 
 ## Stewardship
 
-raucle-detect and the Raucle Provenance Receipt specification are
+raucle and the Raucle Provenance Receipt specification are
 created and maintained by **epic28 Ltd (trading as Raucle)** as the originator and current
 steward. Final decisions on the engine, the specification, and what
 counts as a conformant implementation rest with the maintainers at
@@ -16,12 +16,12 @@ anyone (see [CONTRIBUTING.md](./CONTRIBUTING.md)).
 
 | Component | Location | Licence | Intent |
 |---|---|---|---|
-| **Detection / gate / prover engine** | `raucle_detect/` | **Apache-2.0** | The product. Permissive so it is trivial to embed in any agent runtime, gateway, SDK, or cloud — with an explicit patent grant for adopters. |
+| **Detection / gate / prover engine** | `raucle/` | **Apache-2.0** | The product. Permissive so it is trivial to embed in any agent runtime, gateway, SDK, or cloud — with an explicit patent grant for adopters. |
 | **Provenance Receipt specification** | `docs/spec/provenance/` | CC-BY-4.0 | An open standard. Anyone may implement it, in any language, under any licence. |
 | **Reference implementations** | `reference/` | **MIT** (permissive, by design) | Deliberately permissive so the standard is trivial to adopt — embed them in any product, including proprietary ones. |
 
 The posture is intentional: **the engine, the standard, and its reference
-code are all permissive — maximise adoption so raucle-detect becomes the
+code are all permissive — maximise adoption so raucle becomes the
 de-facto reference.** The project's defensibility lives in the **Raucle**
 trademark (held separately — see [TRADEMARK.md](./TRADEMARK.md)), the brand,
 and proprietary offerings built on top, not in copyleft on the core. Using the

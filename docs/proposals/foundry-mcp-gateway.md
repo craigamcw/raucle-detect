@@ -52,7 +52,7 @@ Three reasons:
 
 ## What changes
 
-Three artefacts ship in raucle-detect (see `deploy/foundry-mcp-sidecar/`):
+Three artefacts ship in raucle (see `deploy/foundry-mcp-sidecar/`):
 
 1. `deploy/foundry-mcp-sidecar/apim-policy.xml` — the inbound APIM
    policy that routes Foundry → raucle → customer MCP server.
@@ -63,7 +63,7 @@ Three artefacts ship in raucle-detect (see `deploy/foundry-mcp-sidecar/`):
    walkthrough (15-minute deploy from a clean Foundry project).
 
 No changes to the raucle library itself. The sidecar runs the existing
-`raucle-detect serve` HTTP server (already shipped as the `[server]`
+`raucle serve` HTTP server (already shipped as the `[server]`
 extra) behind an APIM frontend.
 
 ## The deployment shape
@@ -171,7 +171,7 @@ resource sidecar 'Microsoft.App/containerApps@2025-01-01' = {
       containers: [
         {
           name: 'raucle'
-          image: 'ghcr.io/craigamcw/raucle-detect:latest'  # pin to a release tag in production
+          image: 'ghcr.io/craigamcw/raucle:latest'  # pin to a release tag in production
           env: [
             { name: 'RAUCLE_BACKEND_URL',        value: mcpBackendUrl }
             { name: 'RAUCLE_ISSUER_KEY_VAULT',   value: '...'        }
@@ -285,7 +285,7 @@ Three reasons:
 
 1. **It is the lowest-engineering-lift, highest-sales-lift integration
    in the Microsoft-stack work.** The sidecar runs the existing
-   `raucle-detect serve` binary unchanged; the deliverable is a
+   `raucle serve` binary unchanged; the deliverable is a
    deployment recipe and a Bicep template, not new library code.
 2. **The pitch line is unusually clean.** *"EU AI Act Article 12
    evidence that Foundry doesn't give you, signed and verifiable

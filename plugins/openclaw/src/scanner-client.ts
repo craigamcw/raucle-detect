@@ -1,7 +1,7 @@
 /**
- * HTTP client for the raucle-detect REST API.
+ * HTTP client for the raucle REST API.
  *
- * Communicates with a locally-running raucle-detect server
+ * Communicates with a locally-running raucle server
  * (started as a background service by the plugin).
  */
 
@@ -66,7 +66,7 @@ export class ScannerClient {
     });
 
     if (!resp.ok) {
-      throw new Error(`raucle-detect ${path} failed: ${resp.status} ${resp.statusText}`);
+      throw new Error(`raucle ${path} failed: ${resp.status} ${resp.statusText}`);
     }
 
     return (await resp.json()) as ScanResult;
@@ -78,7 +78,7 @@ export class ScannerClient {
     });
 
     if (!resp.ok) {
-      throw new Error(`raucle-detect health check failed: ${resp.status}`);
+      throw new Error(`raucle health check failed: ${resp.status}`);
     }
 
     return (await resp.json()) as HealthResponse;

@@ -9,9 +9,9 @@ import pytest
 
 cryptography = pytest.importorskip("cryptography")
 
-from raucle_detect.provenance import AgentIdentity, ProvenanceLogger
-from raucle_detect.replay import InputStore, Replayer, StoredInput, _hash_text
-from raucle_detect.scanner import Scanner
+from raucle.provenance import AgentIdentity, ProvenanceLogger
+from raucle.replay import InputStore, Replayer, StoredInput, _hash_text
+from raucle.scanner import Scanner
 
 # ---------------------------------------------------------------------------
 # InputStore
@@ -200,7 +200,7 @@ class TestReplayer:
 
     def test_replay_result_views(self, tmp_path):
         # Manually construct a result and check the typed views.
-        from raucle_detect.replay import ReplayChange, ReplayResult
+        from raucle.replay import ReplayChange, ReplayResult
 
         result = ReplayResult(
             chain_path="x", counterfactual_policy="y", total_receipts=3, replayed_receipts=3

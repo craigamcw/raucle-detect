@@ -1,7 +1,7 @@
 # Raucle Canonical JSON — rules (internal working notes)
 
 > **Status: INTERNAL, UNVERSIONED, non-normative.** This document is the
-> human-readable description of the canonicalisation rules that `raucle_detect`
+> human-readable description of the canonicalisation rules that `raucle`
 > already enforces in code. It is **not** a published standard and must **not**
 > be cited by external submissions (OWASP / A2A / NIST) yet. The normative,
 > versioned "Raucle Canonical JSON Profile v1" is deferred until the library
@@ -9,8 +9,8 @@
 >
 > The single source of truth for byte-level behaviour is
 > [`docs/spec/provenance/v1/test-vectors.json`](../../docs/spec/provenance/v1/test-vectors.json),
-> which is **generated from the Python canonicaliser** (`raucle_detect/provenance.py`,
-> built on the `raucle_detect/_canon.py` ordering helpers) by
+> which is **generated from the Python canonicaliser** (`raucle/provenance.py`,
+> built on the `raucle/_canon.py` ordering helpers) by
 > `scripts/gen_provenance_test_vectors.py`. Every worked example below is cited
 > by its vector name; do not hand-copy bytes here — read them from the generated
 > file so this doc can never silently drift from the code.
@@ -131,6 +131,6 @@ exists to make it impossible to reintroduce.)
   emit/canon path.
 - Capability tokens (`capability.py`) and the standalone `cap_verifier.py`:
   **resolved — R8 now enforced explicitly.** Both reject lone surrogates with a
-  clean `ValueError` at sign/verify (shared `raucle_detect._canon.reject_lone_surrogates`;
+  clean `ValueError` at sign/verify (shared `raucle._canon.reject_lone_surrogates`;
   the standalone verifier inlines an equivalent check to stay import-free) rather
   than relying on the incidental `UnicodeEncodeError` from the later UTF-8 encode.

@@ -11,8 +11,8 @@ import pytest
 
 pytest.importorskip("cryptography")
 
-from raucle_detect import a2a
-from raucle_detect.provenance import AgentIdentity
+from raucle import a2a
+from raucle.provenance import AgentIdentity
 
 ISS = "https://acme.example/raucle"
 CAP = "sha256:" + "ab" * 32

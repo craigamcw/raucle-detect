@@ -46,7 +46,7 @@ Every receipt records one of eight operation types — `user_input`, `model_call
 Here is what it looks like when you actually use it:
 
 ```python
-from raucle_detect import AgentIdentity, ProvenanceLogger, Scanner
+from raucle import AgentIdentity, ProvenanceLogger, Scanner
 
 # Once at deploy time
 identity = AgentIdentity.generate(
@@ -84,7 +84,7 @@ with ProvenanceLogger(agent=identity, sink_path="audit/provenance.jsonl") as log
 Twelve hours later, when something goes wrong and someone asks "did the guardrail actually run before this email was sent?", the answer is a single command:
 
 ```
-$ raucle-detect provenance trace sha256:<send_email_receipt_hash> --chain audit/provenance.jsonl
+$ raucle provenance trace sha256:<send_email_receipt_hash> --chain audit/provenance.jsonl
 ```
 
 The trace walks the DAG backwards through `send_email` → `model_call` → `guardrail_scan` → `user_input`, and a verifier with the agent's public key can cryptographically confirm every step. The guardrail's verdict is signed. The model invocation is signed. The user input's taint propagates monotonically through the chain. If any record was modified between then and now, verification fails.
@@ -95,7 +95,7 @@ A spec without implementations is a wish. Today, alongside the spec, we are publ
 
 | Language | Repo | Dependencies |
 |---|---|---|
-| **Python** | [craigamcw/raucle-detect](https://github.com/craigamcw/raucle-detect) | one — `cryptography` |
+| **Python** | [craigamcw/raucle](https://github.com/craigamcw/raucle) | one — `cryptography` |
 | **TypeScript** | [craigamcw/raucle-receipt-ts](https://github.com/craigamcw/raucle-receipt-ts) | **zero** — Node's `node:crypto` |
 | **Go** | [craigamcw/raucle-receipt-go](https://github.com/craigamcw/raucle-receipt-go) | **zero** — stdlib only |
 | **Rust** | [craigamcw/raucle-receipt-rs](https://github.com/craigamcw/raucle-receipt-rs) | RustCrypto primitives only |
@@ -132,7 +132,7 @@ Three things, in increasing order of commitment.
 
 **Read the spec.** [raucle.com/spec/provenance/v1](https://raucle.com/spec/provenance/v1) is short — about 500 lines of normative Markdown — and the test vectors are five entries you can re-derive yourself if you want to satisfy the cryptographer in you.
 
-**Try one of the implementations.** `pip install raucle-detect`, `npm install @raucle/receipt`, `go get github.com/craigamcw/raucle-receipt-go`, or `cargo add raucle-receipt`. The "hello, world" is twenty lines. The audit chain it produces is real, signed, and verifiable.
+**Try one of the implementations.** `pip install raucle`, `npm install @raucle/receipt`, `go get github.com/craigamcw/raucle-receipt-go`, or `cargo add raucle-receipt`. The "hello, world" is twenty lines. The audit chain it produces is real, signed, and verifiable.
 
 **File an issue on the spec.** We would much rather hear "this is wrong because…" today than ship v1 final and have to publish v2 next year. Issues tagged `spec` get a 14-day public-comment treatment before any change merges.
 
@@ -142,6 +142,6 @@ Verifiable AI is not going to arrive because vendors get more honest. It is goin
 
 ---
 
-*Discussion: [Hacker News](#) · [Lobste.rs](#) · [/r/MachineLearning](#) · [OWASP AI Exchange](#) · [GitHub Issues](https://github.com/craigamcw/raucle-detect/issues?q=label%3Aspec)*
+*Discussion: [Hacker News](#) · [Lobste.rs](#) · [/r/MachineLearning](#) · [OWASP AI Exchange](#) · [GitHub Issues](https://github.com/craigamcw/raucle/issues?q=label%3Aspec)*
 
 *Raucle is an open-source AI security project. The runtime detection engine, the provenance receipt format, and all four reference implementations are MIT-licensed.*

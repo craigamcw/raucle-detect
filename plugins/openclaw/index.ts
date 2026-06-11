@@ -1,7 +1,7 @@
 /**
  * raucle — AI security guardrails plugin for OpenClaw
  *
- * Integrates raucle-detect into the OpenClaw message pipeline:
+ * Integrates raucle into the OpenClaw message pipeline:
  * - Scans inbound messages before agents process them
  * - Scans outbound responses before sending to channels
  * - Validates tool call arguments before execution
@@ -64,7 +64,7 @@ const raucleClaw = {
     );
 
     // ---------------------------------------------------------------
-    // Background service: raucle-detect Python server
+    // Background service: raucle Python server
     // ---------------------------------------------------------------
     serverManager = new ServerManager({
       port,
@@ -74,7 +74,7 @@ const raucleClaw = {
       logger: api.logger,
     });
 
-    // Start the raucle-detect server in the background
+    // Start the raucle server in the background
     serverManager.start().catch((e: any) =>
       api.logger.error(`[raucle] Failed to start server: ${e.message}`)
     );

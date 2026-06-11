@@ -18,7 +18,7 @@ Three scenes:
 
 Run it:
 
-    pip install 'raucle-detect[compliance,langchain]'
+    pip install 'raucle[compliance,langchain]'
     python examples/langchain_demo/demo.py
 """
 
@@ -34,9 +34,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from langchain_core.tools import tool
 
-from raucle_detect.audit import AuditVerifier, Ed25519Signer, HashChainSink
-from raucle_detect.capability import CapabilityGate, CapabilityIssuer
-from raucle_detect.integrations.langchain import (
+from raucle.audit import AuditVerifier, Ed25519Signer, HashChainSink
+from raucle.capability import CapabilityGate, CapabilityIssuer
+from raucle.integrations.langchain import (
     CapabilityDenied,
     RaucleCallbackHandler,
     set_in_force_token,

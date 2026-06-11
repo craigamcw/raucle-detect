@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import pytest
 
-from raucle_detect.scanner import Scanner
-from raucle_detect.session import SessionScanner, SessionScanResult
+from raucle.scanner import Scanner
+from raucle.session import SessionScanner, SessionScanResult
 
 
 @pytest.fixture

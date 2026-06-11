@@ -31,7 +31,7 @@ Before deploying, you need:
 |---|---|---|
 | 1 | An existing Foundry-attached APIM instance | The sidecar sits behind APIM as a backend pool member. |
 | 2 | A Container App Environment in the APIM VNet | The sidecar runs as a Container App that the APIM ingress can reach over private networking. |
-| 3 | A Key Vault entry with your raucle issuer Ed25519 private key | The sidecar uses this to sign receipts. Generate with `raucle-detect cap keygen` and store via `az keyvault secret set --vault-name ... --name raucle-issuer-private-key --file issuer.key`. |
+| 3 | A Key Vault entry with your raucle issuer Ed25519 private key | The sidecar uses this to sign receipts. Generate with `raucle cap keygen` and store via `az keyvault secret set --vault-name ... --name raucle-issuer-private-key --file issuer.key`. |
 | 4 | A Storage Account + Blob container for the audit log | The sidecar writes the hash-chained receipt log here. A 1 GB container is more than enough for ~10⁷ receipts. |
 | 5 | A public URL where you publish your issuer pubkey + policy registry | External verifiers fetch from this. Typically `https://<your-org>/.well-known/`. |
 
@@ -41,7 +41,7 @@ Before deploying, you need:
 
 ```bash
 # Locally (or in a CI runner with appropriate role assignments):
-raucle-detect cap keygen acme.bank.kyc-platform --out issuer
+raucle cap keygen acme.bank.kyc-platform --out issuer
 # Produces: issuer.key (private), issuer.pub (public)
 
 # Push the private key to Key Vault:
@@ -70,7 +70,7 @@ This creates:
 
 - A user-assigned managed identity with Key Vault Secrets User +
   Storage Blob Data Contributor.
-- A Container App running `raucle-detect serve --mode foundry-sidecar`.
+- A Container App running `raucle serve --mode foundry-sidecar`.
 - An APIM Backend pool member pointing at the sidecar's internal FQDN.
 - Two APIM Named Values (`raucle-sidecar-fqdn`, `raucle-mcp-path`) the
   policy XML references.
@@ -145,7 +145,7 @@ the signature, the `policy_proof_hash`, and the attenuation chain.
 ## Operational notes
 
 - **Issuer key rotation.** Generate a new key with
-  `raucle-detect cap keygen`, push it to Key Vault under the same
+  `raucle cap keygen`, push it to Key Vault under the same
   secret name, and bump the Container App revision. The sidecar
   picks up the new key on the next request. The previous receipts
   remain verifiable indefinitely under the old public key — publish
