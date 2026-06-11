@@ -25,8 +25,8 @@ def two_orgs(tmp_path):
     reg = TrustRegistry(tmp_path / "reg.jsonl", operator_signer=Ed25519Signer.generate())
     iss_a = CapabilityIssuer.generate(issuer="org-a.bank")
     resp_b = Ed25519Signer.generate()
-    reg.publish(iss_a.public_key_pem, issuer="Org A")
-    reg.publish(resp_b.public_key_pem().decode(), issuer="Org B")
+    reg.publish(iss_a.public_key_pem, issuer=iss_a.issuer)
+    reg.publish(resp_b.public_key_pem().decode(), issuer="org-b.gateway")
     token = iss_a.mint(
         agent_id="agent:a.payments",
         tool="transfer_funds",
@@ -81,7 +81,7 @@ def test_revoked_initiator_rejected_before_gate(two_orgs):
 def test_unknown_initiator_rejected(tmp_path):
     reg = TrustRegistry(tmp_path / "reg.jsonl")
     resp_b = Ed25519Signer.generate()
-    reg.publish(resp_b.public_key_pem().decode(), issuer="Org B")
+    reg.publish(resp_b.public_key_pem().decode(), issuer="org-b.gateway")
     # Org A's issuer was NEVER published to this registry.
     iss_a = CapabilityIssuer.generate(issuer="org-a")
     token = iss_a.mint(agent_id="agent:a", tool="t", constraints={})
@@ -146,3 +146,55 @@ def test_demo_script_passes_self_check():
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "ACCEPT" in proc.stdout and "REJECT" in proc.stdout
     assert "revoked" in proc.stdout
+
+
+def test_issuer_impersonation_rejected(tmp_path):
+    """A registered org cannot present a token claiming to be a DIFFERENT org
+    (codex #2): the token's issuer must match the registry's record."""
+    reg = TrustRegistry(tmp_path / "reg.jsonl")
+    evil = CapabilityIssuer.generate(issuer="evil-corp")
+    resp_b = Ed25519Signer.generate()
+    # Evil registers under its OWN name, then mints a token... but the token's
+    # issuer is evil-corp; registry record says evil-corp -> they match, gate runs.
+    # The attack is registering evil's key but claiming bank's NAME: we publish
+    # evil's key under the WRONG (bank) name only the operator could do, so here
+    # we simulate the mismatch the verifier must catch.
+    reg.publish(evil.public_key_pem, issuer="bank-a")  # registry says bank-a
+    resp_kid = reg.publish(resp_b.public_key_pem().decode(), issuer="org-b")
+    assert resp_kid
+    token = evil.mint(agent_id="agent:evil", tool="t", constraints={})  # token.issuer = evil-corp
+    req = build_request(token, tool="t", args={})
+    res = accept_call(req, registry=reg, responder_signer=resp_b, responder_id="org-b")
+    assert not res.accepted
+    assert "issuer mismatch" in res.reason
+
+
+def test_ack_bound_to_token_and_request(two_orgs):
+    """The ack binds token_id + request_hash, so it cannot be accepted for a
+    different capability/request (codex #3)."""
+    reg, _iss_a, resp_b, token = two_orgs
+    req = build_request(token, tool="transfer_funds", args={"to": "acct:b-co", "amount": 50})
+    res = accept_call(req, registry=reg, responder_signer=resp_b, responder_id="org-b.gateway")
+    # Correct bindings verify.
+    ok, _ = verify_ack(
+        res.ack_receipt,
+        registry=reg,
+        expected_token_id=token.token_id,
+        expected_request=req,
+        expected_decision="ACCEPT",
+    )
+    assert ok
+    # A different token_id is rejected (replay into another capability context).
+    ok2, why2 = verify_ack(res.ack_receipt, registry=reg, expected_token_id="cap:" + "0" * 24)
+    assert not ok2 and "token_id" in why2
+    # A different request is rejected.
+    other = build_request(token, tool="transfer_funds", args={"to": "acct:b-co", "amount": 99})
+    ok3, why3 = verify_ack(res.ack_receipt, registry=reg, expected_request=other)
+    assert not ok3 and "request_hash" in why3
+
+
+def test_default_nonce_is_random(two_orgs):
+    _reg, _iss_a, _resp_b, token = two_orgs
+    r1 = build_request(token, tool="transfer_funds", args={"to": "acct:b-co", "amount": 1})
+    r2 = build_request(token, tool="transfer_funds", args={"to": "acct:b-co", "amount": 1})
+    assert r1.nonce and r2.nonce and r1.nonce != r2.nonce

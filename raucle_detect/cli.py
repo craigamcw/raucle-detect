@@ -248,10 +248,16 @@ def _build_parser() -> argparse.ArgumentParser:
 
     reg_list = reg_sub.add_parser("list", help="List active issuers in the registry")
     reg_list.add_argument("path", help="Registry JSONL file or https:// URL")
+    reg_list.add_argument(
+        "--operator-pubkey", help="Operator public-key PEM (required to trust an https registry)"
+    )
 
     reg_res = reg_sub.add_parser("resolve", help="Resolve a key_id to its trust record")
     reg_res.add_argument("path", help="Registry JSONL file or https:// URL")
     reg_res.add_argument("key_id", help="key_id to resolve")
+    reg_res.add_argument(
+        "--operator-pubkey", help="Operator public-key PEM (required to trust an https registry)"
+    )
 
     reg_verify = reg_sub.add_parser("verify", help="Verify a registry's integrity")
     reg_verify.add_argument("path", help="Registry JSONL file")
@@ -273,6 +279,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "--format", default="md", choices=["md", "json"], help="Output format (default md)"
     )
     comp_rep.add_argument("--out", help="Write to this file instead of stdout")
+    comp_rep.add_argument(
+        "--pubkey", help="Operator/audit public-key PEM to authenticate the chain"
+    )
 
     # -- passport (portable agent identity, P3) ------------------------------
     pass_p = subparsers.add_parser(
@@ -878,10 +887,15 @@ def _cmd_passport(args: argparse.Namespace) -> int:
         return 0
 
     if cmd == "verify":
-        if args.registry.startswith("https://"):
-            reg = TrustRegistry.from_url(args.registry)
-        else:
-            reg = TrustRegistry.load(args.registry)
+        try:
+            if args.registry.startswith("https://"):
+                op = Path(args.operator_pubkey).read_bytes() if args.operator_pubkey else None
+                reg = TrustRegistry.from_url(args.registry, operator_public_pem=op)
+            else:
+                reg = TrustRegistry.load(args.registry)
+        except Exception as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
         passport = AgentPassport.load(args.passport)
         v = verify_passport(passport.to_dict(), registry=reg)
         if v.valid:
@@ -908,8 +922,9 @@ def _cmd_compliance(args: argparse.Namespace) -> int:
     if getattr(args, "compliance_command", None) != "report":
         print("error: compliance needs the 'report' subcommand", file=sys.stderr)
         return 2
+    pubkey = Path(args.pubkey).read_bytes() if getattr(args, "pubkey", None) else None
     try:
-        report = build_report(args.chain, framework=args.framework)
+        report = build_report(args.chain, framework=args.framework, public_key_pem=pubkey)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         print(f"supported: {', '.join(supported_frameworks())}", file=sys.stderr)
@@ -976,10 +991,15 @@ def _cmd_registry(args: argparse.Namespace) -> int:
         return 0
 
     if cmd in ("list", "resolve"):
-        if args.path.startswith("https://"):
-            reg = TrustRegistry.from_url(args.path)
-        else:
-            reg = TrustRegistry.load(args.path)
+        try:
+            if args.path.startswith("https://"):
+                op = Path(args.operator_pubkey).read_bytes() if args.operator_pubkey else None
+                reg = TrustRegistry.from_url(args.path, operator_public_pem=op)
+            else:
+                reg = TrustRegistry.load(args.path)
+        except Exception as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
         if cmd == "list":
             active = [r for r in reg.records() if not r.revoked]
             for r in active:

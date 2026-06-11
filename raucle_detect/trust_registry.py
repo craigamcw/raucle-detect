@@ -175,15 +175,19 @@ class TrustRegistry:
         url: str,
         *,
         operator_public_pem: bytes | None = None,
+        allow_unauthenticated: bool = False,
         timeout: float = 10.0,
     ) -> TrustRegistry:
         """Fetch a published registry over HTTPS (SSRF-guarded) and verify it.
 
-        This is the client for the hosted public verification service: a verifier
-        in any org points at the registry URL and gets a checked trust directory.
-        For a signed registry from an untrusted host, pass ``operator_public_pem``
-        to AUTHENTICATE it (pin the operator key); without it the fetched log is
-        only integrity-checked, which a wholesale forger could pass.
+        A registry fetched from a URL is attacker-controllable: a forger can serve
+        a self-consistent signed log full of their own issuer keys. So by default
+        this **requires authentication** — pass ``operator_public_pem`` to pin the
+        operator key. Loading WITHOUT authentication (an unsigned registry, or a
+        signed one with no pinned key) is refused unless you explicitly pass
+        ``allow_unauthenticated=True`` (e.g. for a registry you already trust by
+        transport). The bare integrity check (hash chain) does not authenticate
+        the source and is not a substitute (codex #1).
         """
         from raucle_detect.feed import fetch_https_pinned
 
@@ -199,12 +203,11 @@ class TrustRegistry:
         else:
             reg._tail_hash = reg._entries[-1].get("hash", _GENESIS)
         reg.verify_integrity(operator_public_pem=operator_public_pem)
-        if reg._entries and reg._entries[0].get("signed") and reg._authenticated is not True:
-            logger.warning(
-                "fetched a SIGNED trust registry from %s without pinning the "
-                "operator key: integrity verified, authentication NOT verified. "
-                "Pass operator_public_pem to authenticate an untrusted source.",
-                url,
+        if reg._authenticated is not True and not allow_unauthenticated:
+            raise RegistryIntegrityError(
+                f"refusing to trust trust-registry fetched from {url}: not authenticated. "
+                "Pass operator_public_pem to pin the operator key, or "
+                "allow_unauthenticated=True only if you trust the transport."
             )
         return reg
 
@@ -325,6 +328,15 @@ class TrustRegistry:
             expect = _sha256_hex(_canonical_json(body))
             if e.get("hash") != expect:
                 raise RegistryIntegrityError(f"entry {i}: hash mismatch (tampered)")
+            # Resolution security depends on key_id being the real digest of the
+            # published PEM — otherwise a forged entry could map a victim key_id
+            # to an attacker key. Enforce the invariant (codex #6).
+            if e.get("type") == "register":
+                pem = e.get("public_key_pem", "")
+                if e.get("key_id") != _key_id_for(pem):
+                    raise RegistryIntegrityError(
+                        f"entry {i}: key_id does not match SHA-256 of its public key"
+                    )
             prev = e["hash"]
 
         header = self._entries[0] if self._entries else {}

@@ -37,8 +37,8 @@ def main() -> int:
 
     org_a = CapabilityIssuer.generate(issuer="org-a.bank")  # Org A's issuer
     org_b = Ed25519Signer.generate()  # Org B's responder key
-    ka = registry.publish(org_a.public_key_pem, issuer="Org A (bank)")
-    kb = registry.publish(org_b.public_key_pem().decode(), issuer="Org B (payments)")
+    ka = registry.publish(org_a.public_key_pem, issuer=org_a.issuer)  # canonical issuer id
+    kb = registry.publish(org_b.public_key_pem().decode(), issuer="org-b.gateway")
     print(f"  Org A published key_id {ka}")
     print(f"  Org B published key_id {kb}")
     print("  (A and B have NEVER exchanged keys directly)\n")

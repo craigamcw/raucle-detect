@@ -169,24 +169,45 @@ def verify_passport(
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-    p = passport if isinstance(passport, AgentPassport) else AgentPassport.from_dict(passport)
+    # Fail-closed on ANY malformed input — a parse/shape error must yield an
+    # invalid verdict, never an exception (codex #7).
+    try:
+        p = passport if isinstance(passport, AgentPassport) else AgentPassport.from_dict(passport)
+        if not isinstance(p.statement, dict) or not isinstance(p.issuer_key_id, str):
+            return PassportVerdict(False, "malformed passport (bad statement/issuer_key_id)")
+        if p.expires_at is not None:
+            int(p.expires_at)  # type-check; raises on a non-numeric expiry
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        return PassportVerdict(False, f"malformed passport: {type(exc).__name__}")
 
     if p.body().get("version") != PASSPORT_VERSION:
         return PassportVerdict(False, f"unknown passport version {p.body().get('version')!r}")
 
-    pem = registry.public_key(p.issuer_key_id)  # fail-closed: None for unknown OR revoked
-    if pem is None:
-        revoked = registry.is_revoked(p.issuer_key_id)
-        why = "revoked" if revoked else "unknown"
+    # Resolve the registry RECORD (not just the key) so we can check the
+    # authoritative issuer identity, not the passport's self-asserted one.
+    record = registry.resolve(p.issuer_key_id)
+    if record is None or record.revoked:
+        why = "revoked" if (record is not None and record.revoked) else "unknown"
         return PassportVerdict(False, f"issuer key_id {p.issuer_key_id} is {why} in the registry")
+    pem = record.public_key_pem
 
     try:
         loaded = serialization.load_pem_public_key(pem.encode())
         if not isinstance(loaded, Ed25519PublicKey):
             return PassportVerdict(False, "issuer key is not Ed25519")
         loaded.verify(_b64d(p.issuer_signature), _canonical_json(p.body()))
-    except (InvalidSignature, ValueError):
+    except (InvalidSignature, ValueError, TypeError):
         return PassportVerdict(False, "issuer signature did not verify")
+
+    # Anti-impersonation: the issuer NAME the passport claims must match the
+    # registry's authoritative record for this key. Otherwise a registered org
+    # could sign a passport claiming to be a DIFFERENT org (codex #2).
+    if p.issuer != record.issuer:
+        return PassportVerdict(
+            False,
+            f"issuer mismatch: passport claims {p.issuer!r} but key {p.issuer_key_id} "
+            f"is registered to {record.issuer!r}",
+        )
 
     ts = now if now is not None else _now()
     if p.expires_at is not None and ts >= p.expires_at:

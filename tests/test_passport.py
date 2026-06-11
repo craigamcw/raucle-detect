@@ -207,3 +207,30 @@ class TestCLI:
         )
         rc = main(["passport", "verify", str(out), "--registry", str(tmp_path / "reg.jsonl")])
         assert rc == 1  # invalid passport -> nonzero
+
+
+def test_issuer_impersonation_rejected(tmp_path):
+    """A registered org cannot sign a passport claiming a DIFFERENT issuer name
+    than the registry's authoritative record (codex #2)."""
+    org_signer = Ed25519Signer.generate()
+    reg = TrustRegistry(tmp_path / "reg.jsonl")
+    reg.publish(org_signer.public_key_pem().decode(), issuer="bank-a")  # registry: bank-a
+    agent = AgentIdentity.generate(agent_id="agent:x")
+    # Same key, but passport claims to be "evil-corp" pretending... actually claims
+    # to be a bank it is not: issue with issuer="Megabank" while registry says bank-a.
+    passport = issue_passport(agent.statement, issuer_signer=org_signer, issuer="Megabank")
+    v = verify_passport(passport.to_dict(), registry=reg)
+    assert not v.valid and "issuer mismatch" in v.reason
+
+
+def test_malformed_passport_fails_closed(tmp_path):
+    reg = TrustRegistry(tmp_path / "reg.jsonl")
+    reg.publish(Ed25519Signer.generate().public_key_pem().decode(), issuer="X")
+    for bad in [
+        {},
+        {"statement": "not-a-dict", "issuer_key_id": "x"},
+        {"issuer_key_id": 123},
+        "nonsense",
+    ]:
+        v = verify_passport(bad, registry=reg)
+        assert not v.valid  # never raises
