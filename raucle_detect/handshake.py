@@ -136,6 +136,7 @@ def accept_call(
     responder_signer: Ed25519Signer,
     responder_id: str,
     require_unrevoked: bool = True,
+    seen: set[str] | None = None,
 ) -> HandshakeResult:
     """Responder side (org B): resolve the initiator's key from the **registry**,
     capability-gate the call, and return a signed acknowledgement.
@@ -161,6 +162,34 @@ def accept_call(
             initiator_key_id="",
             request=request,
         )
+
+    # Responder-side replay protection (codex r6): the responder rejects a request
+    # it has already accepted. Pass a persistent ``seen`` set keyed across calls;
+    # the replay key binds the issuer key, token, and per-handshake nonce. A
+    # missing/empty nonce is itself a replay risk, so it is refused when dedup is on.
+    if seen is not None:
+        if not request.nonce:
+            return _ack(
+                responder_signer,
+                responder_id,
+                accepted=False,
+                reason="request has no nonce (required for replay protection)",
+                initiator_key_id=token.key_id,
+                request=request,
+                token=token,
+            )
+        replay_key = f"{token.key_id}:{token.token_id}:{request.nonce}"
+        if replay_key in seen:
+            return _ack(
+                responder_signer,
+                responder_id,
+                accepted=False,
+                reason="replayed request (this (token, nonce) was already handled)",
+                initiator_key_id=token.key_id,
+                request=request,
+                token=token,
+            )
+        seen.add(replay_key)
 
     key_id = token.key_id
     record = registry.resolve(key_id)  # fail-closed: None for unknown
@@ -280,6 +309,8 @@ def verify_ack(
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
+    if not isinstance(ack_receipt, dict):
+        return False, "malformed ack receipt (not an object)"
     body = ack_receipt.get("body")
     sig = ack_receipt.get("signature")
     if not isinstance(body, dict) or not isinstance(sig, str):

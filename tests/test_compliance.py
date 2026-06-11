@@ -173,3 +173,12 @@ def test_iso_a83_partial_without_authenticated_signatures(tmp_path):
     report2 = build_report(path, framework="iso-42001", public_key_pem=signer.public_key_pem())
     a83b = next(c for c in report2.controls if c.id == "A.8.3")
     assert a83b.status == ControlStatus.SATISFIED
+
+
+def test_malformed_chain_is_unverifiable_not_crash(tmp_path):
+    """A malformed/garbage chain file yields PARTIAL controls, never an exception
+    (codex r6)."""
+    bad = tmp_path / "garbage.jsonl"
+    bad.write_text("{not json\nalso not json\n")
+    report = build_report(bad, framework="eu-ai-act")  # must not raise
+    assert all(c.status != ControlStatus.SATISFIED for c in report.controls)

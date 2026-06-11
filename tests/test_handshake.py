@@ -229,3 +229,33 @@ def test_verify_ack_requires_binding_by_default(two_orgs):
     assert not ok and "anti-replay binding" in why
     # With a binding it verifies.
     assert verify_ack(res.ack_receipt, registry=reg, expected_request=req)[0]
+
+
+def test_responder_rejects_replayed_request(two_orgs):
+    """The responder, given a persistent seen-set, rejects a replayed request
+    (codex r6)."""
+    reg, _iss_a, resp_b, token = two_orgs
+    seen: set[str] = set()
+    req = build_request(token, tool="transfer_funds", args={"to": "acct:b-co", "amount": 50})
+    first = accept_call(
+        req, registry=reg, responder_signer=resp_b, responder_id="org-b.gateway", seen=seen
+    )
+    assert first.accepted
+    # Replaying the SAME request is now rejected.
+    replay = accept_call(
+        req, registry=reg, responder_signer=resp_b, responder_id="org-b.gateway", seen=seen
+    )
+    assert not replay.accepted and "replay" in replay.reason
+    # A fresh request (new nonce) is accepted.
+    req2 = build_request(token, tool="transfer_funds", args={"to": "acct:b-co", "amount": 50})
+    assert accept_call(
+        req2, registry=reg, responder_signer=resp_b, responder_id="org-b.gateway", seen=seen
+    ).accepted
+
+
+def test_verify_ack_malformed_toplevel_fails_closed(tmp_path):
+    reg = TrustRegistry(tmp_path / "reg.jsonl")
+    reg.publish(Ed25519Signer.generate().public_key_pem().decode(), issuer="x")
+    for bad in (None, [], "nonsense", 42):
+        ok, _ = verify_ack(bad, registry=reg, require_binding=False)
+        assert not ok  # never raises

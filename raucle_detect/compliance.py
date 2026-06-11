@@ -71,14 +71,19 @@ def extract_evidence(
     on signature strength when signatures were genuinely checked.
     """
     ev = ChainEvidence()
-    # Determine the declared-signed flag from the header up front.
-    declared_signed = False
-    for line in Path(chain_path).read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line:
-            head = json.loads(line)
-            declared_signed = bool(head.get("signed"))
-            break
+    # Determine the declared-signed flag from the header up front. Malformed JSON
+    # is not evidence — return an unverifiable ChainEvidence rather than raising
+    # (codex r6 LOW).
+    try:
+        raw_lines = Path(chain_path).read_text(encoding="utf-8").splitlines()
+        declared_signed = False
+        for line in raw_lines:
+            line = line.strip()
+            if line:
+                declared_signed = bool(json.loads(line).get("signed"))
+                break
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        return ev  # all-zero / unverifiable; every control will read PARTIAL
     key_given = public_key_pem is not None
     # A signed chain cannot be CONCLUSIVELY verified without the operator key:
     # AuditVerifier(no key) on a signed chain returns invalid because it cannot
@@ -102,11 +107,14 @@ def extract_evidence(
         ev.signature_verified = False
     agents: set[str] = set()
     tools: set[str] = set()
-    for line in Path(chain_path).read_text(encoding="utf-8").splitlines():
+    for line in raw_lines:
         line = line.strip()
         if not line:
             continue
-        rec = json.loads(line)
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
         if rec.get("chain_meta"):
             ev.signed = bool(rec.get("signed"))
             continue
