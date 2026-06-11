@@ -160,9 +160,7 @@ def guard_tool(
     is trusted (bearer mode) and the agent-scope check is skipped.
     """
     if not _HAS_CREWAI:
-        raise RuntimeError(
-            "guard_tool requires crewai. Install with: pip install 'raucle[crewai]'"
-        )
+        raise RuntimeError("guard_tool requires crewai. Install with: pip install 'raucle[crewai]'")
 
     wrapped = tool
     tool_name = getattr(tool, "name", None) or "<unknown>"

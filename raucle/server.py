@@ -10,14 +10,16 @@ Or directly with uvicorn::
 
 Authentication
 --------------
-Set the ``RAUCLE_DETECT_API_KEY`` environment variable to require callers to
-pass ``Authorization: Bearer <key>`` on every request.  If the variable is
-unset the server runs unauthenticated (suitable for localhost-only use).
+Set the ``RAUCLE_API_KEY`` environment variable (legacy ``RAUCLE_DETECT_API_KEY``
+also accepted) to require callers to pass ``Authorization: Bearer <key>`` on
+every request.  If the variable is unset the server runs unauthenticated
+(suitable for localhost-only use).
 
 Rate limiting
 -------------
-Set ``RAUCLE_DETECT_RATE_LIMIT`` (requests per minute per IP, default 120) and
-``RAUCLE_DETECT_BURST_LIMIT`` (burst allowance, default 20) to tune limits.
+Set ``RAUCLE_RATE_LIMIT`` (requests per minute per IP, default 120) and
+``RAUCLE_BURST_LIMIT`` (burst allowance, default 20) to tune limits; legacy
+``RAUCLE_DETECT_*`` names remain supported.
 
 Endpoints
 ---------
@@ -41,6 +43,7 @@ from collections import defaultdict
 from typing import Any
 
 from raucle import __version__
+from raucle._env import env as _env
 from raucle.errors import ConfigurationError
 from raucle.scanner import Scanner, ScanResult
 
@@ -61,12 +64,12 @@ except ImportError as exc:
 # Configuration from environment
 # ---------------------------------------------------------------------------
 
-_mode = os.environ.get("RAUCLE_DETECT_MODE", "standard")
-_rules_dir = os.environ.get("RAUCLE_DETECT_RULES_DIR")
-_api_key = os.environ.get("RAUCLE_DETECT_API_KEY", "")  # empty = no auth
-_rate_limit_rpm = int(os.environ.get("RAUCLE_DETECT_RATE_LIMIT", "120"))
-_burst_limit = int(os.environ.get("RAUCLE_DETECT_BURST_LIMIT", "20"))
-_model_version = os.environ.get("RAUCLE_DETECT_MODEL_VERSION", "")
+_mode = _env("MODE", "standard")
+_rules_dir = _env("RULES_DIR")
+_api_key = _env("API_KEY", "")  # empty = no auth
+_rate_limit_rpm = int(_env("RATE_LIMIT", "120"))
+_burst_limit = int(_env("BURST_LIMIT", "20"))
+_model_version = _env("MODEL_VERSION", "")
 _tenant_default = os.environ.get("RAUCLE_DETECT_TENANT") or None
 
 

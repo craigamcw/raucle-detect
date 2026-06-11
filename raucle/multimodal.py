@@ -468,8 +468,7 @@ class MultimodalScanner:
             from PIL import ExifTags, Image  # type: ignore[import-untyped]
         except ImportError as exc:
             raise ImportError(
-                "Image scanning requires Pillow. "
-                "Install with: pip install 'raucle[multimodal]'"
+                "Image scanning requires Pillow. Install with: pip install 'raucle[multimodal]'"
             ) from exc
 
         path = Path(path)

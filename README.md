@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/raucle-banner.svg" alt="Raucle Detect" width="600">
+  <img src="assets/raucle-banner.svg" alt="Raucle" width="600">
 </p>
 
 <p align="center">
@@ -147,6 +147,26 @@ pip install 'raucle[all]'          # rules + ml + server + compliance + multimod
 > The `[all]` extra bundles the engine extras (`rules`, `ml`, `server`, `compliance`, `multimodal`, `proof`) but **not** the framework adapters — install `[agent-framework]` separately if you use the Microsoft Agent Framework integration.
 
 Requires Python 3.10+.
+
+### Migrating from `raucle-detect`
+
+The project was renamed to **raucle** in v0.22.0 (the library outgrew
+"detect": receipts, provenance, the trust registry, and compliance evidence
+are the product; detection is one module).
+
+| Was | Now |
+|---|---|
+| `pip install raucle-detect` | `pip install raucle` |
+| `import raucle_detect` | `import raucle` (old imports keep working via a shim, with a `DeprecationWarning`) |
+| `raucle-detect` CLI | `raucle` (old command kept as a deprecated alias) |
+| `RAUCLE_DETECT_*` env vars | `RAUCLE_*` (legacy names remain supported) |
+| Go module `github.com/craigamcw/raucle-detect/reference/provenance-go` | `github.com/craigamcw/raucle/reference/provenance-go` — **breaking** for Go imports; update the import path |
+
+**Wire formats are unchanged**: the provenance receipt `iss` identifier
+(`"raucle-detect/provenance"`), receipt/audit/registry formats, signatures,
+and test vectors are all frozen — every existing receipt still verifies.
+The `raucle-detect` PyPI package receives one final transition release that
+depends on `raucle`, then no further releases.
 
 ## Quick Start
 
@@ -306,7 +326,7 @@ for prompt, result in zip(prompts, results):
 
 ## Rule Packs
 
-Raucle Detect ships with several rule packs in the `rules/` directory:
+Raucle ships with several rule packs in the `rules/` directory:
 
 | File | Rules | Description |
 |---|---|---|
@@ -325,7 +345,7 @@ scanner = Scanner(rules_dir="rules/")
 
 ## Input Size Limits
 
-Raucle Detect enforces input size limits to prevent denial-of-service via oversized payloads:
+Raucle enforces input size limits to prevent denial-of-service via oversized payloads:
 
 - **`MAX_INPUT_BYTES`** (1 MB) -- CLI file inputs larger than this are truncated before processing.
 - **`MAX_INPUT_LENGTH`** (100,000 characters) -- Prompts exceeding this length are truncated at the scanner level. A note is added to the `ScanResult.notes` field when truncation occurs.

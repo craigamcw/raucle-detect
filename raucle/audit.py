@@ -50,7 +50,6 @@ import datetime as dt
 import hashlib
 import json
 import logging
-import os
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -226,7 +225,7 @@ class HashChainSink:
             logger.warning(
                 "HashChainSink running UNSIGNED — hash chain is tamper-evident "
                 "but unattributed. Supply a signer or set "
-                "RAUCLE_DETECT_AUDIT_PRIVATE_KEY_PEM for cryptographic provenance."
+                "RAUCLE_AUDIT_PRIVATE_KEY_PEM for cryptographic provenance."
             )
 
         # Newly-created chains MUST have a chain_meta header. It is the
@@ -812,21 +811,25 @@ class NullSink:
 
 
 # Export the env-var name so the CLI and server can both reference it.
-ENV_AUDIT_PATH = "RAUCLE_DETECT_AUDIT_PATH"
-ENV_AUDIT_KEY = "RAUCLE_DETECT_AUDIT_PRIVATE_KEY_PEM"
+ENV_AUDIT_PATH = "RAUCLE_AUDIT_PATH"
+ENV_AUDIT_KEY = "RAUCLE_AUDIT_PRIVATE_KEY_PEM"
 
 
 def sink_from_env() -> HashChainSink | None:
     """Build a HashChainSink from environment variables, or None if not configured.
 
-    - ``RAUCLE_DETECT_AUDIT_PATH`` — file path for the chain log
-    - ``RAUCLE_DETECT_AUDIT_PRIVATE_KEY_PEM`` — PEM private key (optional)
+    - ``RAUCLE_AUDIT_PATH`` — file path for the chain log
+    - ``RAUCLE_AUDIT_PRIVATE_KEY_PEM`` — PEM private key (optional)
+
+    Legacy ``RAUCLE_DETECT_*`` names (pre-rename) remain supported.
     """
-    path = os.environ.get(ENV_AUDIT_PATH)
+    from raucle._env import env as _env
+
+    path = _env("AUDIT_PATH")
     if not path:
         return None
     signer: Ed25519Signer | None = None
-    key_pem = os.environ.get(ENV_AUDIT_KEY)
+    key_pem = _env("AUDIT_PRIVATE_KEY_PEM")
     if key_pem:
         try:
             signer = Ed25519Signer.from_pem(key_pem.encode())

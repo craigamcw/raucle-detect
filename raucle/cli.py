@@ -1,4 +1,4 @@
-"""Raucle Detect command-line interface.
+"""Raucle command-line interface.
 
 Examples::
 
@@ -50,7 +50,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="raucle",
         description=(
-            "Raucle Detect -- verifiable authorization & audit for AI agents: "
+            "Raucle -- verifiable authorization & audit for AI agents: "
             "capability tokens, SMT/Lean-proven policies, and signed provenance receipts "
             "(prompt-injection detection included)."
         ),
@@ -780,7 +780,7 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     if args.rules_dir:
         os.environ["RAUCLE_DETECT_RULES_DIR"] = args.rules_dir
 
-    print(f"Starting Raucle Detect server on {args.host}:{args.port} (mode={args.mode})")
+    print(f"Starting Raucle server on {args.host}:{args.port} (mode={args.mode})")
     uvicorn.run(
         "raucle.server:app",
         host=args.host,
@@ -1972,6 +1972,16 @@ def main(argv: list[str] | None = None) -> int:
     non-zero exit code — never a raw Python traceback. Genuinely unexpected
     errors still raise so they surface a stack trace for debugging.
     """
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    if _Path(_sys.argv[0]).name == "raucle-detect":
+        print(
+            "warning: the 'raucle-detect' command is deprecated (the project was "
+            "renamed); use 'raucle' — this alias will be removed in a future release",
+            file=_sys.stderr,
+        )
+
     from raucle.errors import ConfigurationError, PolicyUnproven
 
     try:

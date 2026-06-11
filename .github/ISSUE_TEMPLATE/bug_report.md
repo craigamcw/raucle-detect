@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Report a bug in Raucle Detect
+about: Report a bug in Raucle
 title: "[BUG] "
 labels: bug
 assignees: craigamcw
@@ -26,7 +26,7 @@ assignees: craigamcw
 
 ## Environment
 
-- Raucle Detect version:
+- Raucle version:
 - Python version:
 - OS:
 

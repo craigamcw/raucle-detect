@@ -178,4 +178,4 @@ jobs:
       - name: Check package
         run: |
           pip install dist/*.whl
-          python -c "import raucle; print(f'Raucle Detect {raucle.__version__} installed successfully')"
+          python -c "import raucle; print(f'Raucle {raucle.__version__} installed successfully')"

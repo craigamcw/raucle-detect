@@ -161,8 +161,7 @@ def _require_crypto() -> Any:
         from cryptography.hazmat.primitives.asymmetric import ed25519
     except ImportError as exc:  # pragma: no cover
         raise ImportError(
-            "raucle.capability requires the [compliance] extra: "
-            "pip install 'raucle[compliance]'"
+            "raucle.capability requires the [compliance] extra: pip install 'raucle[compliance]'"
         ) from exc
     return serialization, ed25519
 

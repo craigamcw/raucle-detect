@@ -1,4 +1,4 @@
-"""Raucle Detect -- Open-source prompt injection detection for LLM applications.
+"""Raucle -- Open-source prompt injection detection for LLM applications.
 
 Scan prompts for injection attacks, jailbreak attempts, data exfiltration,
 and other adversarial inputs before they reach your AI models.

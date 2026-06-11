@@ -1,6 +1,6 @@
-# Contributing to Raucle Detect
+# Contributing to Raucle
 
-Thank you for your interest in contributing to Raucle Detect. This library is the open-source core of the [Raucle](https://raucle.com) AI security platform.
+Thank you for your interest in contributing to Raucle. This library is the open-source core of the [Raucle](https://raucle.com) AI security platform.
 
 ## Developer Certificate of Origin (DCO)
 
@@ -100,7 +100,7 @@ All PRs require approval from a maintainer before merging.
 
 ## License
 
-By contributing to Raucle Detect, you agree that your contributions will be
+By contributing to Raucle, you agree that your contributions will be
 licensed under the **Apache License, Version 2.0** under which the project is
 released (see [LICENSE](LICENSE) and [LICENSING.md](LICENSING.md)). This follows
 the standard "inbound = outbound" model: what you contribute is licensed under
