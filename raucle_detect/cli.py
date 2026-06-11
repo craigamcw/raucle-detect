@@ -257,6 +257,23 @@ def _build_parser() -> argparse.ArgumentParser:
     reg_verify.add_argument("path", help="Registry JSONL file")
     reg_verify.add_argument("--operator-pubkey", help="Operator public-key PEM to authenticate")
 
+    # -- compliance (evidence packs, P4) ------------------------------------
+    comp_p = subparsers.add_parser(
+        "compliance", help="Map a receipt chain to named-framework controls"
+    )
+    comp_sub = comp_p.add_subparsers(dest="compliance_command")
+    comp_rep = comp_sub.add_parser("report", help="Generate a compliance evidence map")
+    comp_rep.add_argument("chain", help="Receipt chain JSONL file")
+    comp_rep.add_argument(
+        "--framework",
+        required=True,
+        help="eu-ai-act | iso-42001 | soc2",
+    )
+    comp_rep.add_argument(
+        "--format", default="md", choices=["md", "json"], help="Output format (default md)"
+    )
+    comp_rep.add_argument("--out", help="Write to this file instead of stdout")
+
     receipt_p = subparsers.add_parser("verify-receipt", help="Verify a signed JWS verdict receipt")
     receipt_p.add_argument("receipt", help="The compact JWS receipt string")
     receipt_p.add_argument("--pubkey", required=True, help="Path to Ed25519 public key PEM")
@@ -815,6 +832,43 @@ def _cmd_rules_fuzz(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
+
+def _cmd_compliance(args: argparse.Namespace) -> int:
+    """Generate a compliance evidence map from a receipt chain."""
+    import json as _json
+
+    from raucle_detect.compliance import build_report, render_markdown, supported_frameworks
+
+    if getattr(args, "compliance_command", None) != "report":
+        print("error: compliance needs the 'report' subcommand", file=sys.stderr)
+        return 2
+    try:
+        report = build_report(args.chain, framework=args.framework)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        print(f"supported: {', '.join(supported_frameworks())}", file=sys.stderr)
+        return 2
+    except FileNotFoundError:
+        print(f"error: no such chain file: {args.chain}", file=sys.stderr)
+        return 1
+
+    text = (
+        _json.dumps(report.to_dict(), indent=2)
+        if args.format == "json"
+        else render_markdown(report)
+    )
+    if args.out:
+        Path(args.out).write_text(text + "\n", encoding="utf-8")
+        s = report.summary()
+        counts = (
+            f"{s['SATISFIED']} satisfied / {s['PARTIAL']} partial / "
+            f"{s['OUT_OF_SCOPE']} out-of-scope"
+        )
+        print(f"Wrote {args.framework} evidence map to {args.out} ({counts})")
+    else:
+        print(text)
+    return 0
 
 
 def _cmd_registry(args: argparse.Namespace) -> int:
@@ -1884,6 +1938,8 @@ def _dispatch(argv: list[str] | None = None) -> int:
         return _cmd_watch(args)
     elif args.command == "registry":
         return _cmd_registry(args)
+    elif args.command == "compliance":
+        return _cmd_compliance(args)
     elif args.command == "verify-receipt":
         return _cmd_verify_receipt(args)
     elif args.command == "audit-export":
