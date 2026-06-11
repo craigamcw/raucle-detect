@@ -321,12 +321,15 @@ def verify_ack(
     # Replay-safe by default: a successful verify must be BOUND to this handshake.
     # The initiator always holds the request it sent, so it can always pass one of
     # these. Without a binding an authentic-but-replayed ack would pass (codex r5).
-    if require_binding and not any(
-        x is not None for x in (expected_nonce, expected_token_id, expected_request)
-    ):
+    # A reusable capability token is NOT a replay binding: an old ACCEPT for the
+    # same token verifies for a new call. Require a per-handshake binding —
+    # expected_request or expected_nonce — for a successful verify (codex r7).
+    # expected_token_id remains an additional capability-context check below.
+    if require_binding and expected_nonce is None and expected_request is None:
         return False, (
-            "no anti-replay binding supplied: pass expected_request (or expected_nonce / "
-            "expected_token_id), or require_binding=False to only check authenticity"
+            "no anti-replay binding supplied: pass expected_request or expected_nonce "
+            "(expected_token_id alone is insufficient), or require_binding=False to only "
+            "check authenticity"
         )
 
     responder_key_id = body.get("responder_key_id", "")

@@ -35,6 +35,7 @@ registry over HTTPS (SSRF-guarded) and verifies it before use.
 
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import logging
 from dataclasses import dataclass, field
@@ -53,6 +54,10 @@ logger = logging.getLogger(__name__)
 REGISTRY_VERSION = "trust-registry/v1"
 
 _GENESIS = "0" * 64
+
+
+def _now() -> int:
+    return int(_dt.datetime.now(_dt.timezone.utc).timestamp())
 
 
 def _canon_issuer(name: str) -> str:
@@ -185,6 +190,9 @@ class TrustRegistry:
         *,
         operator_public_pem: bytes | None = None,
         allow_unauthenticated: bool = False,
+        min_index: int | None = None,
+        expected_head_hash: str | None = None,
+        max_age_seconds: int | None = None,
         timeout: float = 10.0,
     ) -> TrustRegistry:
         """Fetch a published registry over HTTPS (SSRF-guarded) and verify it.
@@ -211,7 +219,12 @@ class TrustRegistry:
             reg._append_header()
         else:
             reg._tail_hash = reg._entries[-1].get("hash", _GENESIS)
-        reg.verify_integrity(operator_public_pem=operator_public_pem)
+        reg.verify_integrity(
+            operator_public_pem=operator_public_pem,
+            min_index=min_index,
+            expected_head_hash=expected_head_hash,
+            max_age_seconds=max_age_seconds,
+        )
         if reg._authenticated is not True and not allow_unauthenticated:
             raise RegistryIntegrityError(
                 f"refusing to trust trust-registry fetched from {url}: not authenticated. "
@@ -226,6 +239,7 @@ class TrustRegistry:
         entry = dict(entry)
         entry["index"] = len(self._entries)
         entry["prev_hash"] = self._tail_hash
+        entry.setdefault("ts", _now())  # signed freshness anchor (codex r7)
         # Hash covers everything except the hash field and the operator signature.
         body = {k: v for k, v in entry.items() if k not in ("hash", "operator_sig")}
         entry_hash = _sha256_hex(_canonical_json(body))
@@ -330,9 +344,29 @@ class TrustRegistry:
     def records(self) -> list[TrustRecord]:
         return list(self._fold().values())
 
+    def head(self) -> dict[str, Any]:
+        """The current signed head: ``{index, hash, ts}``. A consumer records this
+        from a trusted/fresh source and later pins it (``expected_head_hash`` /
+        ``min_index`` / ``max_age_seconds``) to detect a stale snapshot that omits
+        a later revocation (codex r7)."""
+        last = self._entries[-1] if self._entries else {}
+        return {
+            "index": last.get("index", -1),
+            "hash": last.get("hash", _GENESIS),
+            "ts": last.get("ts", 0),
+        }
+
     # -- integrity -----------------------------------------------------------
 
-    def verify_integrity(self, *, operator_public_pem: bytes | None = None) -> bool:
+    def verify_integrity(
+        self,
+        *,
+        operator_public_pem: bytes | None = None,
+        min_index: int | None = None,
+        expected_head_hash: str | None = None,
+        max_age_seconds: int | None = None,
+        now: int | None = None,
+    ) -> bool:
         """Verify the hash chain and (if signed) the operator signatures.
 
         Raises :class:`RegistryIntegrityError` on any break. ``operator_public_pem``
@@ -411,6 +445,28 @@ class TrustRegistry:
                     op_pub.verify(_b64d(sig), e["hash"].encode("ascii"))
                 except (InvalidSignature, ValueError) as exc:
                     raise RegistryIntegrityError(f"entry {i}: operator signature invalid") from exc
+
+        # Freshness anchor (codex r7): a chain-valid, fully operator-signed
+        # snapshot is still vulnerable to a *rollback* — an attacker serves an
+        # older signed prefix that omits a later revocation. The consumer pins
+        # what it knows the head should be (index/hash) or a max age, and any
+        # snapshot that falls short is rejected as stale.
+        head = self.head()
+        if min_index is not None and head["index"] < min_index:
+            raise RegistryIntegrityError(
+                f"stale snapshot: head index {head['index']} < expected min {min_index}"
+            )
+        if expected_head_hash is not None and head["hash"] != expected_head_hash:
+            raise RegistryIntegrityError(
+                f"stale snapshot: head hash {head['hash']} != expected {expected_head_hash}"
+            )
+        if max_age_seconds is not None:
+            ref = now if now is not None else _now()
+            if ref - head["ts"] > max_age_seconds:
+                raise RegistryIntegrityError(
+                    f"stale snapshot: head is {ref - head['ts']}s old "
+                    f"(max {max_age_seconds}s)"
+                )
         return True
 
 

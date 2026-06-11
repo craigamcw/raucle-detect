@@ -206,3 +206,35 @@ def test_blank_issuer_rejected(tmp_path):
     for bad in ("", "   ", "\t"):
         with pytest.raises(ValueError, match="non-empty"):
             reg.publish(_issuer("x").public_key_pem, issuer=bad)
+
+
+def test_stale_snapshot_detected_via_freshness_anchor(tmp_path):
+    """A stale signed snapshot that omits a later revocation is caught when the
+    consumer pins a freshness anchor (codex r7)."""
+    op = Ed25519Signer.generate()
+    path = tmp_path / "r.jsonl"
+    reg = TrustRegistry(path, operator_signer=op)
+    kid = reg.publish(_issuer("a").public_key_pem, issuer="org-a")
+    stale_head = reg.head()  # snapshot BEFORE revocation
+    reg.revoke(kid)
+    fresh_head = reg.head()
+    # A verifier with the FRESH head pinned rejects the stale snapshot.
+    stale = TrustRegistry.load(path)  # (full file, but simulate pinning a newer head)
+    with pytest.raises(RegistryIntegrityError, match="stale|head"):
+        stale.verify_integrity(
+            operator_public_pem=op.public_key_pem(),
+            expected_head_hash="f" * 64,  # a head the consumer expected but isn't present
+        )
+    # min_index in the future is rejected.
+    with pytest.raises(RegistryIntegrityError, match="stale"):
+        stale.verify_integrity(
+            operator_public_pem=op.public_key_pem(), min_index=fresh_head["index"] + 5
+        )
+    # max_age rejects an old head.
+    with pytest.raises(RegistryIntegrityError, match="stale"):
+        stale.verify_integrity(
+            operator_public_pem=op.public_key_pem(),
+            max_age_seconds=1,
+            now=fresh_head["ts"] + 10_000,
+        )
+    assert stale_head["index"] < fresh_head["index"]  # head advanced on revoke

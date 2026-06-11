@@ -259,3 +259,17 @@ def test_verify_ack_malformed_toplevel_fails_closed(tmp_path):
     for bad in (None, [], "nonsense", 42):
         ok, _ = verify_ack(bad, registry=reg, require_binding=False)
         assert not ok  # never raises
+
+
+def test_token_id_alone_is_not_replay_binding(two_orgs):
+    """expected_token_id alone is insufficient (the token is reusable) — a
+    per-handshake binding is required (codex r7)."""
+    reg, _iss_a, resp_b, token = two_orgs
+    req = build_request(token, tool="transfer_funds", args={"to": "acct:b-co", "amount": 50})
+    res = accept_call(req, registry=reg, responder_signer=resp_b, responder_id="org-b.gateway")
+    ok, why = verify_ack(
+        res.ack_receipt, registry=reg, expected_token_id=token.token_id, expected_decision="ACCEPT"
+    )
+    assert not ok and "anti-replay binding" in why
+    # request binding makes it valid.
+    assert verify_ack(res.ack_receipt, registry=reg, expected_request=req)[0]
