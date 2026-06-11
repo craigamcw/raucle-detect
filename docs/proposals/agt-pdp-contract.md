@@ -2,7 +2,7 @@
 
 **Status:** Draft proposal, 2026-05-27.
 **Authors:** Raucle.
-**Target:** upstream PR to [`microsoft/agent-governance-toolkit`](https://github.com/microsoft/agent-governance-toolkit); the raucle-detect side has shipped (PDP adapter in current releases).
+**Target:** upstream PR to [`microsoft/agent-governance-toolkit`](https://github.com/microsoft/agent-governance-toolkit); the raucle side has shipped (PDP adapter in current releases).
 **Companion proposal:** [`agent-framework-middleware.md`](./agent-framework-middleware.md).
 
 ## Summary
@@ -16,7 +16,7 @@ that AGT's Agent OS can call out to for policy decisions delegated to
 external PDPs, and proposes raucle as the reference implementation.
 
 Status today is a design proposal. The intent is to submit this as an
-ADR / PR upstream to the AGT repository; raucle-detect provides the
+ADR / PR upstream to the AGT repository; raucle provides the
 reference adapter alongside.
 
 ## Why now
@@ -190,13 +190,13 @@ integration package. The provider:
 Implementation sketch:
 
 ```python
-# raucle_detect/integrations/agt.py  (M2 deliverable, alongside the
+# raucle/integrations/agt.py  (M2 deliverable, alongside the
 # Agent Framework middleware)
 
 from agent_governance_toolkit.agent_os import IPolicyProvider, PolicyDecision
 
-from raucle_detect.capability import CapabilityGate
-from raucle_detect.integrations.agent_framework import get_in_force_token
+from raucle.capability import CapabilityGate
+from raucle.integrations.agent_framework import get_in_force_token
 
 
 class RauclePolicyProvider(IPolicyProvider):
@@ -269,7 +269,7 @@ remain live.
 | M | Deliverable | Target |
 |---|---|---|
 | M1 | This proposal (design doc) | 2026-05-27 |
-| M2 | `raucle_detect.integrations.agt.RauclePolicyProvider` (reference impl, working against a mock `IPolicyProvider`) + unit tests | 3 weeks |
+| M2 | `raucle.integrations.agt.RauclePolicyProvider` (reference impl, working against a mock `IPolicyProvider`) + unit tests | 3 weeks |
 | M3 | Upstream PR / ADR to `microsoft/agent-governance-toolkit` proposing `IPolicyProvider`, with the raucle reference impl linked as the first concrete consumer | 4 weeks |
 | M4 | If accepted upstream: AGT release ships the contract; raucle's reference impl becomes the canonical example in AGT's docs. If declined: ship the contract as an open extension, document the divergence, publish the gRPC out-of-process variant as the canonical way for non-Python PDPs to plug in. | 8–12 weeks |
 | M5 | Two-provider demo: raucle's VCD PDP + Microsoft's default in-process engine running side-by-side on the same Agent Framework deployment, with audit records showing each provider's decisions | 14 weeks |

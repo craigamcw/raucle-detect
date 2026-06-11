@@ -11,14 +11,14 @@ cryptography = pytest.importorskip("cryptography")
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from raucle_detect.audit_export import (
+from raucle.audit_export import (
     build_report,
     render_html,
     sign_manifest,
     verify_manifest,
 )
-from raucle_detect.prove import ProofResult
-from raucle_detect.provenance import AgentIdentity, ProvenanceLogger, ProvenanceVerifier
+from raucle.prove import ProofResult
+from raucle.provenance import AgentIdentity, ProvenanceLogger, ProvenanceVerifier
 
 
 def _audit_key_pem() -> bytes:
@@ -213,7 +213,7 @@ def test_capability_violation_is_red_not_green(tmp_path):
     be RED. A malicious emitter bypasses the runtime gate; the verifier (given
     the signed statement) must still catch it. Without the statement enforced
     the bug shows it GREEN — which is why build_report now passes statements."""
-    from raucle_detect.provenance import Operation, ProvenanceReceipt, hash_text
+    from raucle.provenance import Operation, ProvenanceReceipt, hash_text
 
     ident = AgentIdentity.generate(agent_id="agent:billing", allowed_tools=["safe_tool"])
     # Build receipts manually (bypassing the logger's permission gate) so the

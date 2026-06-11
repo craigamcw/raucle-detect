@@ -46,7 +46,7 @@ One decision = one event. Events are append-only and may be chained.
   "issuer_key_id":     "8fa2ffa741ba6e3a",
   "policy_proof_hash": "sha256:7c3e94…",
   "gate_id":           "gate.platform.example",
-  "gate_version":      "raucle-detect/0.10.0",
+  "gate_version":      "raucle/0.10.0",
   "prev_event_hash":   "sha256:a5e8c1d7…",
   "chain_index":       18472,
   "signature":         null
@@ -71,7 +71,7 @@ One decision = one event. Events are append-only and may be chained.
 | `issuer_key_id` | string \| null | optional | Convenience pointer to the issuer; can be recovered from the token. |
 | `policy_proof_hash` | string \| null | optional | Mirrors the token's policy_proof_hash for direct queryability. |
 | `gate_id` | string | yes | Deployment-specific identifier of the gate instance. |
-| `gate_version` | string | yes | Implementation + version (e.g. `raucle-detect/0.10.0`). |
+| `gate_version` | string | yes | Implementation + version (e.g. `raucle/0.10.0`). |
 | `prev_event_hash` | string \| null | yes | SHA-256 of the previous event's canonical body. Null only for the first event in a chain. |
 | `chain_index` | integer | yes | Monotonically increasing sequence number within a chain. |
 | `signature` | string \| null | yes | Optional Ed25519 signature over the canonical body. If absent, the event is hash-chained but unsigned; chain-level signatures may be applied periodically at checkpoint events (see "Chain checkpointing"). |
@@ -135,7 +135,7 @@ The default profile does not include call `args` in the event, only the `args_ha
 
 ## Reference implementation
 
-Apache-2.0 Python implementation in `raucle_detect/audit.py`. Hash-chained sink, Merkle-root checkpointing, signed checkpoints, full verification path. Used by the gate in `raucle_detect/capability.py` and the end-to-end demo in `examples/end_to_end/`.
+Apache-2.0 Python implementation in `raucle/audit.py`. Hash-chained sink, Merkle-root checkpointing, signed checkpoints, full verification path. Used by the gate in `raucle/capability.py` and the end-to-end demo in `examples/end_to_end/`.
 
 ## Composition with `cap:v1` and `proof:v1`
 

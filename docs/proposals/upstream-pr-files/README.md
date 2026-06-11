@@ -38,8 +38,8 @@ audit entry omits both keys when absent).
 ```bash
 git clone https://github.com/microsoft/agent-governance-toolkit.git /tmp/agt
 cd /tmp/agt
-git apply /path/to/raucle-detect/docs/proposals/upstream-pr-files/patch/backends-assurance-fields.patch
-cp /path/to/raucle-detect/docs/proposals/upstream-pr-files/tests/test_backend_decision_assurance_fields.py \
+git apply /path/to/raucle/docs/proposals/upstream-pr-files/patch/backends-assurance-fields.patch
+cp /path/to/raucle/docs/proposals/upstream-pr-files/tests/test_backend_decision_assurance_fields.py \
    agent-governance-python/agent-os/tests/
 
 cd agent-governance-python/agent-os
@@ -55,6 +55,6 @@ The full PR body is in [`../agt-pdp-contract.upstream-pr.md`](../agt-pdp-contrac
 
 ## Reference implementation
 
-raucle's integration at [`raucle_detect/integrations/agt.py`](../../../raucle_detect/integrations/agt.py)
+raucle's integration at [`raucle/integrations/agt.py`](../../../raucle/integrations/agt.py)
 will be reworked to implement `ExternalPolicyBackend` directly once
 this PR lands. It is **not** included in this proposed PR.

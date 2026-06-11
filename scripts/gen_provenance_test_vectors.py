@@ -29,7 +29,7 @@ def _build_identity():
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-    from raucle_detect.provenance import CapabilityStatement, _sha256_hex
+    from raucle.provenance import CapabilityStatement, _sha256_hex
 
     priv = Ed25519PrivateKey.from_private_bytes(_FIXED_SEED)
     pub_pem = priv.public_key().public_bytes(
@@ -43,28 +43,30 @@ def _build_identity():
         public_key_pem=pub_pem.decode("ascii"),
         allowed_models=["test-model-v1"],
         allowed_tools=["test-tool"],
-        issuer="raucle-detect",
+        issuer="raucle",
         issued_at=1_700_000_000,
         expires_at=None,
     )
     # Self-sign the statement deterministically
-    from raucle_detect.provenance import _canonical_json
+    from raucle.provenance import _canonical_json
 
     sig = priv.sign(_canonical_json(stmt.body()))
     stmt.signature = base64.b64encode(sig).decode("ascii")
 
     # Wrap as AgentIdentity without going through generate() (random key)
-    from raucle_detect.provenance import AgentIdentity
+    from raucle.provenance import AgentIdentity
 
     return AgentIdentity(agent_id="agent:test-vectors", private_key=priv, statement=stmt)
 
 
 def _build_vectors() -> dict:
-    from raucle_detect.provenance import Operation, ProvenanceReceipt, hash_obj, hash_text
+    from raucle.provenance import Operation, ProvenanceReceipt, hash_obj, hash_text
 
     identity = _build_identity()
     vectors: dict = {
         "spec_version": "raucle-provenance-receipt/v1",
+        # Frozen historical label — part of the committed vector artifact,
+        # non-normative (pre-dates the raucle-detect -> raucle rename).
         "generator_version": "raucle-detect 0.5.0",
         "fixed_seed_hex": _FIXED_SEED.hex(),
         "agent_id": identity.agent_id,
@@ -195,7 +197,7 @@ def _canonicalization_vectors() -> list[dict]:
     """
     import unicodedata
 
-    from raucle_detect.provenance import _canonical_json, _sha256_hex
+    from raucle.provenance import _canonical_json, _sha256_hex
 
     def vec(name: str, desc: str, obj: dict) -> dict:
         jcs = _canonical_json(obj)  # bytes, §4.3 canonical form
@@ -287,7 +289,7 @@ def _invalid_canonicalization_vectors() -> list[dict]:
     in `_canonical_json`, so the published `must_reject: true` is never a claim
     the reference implementation fails to honour.
     """
-    from raucle_detect.provenance import _canonical_json
+    from raucle.provenance import _canonical_json
 
     cases = [
         (
@@ -369,7 +371,7 @@ def _invalid_receipt_vectors() -> list[dict]:
     """
     import json as _json
 
-    from raucle_detect.provenance import (
+    from raucle.provenance import (
         _EXPECTED_ALG,
         _EXPECTED_TYP,
         Operation,

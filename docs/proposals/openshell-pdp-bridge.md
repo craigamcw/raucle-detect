@@ -4,7 +4,7 @@
 alpha (GTC, March 2026) and its policy/extension interfaces are not yet stable;
 we will not pin code to a moving target.
 **Authors:** Raucle.
-**Target:** design input to the NemoClaw/OpenShell project; raucle-detect side
+**Target:** design input to the NemoClaw/OpenShell project; raucle side
 ships independently of it (the [OpenClaw plugin](../../README.md) and
 [SIEM export](../getting-started/08-siem-and-live-view.md) work today).
 **Companion:** [Securing OpenClaw / NemoClaw deployments](../getting-started/09-openclaw-nemoclaw.md),
@@ -41,7 +41,7 @@ requires the others.
 
 OpenShell emits one JSON line per approval decision (allow/deny, host, port,
 initiating binary, session, timestamp) to a file or unix socket. raucle's
-[`SIEMSink`](../../raucle_detect/siem.py)-style consumer wraps each event into
+[`SIEMSink`](../../raucle/siem.py)-style consumer wraps each event into
 the **signed hash chain**, giving NemoClaw deployments a tamper-evident,
 third-party-verifiable record of what the operator approved and when — the
 forensic artefact the TUI flow does not produce.

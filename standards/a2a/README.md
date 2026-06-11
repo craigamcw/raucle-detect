@@ -66,7 +66,7 @@ the Agent Card at the well-known discovery path (per A2A §8).
   secret, works offline and cross-vendor.
 - `skill_capabilities[skillId]` (optional) binds a skill to a *proven*
   capability/policy hash (see the provenance spec §3 + the SMT-proven
-  policy in raucle-detect). Absent ⇒ receipts are emitted/verified but
+  policy in raucle). Absent ⇒ receipts are emitted/verified but
   no capability envelope is enforced.
 
 ## 2. Per-call hand-off receipt
@@ -133,7 +133,7 @@ needs, and exactly what a single-vendor guardrail cannot provide. It is
 proposed for upstream discussion. Reference helpers that build and verify
 these receipts ship in two languages:
 [`reference/a2a-provenance`](../../reference/a2a-provenance) (TypeScript)
-and [`raucle_detect/a2a.py`](../../raucle_detect/a2a.py) (Python), with a
+and [`raucle/a2a.py`](../../raucle/a2a.py) (Python), with a
 runnable two-agent demo in
 [`examples/a2a_handoff`](../../examples/a2a_handoff). The receipts share
 the Raucle provenance header + canonical JSON, so they are wire-compatible

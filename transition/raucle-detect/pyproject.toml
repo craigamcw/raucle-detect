@@ -1,0 +1,23 @@
+# Final transition release of the OLD PyPI name. Publishing this once makes
+# `pip install raucle-detect` (and existing pins that float patch versions)
+# pull in the renamed `raucle` package and surface the deprecation.
+# Publish manually: cd transition/raucle-detect && python -m build && twine upload dist/*
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "raucle-detect"
+version = "0.22.0"
+description = "DEPRECATED: renamed to 'raucle'. This transition package depends on raucle; update installs to 'pip install raucle'."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+authors = [{ name = "Raucle", email = "oss@raucle.com" }]
+dependencies = ["raucle>=0.22.0"]
+
+[project.urls]
+Homepage = "https://github.com/craigamcw/raucle"
+
+[tool.hatch.build.targets.wheel]
+bypass-selection = true

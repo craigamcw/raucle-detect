@@ -12,15 +12,15 @@ operational copies built from it, so turning them on never weakens the evidence.
 
 ## SIEM export
 
-[`SIEMSink`](../../raucle_detect/siem.py) is a drop-in `audit_sink`: it maps each
+[`SIEMSink`](../../raucle/siem.py) is a drop-in `audit_sink`: it maps each
 event to an [Elastic Common Schema](https://www.elastic.co/guide/en/ecs/current/index.html)-style
 document (which Splunk, Microsoft Sentinel, Elastic, and QRadar parse without a
 custom connector) and **tees** into the signed `HashChainSink`:
 
 ```python
-from raucle_detect.audit import Ed25519Signer, HashChainSink
-from raucle_detect.siem import SIEMSink
-from raucle_detect.scanner import Scanner
+from raucle.audit import Ed25519Signer, HashChainSink
+from raucle.siem import SIEMSink
+from raucle.scanner import Scanner
 
 sink = SIEMSink(
     "raucle-siem.jsonl",                                   # SOC tails this (one ECS doc per line)
@@ -41,16 +41,16 @@ Field mapping (the original event is preserved verbatim under `raucle.*`):
 Point a Splunk universal forwarder, Sentinel AMA, or Filebeat at the file and
 every decision streams in as structured JSON. The SIEM file is an operational
 copy — for disputes, verify the signed `receipts.jsonl` with
-`raucle-detect audit verify`, which is what an auditor can check offline.
+`raucle audit verify`, which is what an auditor can check offline.
 
 ## Live terminal view
 
 Tail any audit-chain or SIEM file with colourised, SOC-friendly output:
 
 ```bash
-raucle-detect watch receipts.jsonl              # live, follows new events
-raucle-detect watch raucle-siem.jsonl --denies-only   # only DENY / non-CLEAN
-raucle-detect watch receipts.jsonl --no-follow  # print existing events and exit
+raucle watch receipts.jsonl              # live, follows new events
+raucle watch raucle-siem.jsonl --denies-only   # only DENY / non-CLEAN
+raucle watch receipts.jsonl --no-follow  # print existing events and exit
 ```
 
 ```
@@ -66,7 +66,7 @@ external assets) fed by Server-Sent Events:
 
 ```bash
 export RAUCLE_DETECT_AUDIT_PATH=./receipts.jsonl    # enables the live view
-raucle-detect serve
+raucle serve
 # open http://localhost:8000/dashboard
 ```
 

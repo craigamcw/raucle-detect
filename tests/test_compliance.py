@@ -8,8 +8,8 @@ import pytest
 
 pytest.importorskip("cryptography")
 
-from raucle_detect.audit import Ed25519Signer, HashChainSink  # noqa: E402
-from raucle_detect.compliance import (  # noqa: E402
+from raucle.audit import Ed25519Signer, HashChainSink  # noqa: E402
+from raucle.compliance import (  # noqa: E402
     ControlStatus,
     build_report,
     extract_evidence,
@@ -116,7 +116,7 @@ class TestReports:
 
 class TestCLI:
     def test_cli_report_markdown(self, tmp_path, capsys):
-        from raucle_detect.cli import main
+        from raucle.cli import main
 
         rc = main(["compliance", "report", str(_chain(tmp_path)[0]), "--framework", "eu-ai-act"])
         out = capsys.readouterr().out
@@ -124,7 +124,7 @@ class TestCLI:
         assert "Compliance evidence map" in out and "Art.12" in out
 
     def test_cli_report_json_to_file(self, tmp_path):
-        from raucle_detect.cli import main
+        from raucle.cli import main
 
         out = tmp_path / "report.json"
         rc = main(
@@ -145,7 +145,7 @@ class TestCLI:
         assert doc["framework"] == "soc2" and "controls" in doc and doc["summary"]
 
     def test_cli_unknown_framework_errors(self, tmp_path, capsys):
-        from raucle_detect.cli import main
+        from raucle.cli import main
 
         rc = main(["compliance", "report", str(_chain(tmp_path)[0]), "--framework", "pci"])
         assert rc == 2

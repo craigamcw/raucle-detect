@@ -107,7 +107,7 @@ The Lean proofs will be released alongside the paper (released under Apache-2.0)
 
 ## 5. Implementation (~1 page)
 
-- ~2,500 lines of Python for the runtime (`raucle-detect`, Apache-2.0, already on PyPI).
+- ~2,500 lines of Python for the runtime (`raucle`, Apache-2.0, already on PyPI).
 - ~500 lines of Lean 4 for the mechanisations.
 - Z3 4.16 (PyZ3 bindings) for the SMT side.
 - Ed25519 via `cryptography` 42+.

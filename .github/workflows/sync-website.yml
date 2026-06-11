@@ -19,7 +19,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Check out raucle-detect
+      - name: Check out raucle
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           fetch-depth: 1
@@ -31,7 +31,7 @@ jobs:
           if [[ -z "$TOKEN" ]]; then
             echo "::error::WEBSITE_SYNC_TOKEN secret is not configured."
             echo "Add a fine-grained PAT with contents:write + pull-requests:write on craigamcw/raucle.com"
-            echo "at: https://github.com/craigamcw/raucle-detect/settings/secrets/actions"
+            echo "at: https://github.com/craigamcw/raucle/settings/secrets/actions"
             exit 1
           fi
 
@@ -119,7 +119,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           RUN_ID: ${{ github.run_id }}
         run: |
-          git config user.name "raucle-detect-bot"
+          git config user.name "raucle-bot"
           git config user.email "oss@raucle.io"
 
           if git diff --quiet; then
@@ -130,13 +130,13 @@ jobs:
           # Build commit message in a file so multi-line content stays
           # well clear of YAML / shell quoting hazards.
           {
-            printf 'Sync raucle-detect v%s release content\n\n' "$VERSION"
-            printf 'Automated update from raucle-detect tag push.\n'
+            printf 'Sync raucle v%s release content\n\n' "$VERSION"
+            printf 'Automated update from raucle tag push.\n'
             printf '  - Release badge bumped to v%s\n' "$VERSION"
             printf '  - Features list regenerated from CHANGELOG.md\n'
             printf "  - What's new callout updated\n\n"
-            printf 'Source: https://github.com/craigamcw/raucle-detect/blob/v%s/CHANGELOG.md\n' "$VERSION"
-            printf 'Workflow run: https://github.com/craigamcw/raucle-detect/actions/runs/%s\n' "$RUN_ID"
+            printf 'Source: https://github.com/craigamcw/raucle/blob/v%s/CHANGELOG.md\n' "$VERSION"
+            printf 'Workflow run: https://github.com/craigamcw/raucle/actions/runs/%s\n' "$RUN_ID"
           } > /tmp/commit-msg.txt
 
           git add index.html

@@ -1,4 +1,4 @@
-"""Tests for the raucle MCP server front-end (raucle_detect.broker.mcp_server).
+"""Tests for the raucle MCP server front-end (raucle.broker.mcp_server).
 
 Exercises the pure JSON-RPC handler: protocol handshake, tool listing, and
 tool calls routed through the AWS Egress Gate (ALLOW returns content, DENY
@@ -14,8 +14,8 @@ import pytest
 
 cryptography = pytest.importorskip("cryptography")
 
-from raucle_detect.broker import AWSEgressGate, RaucleMCPServer
-from raucle_detect.capability import CapabilityGate, CapabilityIssuer
+from raucle.broker import AWSEgressGate, RaucleMCPServer
+from raucle.capability import CapabilityGate, CapabilityIssuer
 
 
 class _FakeTransport:

@@ -8,15 +8,15 @@ import pytest
 
 pytest.importorskip("cryptography")
 
-from raucle_detect.audit import Ed25519Signer  # noqa: E402
-from raucle_detect.passport import (  # noqa: E402
+from raucle.audit import Ed25519Signer  # noqa: E402
+from raucle.passport import (  # noqa: E402
     PASSPORT_VERSION,
     AgentPassport,
     issue_passport,
     verify_passport,
 )
-from raucle_detect.provenance import AgentIdentity  # noqa: E402
-from raucle_detect.trust_registry import TrustRegistry  # noqa: E402
+from raucle.provenance import AgentIdentity  # noqa: E402
+from raucle.trust_registry import TrustRegistry  # noqa: E402
 
 
 @pytest.fixture
@@ -112,7 +112,7 @@ class TestCLI:
         from cryptography.hazmat.primitives import serialization
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-        from raucle_detect.cli import main
+        from raucle.cli import main
 
         # Org signer key on disk
         k = Ed25519PrivateKey.generate()
@@ -165,7 +165,7 @@ class TestCLI:
         from cryptography.hazmat.primitives import serialization
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-        from raucle_detect.cli import main
+        from raucle.cli import main
 
         k = Ed25519PrivateKey.generate()
         signer_pem = tmp_path / "org.key.pem"
@@ -246,8 +246,8 @@ def test_string_expiry_fails_closed_not_crash(tmp_path):
     agent = AgentIdentity.generate(agent_id="agent:x")
     passport = issue_passport(agent.statement, issuer_signer=org_signer, issuer="Org X")
     # Re-sign a body with a string expiry — a hostile-but-registered issuer.
-    from raucle_detect.audit import _canonical_json
-    from raucle_detect.passport import _b64
+    from raucle.audit import _canonical_json
+    from raucle.passport import _b64
 
     passport.expires_at = "9999999999"
     passport.issuer_signature = _b64(org_signer.sign(_canonical_json(passport.body())))

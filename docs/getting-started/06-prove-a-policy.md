@@ -1,6 +1,6 @@
 # 5. Prove a policy
 
-**Time: 10 min · Pre-req: `pip install 'raucle-detect[proof]'` (pulls Z3)**
+**Time: 10 min · Pre-req: `pip install 'raucle[proof]'` (pulls Z3)**
 
 Every other product in this space says "we have policies." Raucle's policies can be **proven**: an SMT solver decides whether *every string the tool's JSON Schema admits* satisfies the policy, or produces a concrete counterexample call as the refutation.
 
@@ -27,7 +27,7 @@ The difference is what an auditor needs.
 ## Step 1 — install with the proof extra
 
 ```bash
-pip install 'raucle-detect[proof,compliance]'
+pip install 'raucle[proof,compliance]'
 ```
 
 `[proof]` pulls in `z3-solver` (Microsoft Research's SMT solver) for the prover. `[compliance]` pulls in `cryptography`, which Step 6 needs to mint a capability token citing the proof. Both compose with `[agent-framework]` and the other extras.
@@ -92,7 +92,7 @@ policy = {
 ## Step 4 — prove it
 
 ```python
-from raucle_detect.prove import JSONSchemaProver
+from raucle.prove import JSONSchemaProver
 
 prover = JSONSchemaProver(timeout_ms=5000)
 result = prover.prove(schema=schema, policy=policy)
@@ -151,7 +151,7 @@ The prover **constructed a concrete call** that satisfies the schema but violate
 A token cites the proof by its content-address:
 
 ```python
-from raucle_detect.capability import CapabilityIssuer
+from raucle.capability import CapabilityIssuer
 
 issuer = CapabilityIssuer.generate(issuer="acme.bank.kyc")
 
@@ -199,7 +199,7 @@ print("published proof artefact:", result.hash)
 You can also drive the whole prove step from the command line, which is the form most CI pipelines use. Put the schema and policy in files and run:
 
 ```bash
-raucle-detect prove json --schema schema.json --policy policy.json
+raucle prove json --schema schema.json --policy policy.json
 ```
 
 ```
@@ -222,8 +222,8 @@ A policy that is **structurally enforced**, not configured. The auditor can re-p
 
 ## Where next
 
-- **`URLPolicyProver`** — same idea, for URL allowlists (`raucle-detect prove url`): require_https, host_allowlist with wildcards, max_path_depth.
-- **`SQLClauseProver`** — a **finite SQL-template checker over a modelled subset** (`raucle-detect prove sql`): forbidden_tokens, allowed_tables. Not a general SQL prover — a template using a construct outside the modelled subset (quoted identifiers, `LATERAL`/`UNNEST`/`VALUES`, recursive CTEs, table functions) returns **UNDECIDED** rather than PROVEN.
+- **`URLPolicyProver`** — same idea, for URL allowlists (`raucle prove url`): require_https, host_allowlist with wildcards, max_path_depth.
+- **`SQLClauseProver`** — a **finite SQL-template checker over a modelled subset** (`raucle prove sql`): forbidden_tokens, allowed_tables. Not a general SQL prover — a template using a construct outside the modelled subset (quoted identifiers, `LATERAL`/`UNNEST`/`VALUES`, recursive CTEs, table functions) returns **UNDECIDED** rather than PROVEN.
 - **[Paper draft](../../paper/DRAFT.md)** — the soundness theorems backing the prover (`VCD.GateAllowImpliesPolicy`, `VCD.TokenCitingProofConforms`).
 
 If you'd rather author policies in a UI with a live "Prove" button and a counterexample browser, that's [Raucle Cloud's](https://cloud.raucle.com) Policies workspace (phase 5b — shipping shortly).

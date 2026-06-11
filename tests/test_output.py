@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from raucle_detect.scanner import Scanner
+from raucle.scanner import Scanner
 
 
 @pytest.fixture

@@ -12,7 +12,7 @@ from paper.eval import agentdojo_patches  # noqa
 from paper.eval.agentdojo_adapter import run
 
 MODEL = "deepseek-v4-flash"
-ROOT = Path("/root/raucle-paper/raucle-detect/runs")
+ROOT = Path("/root/raucle-paper/raucle/runs")
 SUITES = ["slack", "travel", "workspace"]
 DEFENCES = ["none", "shields", "vcd_full"]
 

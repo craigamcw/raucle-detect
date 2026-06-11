@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sync raucle-detect release content into the raucle.com website.
+"""Sync raucle release content into the raucle.com website.
 
 Parses ``CHANGELOG.md`` for a specific version's section, then injects three
 pieces of HTML content into the target site between named comment markers:
@@ -266,8 +266,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--repo-url",
-        default="https://github.com/craigamcw/raucle-detect",
-        help="Base URL for the raucle-detect GitHub repo",
+        default="https://github.com/craigamcw/raucle",
+        help="Base URL for the raucle GitHub repo",
     )
     parser.add_argument("--dry-run", action="store_true", help="Print result, do not write")
     args = parser.parse_args(argv)

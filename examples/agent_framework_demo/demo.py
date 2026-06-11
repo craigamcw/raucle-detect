@@ -5,7 +5,7 @@ runnable script: a live Agent Framework deployment also needs a chat
 client (OpenAI, Azure, Anthropic, or a local Ollama) and the deployer's
 own tool implementations. What follows is the four-line wire-up plus the
 session-token binding pattern, with type-checked references to the real
-``raucle_detect.integrations.agent_framework`` API.
+``raucle.integrations.agent_framework`` API.
 
 For the *verified behaviour* of the middleware (ALLOW path, DENY path,
 no-token path, receipt content), see the unit test suite:
@@ -19,7 +19,7 @@ Framework invocation context.
 Run sequence (when adapted into a real deployment)
 --------------------------------------------------
 
-    pip install 'raucle-detect[agent-framework]'
+    pip install 'raucle[agent-framework]'
     python examples/agent_framework_demo/demo.py
 """
 from __future__ import annotations
@@ -29,9 +29,9 @@ from pathlib import Path
 from agent_framework import ChatAgent  # type: ignore[import-not-found]
 from agent_framework.openai import OpenAIChatClient  # type: ignore[import-not-found]
 
-from raucle_detect.audit import Ed25519Signer, HashChainSink
-from raucle_detect.capability import CapabilityGate, CapabilityIssuer
-from raucle_detect.integrations.agent_framework import (
+from raucle.audit import Ed25519Signer, HashChainSink
+from raucle.capability import CapabilityGate, CapabilityIssuer
+from raucle.integrations.agent_framework import (
     RaucleFunctionMiddleware,
     set_in_force_token,
 )

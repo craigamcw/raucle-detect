@@ -6,9 +6,9 @@ name: Publish to PyPI
 #
 # One-time setup at https://pypi.org/manage/account/publishing/ — add
 # a "pending publisher" with:
-#   Project name:     raucle-detect
+#   Project name:     raucle
 #   Owner:            craigamcw
-#   Repository:       raucle-detect
+#   Repository:       raucle
 #   Workflow:         publish.yml
 #   Environment:      pypi
 # Once the first publish lands the pending entry becomes a normal
@@ -56,7 +56,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: testpypi
-      url: https://test.pypi.org/project/raucle-detect/
+      url: https://test.pypi.org/project/raucle/
     permissions:
       id-token: write
     steps:
@@ -76,7 +76,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/project/raucle-detect/
+      url: https://pypi.org/project/raucle/
     permissions:
       id-token: write
     steps:

@@ -13,7 +13,7 @@ import (
 )
 
 // This implementation mirrors the canonical Python reference
-// (raucle_detect/provenance.py) byte-for-byte: same JOSE header (incl.
+// (raucle/provenance.py) byte-for-byte: same JOSE header (incl.
 // the "raucle/v1": "provenance" tag), same payload field set/ordering,
 // same string-typed model/tool/corpus, sha256:-prefixed hashes, and the
 // same content-addressed id ("sha256:" + hex(sha256(jws))).

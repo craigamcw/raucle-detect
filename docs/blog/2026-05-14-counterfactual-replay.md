@@ -1,6 +1,6 @@
 # What Would Have Happened? Counterfactual Replay for AI Workflows
 
-*Published 14 May 2026 · Raucle Engineering · Release: [raucle-detect v0.6.0](https://github.com/craigamcw/raucle-detect/releases/tag/v0.6.0)*
+*Published 14 May 2026 · Raucle Engineering · Release: [raucle v0.6.0](https://github.com/craigamcw/raucle/releases/tag/v0.6.0)*
 
 ---
 
@@ -10,12 +10,12 @@ A near-miss landed in the on-call channel at 2:47 AM. A customer-support agent a
 
 Today, across the industry, the honest answer is **we don't know**. You can re-read the logs and squint at them. You can write a regression test for the specific prompt and hope it generalises. You cannot point at a cryptographic record and say *"yes, the strict-mode scanner would have BLOCKed this on the 14th of May at 02:47 AM."*
 
-Today, raucle-detect ships **counterfactual replay** — and that question gets a one-command answer.
+Today, raucle ships **counterfactual replay** — and that question gets a one-command answer.
 
 ## The two-minute demo
 
 ```bash
-$ raucle-detect provenance replay audit/chain.jsonl \
+$ raucle provenance replay audit/chain.jsonl \
     --input-store audit/inputs.jsonl \
     --mode strict
 
@@ -61,8 +61,8 @@ The v0.5.0 receipt format records `input_hash`, not the prompt itself. That keep
 ## How it works in code
 
 ```python
-from raucle_detect import AgentIdentity, ProvenanceLogger, Scanner
-from raucle_detect.replay import InputStore
+from raucle import AgentIdentity, ProvenanceLogger, Scanner
+from raucle.replay import InputStore
 
 identity = AgentIdentity.generate(agent_id="agent:customer-support")
 
@@ -84,8 +84,8 @@ with (
 Two days later, when something goes wrong:
 
 ```python
-from raucle_detect import Scanner
-from raucle_detect.replay import InputStore, Replayer
+from raucle import Scanner
+from raucle.replay import InputStore, Replayer
 
 with InputStore.open("audit/inputs.jsonl") as inputs:
     counterfactual = Scanner(mode="strict")
@@ -120,7 +120,7 @@ I'll resist the temptation to list every flag. Three shapes cover 90% of what te
 **Tighten a threshold across last week's traffic.** "We are considering moving from `standard` to `strict`. Will this break anything?"
 
 ```bash
-raucle-detect provenance replay last-week.jsonl --input-store inputs.jsonl --mode strict
+raucle provenance replay last-week.jsonl --input-store inputs.jsonl --mode strict
 ```
 
 If `newly_allowed` is non-empty you have a false-positive problem; if it is empty and `newly_blocked` is non-zero you have a tightening that catches more without breaking anything you cared about.
@@ -128,7 +128,7 @@ If `newly_allowed` is non-empty you have a false-positive problem; if it is empt
 **Test a new rule pack before rolling out.** "We just wrote five new RAG-poisoning rules. Will they overfit?"
 
 ```bash
-raucle-detect provenance replay last-month.jsonl \
+raucle provenance replay last-month.jsonl \
     --input-store inputs.jsonl \
     --rules-dir new-rag-rules/ \
     --mode standard
@@ -150,7 +150,7 @@ Future versions may add an opt-in "re-call the model with a deterministic seed" 
 
 If you are running a production LLM gateway and you want to actually use this:
 
-1. Upgrade to `raucle-detect>=0.6.0`. The `[compliance]` extra pulls the Ed25519 dependency you need for the v0.5.0 audit chain. Counterfactual replay itself adds no new mandatory deps.
+1. Upgrade to `raucle>=0.6.0`. The `[compliance]` extra pulls the Ed25519 dependency you need for the v0.5.0 audit chain. Counterfactual replay itself adds no new mandatory deps.
 2. Wire `provenance_logger=` and `input_store=` into your `Scanner` at startup. Set the input store path to a directory with stricter access controls than the chain log.
 3. Today: nothing changes. You are accumulating the data you need for any future replay.
 4. The first time someone asks *"would the strict mode have caught that?"*, you answer it in 30 seconds and they remember.
@@ -159,7 +159,7 @@ If you are evaluating raucle for the first time:
 
 - [Spec for the underlying provenance receipt format](https://raucle.com/spec/provenance/v1) — already three reference implementations across Python, TypeScript, Go, and Rust.
 - [raucle-bench](https://github.com/craigamcw/raucle-bench) — public leaderboard if you want to compare detectors before integrating.
-- [Source for the replay module](https://github.com/craigamcw/raucle-detect/blob/main/raucle_detect/replay.py) — ~400 lines, MIT, the test suite at [`tests/test_replay.py`](https://github.com/craigamcw/raucle-detect/blob/main/tests/test_replay.py) is the contract.
+- [Source for the replay module](https://github.com/craigamcw/raucle/blob/main/raucle/replay.py) — ~400 lines, MIT, the test suite at [`tests/test_replay.py`](https://github.com/craigamcw/raucle/blob/main/tests/test_replay.py) is the contract.
 
 The thread that connects everything we have shipped over the last year — audit chains, signed receipts, provenance graphs, MCP scanners, public benchmarks, this — is that **trust in AI infrastructure must be cryptographic, not promised**. Counterfactual replay is what that thread looks like when you pull on it long enough. The next pull is multimodal injection, which is what attackers are actually doing in 2026 and what most detectors still cannot see.
 
@@ -167,6 +167,6 @@ We will be writing about that next.
 
 ---
 
-*Discussion: [Hacker News](https://news.ycombinator.com/submit) · [Lobste.rs](https://lobste.rs/) · [/r/MachineLearning](https://reddit.com/r/MachineLearning) · [GitHub Issues](https://github.com/craigamcw/raucle-detect/issues?q=label%3Areplay)*
+*Discussion: [Hacker News](https://news.ycombinator.com/submit) · [Lobste.rs](https://lobste.rs/) · [/r/MachineLearning](https://reddit.com/r/MachineLearning) · [GitHub Issues](https://github.com/craigamcw/raucle/issues?q=label%3Areplay)*
 
 *Raucle is an open-source AI security project. The runtime detection engine, the provenance receipt format, the input store, and all reference implementations are MIT-licensed.*

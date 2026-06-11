@@ -41,7 +41,7 @@ Top-level keys:
 
 ## Constraint vocabulary
 
-(Mirrors `raucle_detect.capability.Capability.constraints`; see `raucle_detect/capability.py` for the runtime enforcement.)
+(Mirrors `raucle.capability.Capability.constraints`; see `raucle/capability.py` for the runtime enforcement.)
 
 | Key | Semantics |
 |---|---|

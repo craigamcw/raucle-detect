@@ -6,9 +6,9 @@ import pytest
 
 cryptography = pytest.importorskip("cryptography")
 
-from raucle_detect.audit import AuditVerifier, Ed25519Signer, HashChainSink
-from raucle_detect.scanner import Scanner
-from raucle_detect.verdicts import VerdictSigner, VerdictVerifier
+from raucle.audit import AuditVerifier, Ed25519Signer, HashChainSink
+from raucle.scanner import Scanner
+from raucle.verdicts import VerdictSigner, VerdictVerifier
 
 
 class TestScannerWithCompliance:

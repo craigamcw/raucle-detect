@@ -1,4 +1,4 @@
-"""Tests for the FastAPI REST server (raucle_detect/server.py).
+"""Tests for the FastAPI REST server (raucle/server.py).
 
 Covers the surface the docs promise: /health liveness, /scan verdicts, the
 auth middleware's fail-closed behaviour when an API key is configured, and
@@ -33,8 +33,8 @@ def _fresh_app(monkeypatch, **env):
         monkeypatch.delenv(key, raising=False)
     for key, value in env.items():
         monkeypatch.setenv(key, value)
-    sys.modules.pop("raucle_detect.server", None)
-    module = importlib.import_module("raucle_detect.server")
+    sys.modules.pop("raucle.server", None)
+    module = importlib.import_module("raucle.server")
     return module.app
 
 

@@ -9,7 +9,7 @@ import pytest
 
 cryptography = pytest.importorskip("cryptography")
 
-from raucle_detect.provenance import (
+from raucle.provenance import (
     AgentIdentity,
     Operation,
     ProvenanceLogger,
@@ -385,7 +385,7 @@ class TestCapabilityEnforcement:
 
 class TestScannerAutoEmit:
     def test_scan_auto_emits_provenance_receipt(self, tmp_path):
-        from raucle_detect.scanner import Scanner
+        from raucle.scanner import Scanner
 
         identity = AgentIdentity.generate(agent_id="agent:scanner")
         with ProvenanceLogger(agent=identity, sink_path=tmp_path / "c.jsonl") as log:
@@ -400,7 +400,7 @@ class TestScannerAutoEmit:
         assert report.receipt_count == 1
 
     def test_scan_with_parent_receipts_chains_correctly(self, tmp_path):
-        from raucle_detect.scanner import Scanner
+        from raucle.scanner import Scanner
 
         identity = AgentIdentity.generate(agent_id="agent:scanner")
         with ProvenanceLogger(agent=identity, sink_path=tmp_path / "c.jsonl") as log:
@@ -429,7 +429,7 @@ class TestScannerAutoEmit:
         assert scan_receipt.guardrail_verdict in ("CLEAN", "SUSPICIOUS", "MALICIOUS")
 
     def test_scan_without_logger_no_provenance_hash(self):
-        from raucle_detect.scanner import Scanner
+        from raucle.scanner import Scanner
 
         result = Scanner().scan("hello")
         assert result.provenance_hash == ""
@@ -446,7 +446,7 @@ class TestCapabilityStatementSignature:
     def test_self_signed_statement_verifies(self):
         from cryptography.hazmat.primitives import serialization
 
-        from raucle_detect.provenance import _canonical_json as canon  # noqa: F401
+        from raucle.provenance import _canonical_json as canon  # noqa: F401
 
         identity = AgentIdentity.generate(agent_id="agent:c")
         stmt = identity.statement
@@ -482,7 +482,7 @@ def test_verifier_enforces_capability_statement(tmp_path):
     lax/compromised producer emitted them."""
     import dataclasses
 
-    from raucle_detect.provenance import AgentIdentity, ProvenanceLogger, ProvenanceVerifier
+    from raucle.provenance import AgentIdentity, ProvenanceLogger, ProvenanceVerifier
 
     idy = AgentIdentity.generate(
         agent_id="agent:m", allowed_models=["m1", "m2"], allowed_tools=["t1"]
@@ -537,7 +537,7 @@ class TestEnvelopeAndIntegerDomain:
     def test_oversized_integer_rejected_in_canonical(self):
         """B6/§8.10: integers outside the portable safe range are rejected so
         canonical bytes stay identical across the five reference impls."""
-        from raucle_detect.provenance import _canonical_json
+        from raucle.provenance import _canonical_json
 
         _canonical_json({"iat": 2**53 - 1})  # safe, ok
         with pytest.raises(ValueError, match="safe-integer"):
@@ -548,7 +548,7 @@ class TestEnvelopeMigration:
     def test_migrate_rich_envelope_to_minimal(self, tmp_path):
         """The offline converter rewrites a legacy rich-envelope chain to the
         minimal {receipt_hash, jws} envelope, and the result verifies."""
-        from raucle_detect.provenance import migrate_chain_envelope
+        from raucle.provenance import migrate_chain_envelope
 
         identity = AgentIdentity.generate(agent_id="agent:m")
         # Build a legacy rich-envelope chain by hand (full payload + receipt_hash + jws).
@@ -586,7 +586,7 @@ class TestEnvelopeMigration:
     def test_migrate_rejects_bad_signature(self, tmp_path):
         """The migrator verifies signatures: a receipt whose signature segment is
         corrupted is NOT migrated (from_jws alone would not catch this)."""
-        from raucle_detect.provenance import migrate_chain_envelope
+        from raucle.provenance import migrate_chain_envelope
 
         identity = AgentIdentity.generate(agent_id="agent:m")
         r = ProvenanceReceipt(
@@ -608,7 +608,7 @@ class TestEnvelopeMigration:
             migrate_chain_envelope(legacy, tmp_path / "out.jsonl", keys)
 
     def test_migrate_fails_loud_on_missing_jws(self, tmp_path):
-        from raucle_detect.provenance import migrate_chain_envelope
+        from raucle.provenance import migrate_chain_envelope
 
         identity = AgentIdentity.generate(agent_id="agent:m")
         keys = {identity.key_id: identity.public_key_pem()}

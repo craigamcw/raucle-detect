@@ -21,7 +21,7 @@ hyperscaler's internal log structurally cannot offer.
 
 Run::
 
-    pip install 'raucle-detect[compliance]'
+    pip install 'raucle[compliance]'
     python examples/aws_custody/demo.py
 
 No AWS account or network is needed — the transport is stubbed so the demo is
@@ -36,10 +36,10 @@ from pathlib import Path
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from raucle_detect.audit_pack import build_pack, verify_pack
-from raucle_detect.broker import AWSEgressGate, CapabilityDenied
-from raucle_detect.capability import CapabilityGate, CapabilityIssuer
-from raucle_detect.provenance import AgentIdentity, ProvenanceLogger
+from raucle.audit_pack import build_pack, verify_pack
+from raucle.broker import AWSEgressGate, CapabilityDenied
+from raucle.capability import CapabilityGate, CapabilityIssuer
+from raucle.provenance import AgentIdentity, ProvenanceLogger
 
 OUT = Path("demo-output/aws-custody")
 OUT.mkdir(parents=True, exist_ok=True)

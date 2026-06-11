@@ -2,16 +2,16 @@
 
 Three of these are stubs that delegate to upstream reference implementations
 (Spotlighting, StruQ, the commercial prompt-shields vendor). The three VCD
-configurations wire the actual raucle-detect runtime.
+configurations wire the actual raucle runtime.
 """
 
 from __future__ import annotations
 
 from typing import Any, Callable
 
-from raucle_detect import Scanner
-from raucle_detect.capability import CapabilityGate, CapabilityIssuer
-from raucle_detect.prove import JSONSchemaProver
+from raucle import Scanner
+from raucle.capability import CapabilityGate, CapabilityIssuer
+from raucle.prove import JSONSchemaProver
 
 
 # ---------------------------------------------------------------------------

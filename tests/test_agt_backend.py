@@ -19,9 +19,9 @@ pytest.importorskip("agent_os.policies.evaluator")
 from agent_os.policies.backends import ExternalPolicyBackend  # noqa: E402
 from agent_os.policies.evaluator import PolicyEvaluator  # noqa: E402
 
-from raucle_detect.capability import CapabilityGate, CapabilityIssuer  # noqa: E402
-from raucle_detect.integrations.agent_framework import set_in_force_token  # noqa: E402
-from raucle_detect.integrations.agt_backend import RauclePolicyBackend  # noqa: E402
+from raucle.capability import CapabilityGate, CapabilityIssuer  # noqa: E402
+from raucle.integrations.agent_framework import set_in_force_token  # noqa: E402
+from raucle.integrations.agt_backend import RauclePolicyBackend  # noqa: E402
 
 # ─── Fixtures ──────────────────────────────────────────────────────────
 

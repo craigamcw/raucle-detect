@@ -31,7 +31,7 @@ The generator pins the Ed25519 keypair (via fixed secret seed) and the wall-cloc
 
 ## `gate-decision:v1` schema
 
-`gate_decision_v1_schema.json` — the field-shape reference. The reference implementation in `raucle_detect/audit.py` emits events conforming to this shape; production deployments may add `x-`-prefixed extension fields without breaking the canonical-body hashing.
+`gate_decision_v1_schema.json` — the field-shape reference. The reference implementation in `raucle/audit.py` emits events conforming to this shape; production deployments may add `x-`-prefixed extension fields without breaking the canonical-body hashing.
 
 ## Verifying these vectors in your reimplementation
 

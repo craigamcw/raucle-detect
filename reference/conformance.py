@@ -11,7 +11,7 @@ Proves the five reference implementations are genuinely interoperable:
   3. All five languages + the published vector MUST agree on both the
      JWS bytes and the receipt_hash.
 
-The canonical Python reference (raucle_detect/provenance.py) is the
+The canonical Python reference (raucle/provenance.py) is the
 source of truth; the ports conform to it.
 
 Usage:  python reference/conformance.py
@@ -58,7 +58,7 @@ def emit_python(reqs: list[dict]) -> list[dict]:
         Ed25519PrivateKey,
     )
 
-    from raucle_detect.provenance import (
+    from raucle.provenance import (
         AgentIdentity,
         CapabilityStatement,
         ProvenanceReceipt,
@@ -146,7 +146,7 @@ def verify_python(jws: str, vf: dict) -> str:
     """Verify a JWS with the Python reference; return recomputed id."""
     from cryptography.hazmat.primitives import serialization
 
-    from raucle_detect.provenance import ProvenanceReceipt
+    from raucle.provenance import ProvenanceReceipt
 
     pub = serialization.load_pem_public_key(vf["public_key_pem"].encode())
     rec = ProvenanceReceipt.from_jws(jws)

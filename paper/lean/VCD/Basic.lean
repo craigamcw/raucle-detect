@@ -1,6 +1,6 @@
 /-
   Verified Capability Discipline — data model.
-  Mirrors the runtime types defined in `raucle_detect/capability.py`.
+  Mirrors the runtime types defined in `raucle/capability.py`.
 -/
 
 import Mathlib.Data.Finset.Basic

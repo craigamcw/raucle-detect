@@ -16,8 +16,8 @@ import pytest
 pytest.importorskip("z3")
 pytest.importorskip("cryptography")
 
-from raucle_detect.capability import CapabilityGate, CapabilityIssuer
-from raucle_detect.prove import JSONSchemaProver
+from raucle.capability import CapabilityGate, CapabilityIssuer
+from raucle.prove import JSONSchemaProver
 
 
 def _txfer_schema() -> dict:

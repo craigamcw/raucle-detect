@@ -6,7 +6,7 @@ import pytest
 
 cryptography = pytest.importorskip("cryptography")
 
-from raucle_detect.verdicts import (
+from raucle.verdicts import (
     VerdictSigner,
     VerdictVerificationError,
     VerdictVerifier,
@@ -99,8 +99,8 @@ class TestVerdictSignerFailLoud:
     signer silently produced unverifiable receipts."""
 
     def test_raises_configuration_error_on_bad_private_key(self):
-        from raucle_detect.errors import ConfigurationError
-        from raucle_detect.verdicts import VerdictSigner
+        from raucle.errors import ConfigurationError
+        from raucle.verdicts import VerdictSigner
 
         with pytest.raises(ConfigurationError):
             VerdictSigner(private_key=object())

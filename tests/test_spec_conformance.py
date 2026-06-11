@@ -54,7 +54,7 @@ class TestSpecConformance:
         """An independent re-verification of every published vector against the
         public key in the vectors file. This is the simplest possible
         compatibility check a third-party implementation must pass."""
-        from raucle_detect.provenance import ProvenanceReceipt, ProvenanceVerifier
+        from raucle.provenance import ProvenanceReceipt, ProvenanceVerifier
 
         data = json.loads(VECTORS_PATH.read_text())
         public_key_pem = data["public_key_pem"].encode("ascii")
@@ -83,7 +83,7 @@ class TestSpecConformance:
             load_pem_public_key,
         )
 
-        from raucle_detect.provenance import ProvenanceReceipt, _b64url_decode
+        from raucle.provenance import ProvenanceReceipt, _b64url_decode
 
         data = json.loads(VECTORS_PATH.read_text())
         pub = load_pem_public_key(data["public_key_pem"].encode("ascii"))
@@ -111,7 +111,7 @@ class TestSpecConformance:
         likely to surface implementation bugs. Adding a vector here forces
         the generator + reference impl to support it."""
         data = json.loads(VECTORS_PATH.read_text())
-        from raucle_detect.provenance import ProvenanceReceipt
+        from raucle.provenance import ProvenanceReceipt
 
         operations_seen = {
             ProvenanceReceipt.from_jws(v["expected_jws"]).operation.value for v in data["vectors"]

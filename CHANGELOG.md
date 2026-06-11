@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.22.0 (2026-06-11) — package renamed: raucle-detect is now raucle
+
+The library outgrew "detect": receipts, provenance, the trust registry,
+passports, and compliance evidence are the product; detection is one module.
+
+### Changed
+
+- **PyPI package**: `raucle-detect` -> `raucle` (`pip install raucle`).
+  `raucle-detect` on PyPI receives one final transition release depending on
+  `raucle` (so pinned installs surface the rename), then no further releases.
+- **Import name**: `raucle_detect` -> `raucle`. A deprecation shim keeps
+  `import raucle_detect` working (with a `DeprecationWarning`) for one
+  transition cycle.
+- **CLI**: `raucle` is the command; `raucle-detect` remains as a deprecated
+  alias entry point.
+- **GitHub repo**: renamed to `craigamcw/raucle` immediately after this
+  release merged (old URLs redirect).
+- **Env vars**: `RAUCLE_*` is the primary prefix; legacy `RAUCLE_DETECT_*`
+  names remain supported.
+- **Go reference port** (breaking): the module path is now
+  `github.com/craigamcw/raucle/reference/provenance-go` — Go consumers must
+  update import paths (Go modules cannot alias a renamed declared path).
+
+### Unchanged — wire compatibility
+
+- The provenance receipt `iss` identifier remains the frozen wire constant
+  `"raucle-detect/provenance"` (spec v1, committed cross-language test
+  vectors, and all five reference ports are byte-for-byte unaffected).
+- Receipt/audit/registry formats, signatures, and canonical JSON are
+  untouched: every existing receipt still verifies.
+
+
 ## 0.21.0 (2026-06-11) — platform trust layer (registry / handshake / passport / compliance)
 
 Four new modules forming the cross-organisation trust layer, hardened through

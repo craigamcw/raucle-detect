@@ -155,8 +155,8 @@ Where base A2A reduces to "the network connection is authenticated", VCD-A2A add
 
 | Milestone | Deliverable | Target |
 |---|---|---|
-| M1 | Receipt format frozen; Go and Python reference encoders/verifiers in `raucle-detect` | 2 weeks |
-| M2 | A2A adapter in `raucle_detect.a2a` — wraps an A2A agent server, injects `vcdReceipt`, verifies on receipt | 6 weeks |
+| M1 | Receipt format frozen; Go and Python reference encoders/verifiers in `raucle` | 2 weeks |
+| M2 | A2A adapter in `raucle.a2a` — wraps an A2A agent server, injects `vcdReceipt`, verifies on receipt | 6 weeks |
 | M3 | Two-agent demo: travel-booking agent delegates to payments agent across a published Agent Card boundary | 8 weeks |
 | M4 | Draft A2A protocol extension PR, with reference implementation links | 12 weeks |
 | M5 | AgentDyn benchmark run with VCD-A2A enabled across all cross-agent scenarios | 16 weeks |

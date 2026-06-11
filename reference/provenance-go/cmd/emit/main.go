@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"os"
 
-	provenance "github.com/craigamcw/raucle-detect/reference/provenance-go"
+	provenance "github.com/craigamcw/raucle/reference/provenance-go"
 )
 
 type req struct {

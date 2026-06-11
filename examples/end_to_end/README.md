@@ -1,6 +1,6 @@
 # End-to-end demo — the whole trust graph in one script
 
-One runnable scenario showing every primitive raucle-detect has shipped, composed:
+One runnable scenario showing every primitive raucle has shipped, composed:
 
 ```
 user prompt
@@ -24,7 +24,7 @@ user prompt
 ## Run
 
 ```bash
-pip install 'raucle-detect[compliance,proof]'
+pip install 'raucle[compliance,proof]'
 python examples/end_to_end/demo.py
 ```
 
@@ -32,8 +32,8 @@ Artefacts land in `./demo-output/`. Every one of them is independently verifiabl
 offline:
 
 ```bash
-raucle-detect audit verify demo-output/audit.jsonl --pubkey demo-output/audit.pub.pem
-raucle-detect cap verify   demo-output/token.json   --pubkey demo-output/cap.pub.pem
+raucle audit verify demo-output/audit.jsonl --pubkey demo-output/audit.pub.pem
+raucle cap verify   demo-output/token.json   --pubkey demo-output/cap.pub.pem
 ```
 
 ## What each step proves

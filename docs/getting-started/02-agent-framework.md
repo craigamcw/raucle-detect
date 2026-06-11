@@ -18,7 +18,7 @@ This is the **recommended integration** for AI-agent platforms on Microsoft's st
 ## Step 1 — install
 
 ```bash
-pip install 'raucle-detect[agent-framework,compliance]'
+pip install 'raucle[agent-framework,compliance]'
 ```
 
 This pulls in `agent-framework` alongside the raucle engine, plus the `compliance` extra (`cryptography`) that the capability tokens, signed audit chain, and receipts depend on.
@@ -53,9 +53,9 @@ Five lines of changes:
 
 ```python
 from agent_framework import ChatAgent, tool
-from raucle_detect.capability import CapabilityIssuer, CapabilityGate
-from raucle_detect.audit import HashChainSink, Ed25519Signer
-from raucle_detect.integrations.agent_framework import (        # NEW
+from raucle.capability import CapabilityIssuer, CapabilityGate
+from raucle.audit import HashChainSink, Ed25519Signer
+from raucle.integrations.agent_framework import (        # NEW
     RaucleFunctionMiddleware,                                    # NEW
     set_in_force_token,                                          # NEW
 )                                                                # NEW
@@ -177,7 +177,7 @@ with open("audit_pub.pem", "wb") as f:
 ```
 
 ```bash
-raucle-detect audit verify receipts.log --pubkey audit_pub.pem
+raucle audit verify receipts.log --pubkey audit_pub.pem
 ```
 
 Exit 0 = the hash chain is intact and every checkpoint signature is valid.

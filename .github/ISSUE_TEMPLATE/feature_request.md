@@ -1,6 +1,6 @@
 ---
 name: Feature Request
-about: Suggest a feature for Raucle Detect
+about: Suggest a feature for Raucle
 title: "[FEATURE] "
 labels: enhancement
 assignees: craigamcw

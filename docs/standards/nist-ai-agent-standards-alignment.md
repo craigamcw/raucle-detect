@@ -1,6 +1,6 @@
 # Raucle ↔ NIST AI Agent Standards Initiative
 
-How **raucle-detect**'s primitives align with the
+How **raucle**'s primitives align with the
 [NIST AI Agent Standards Initiative](https://www.nist.gov/artificial-intelligence/ai-agent-standards-initiative)
 (announced by CAISI on 17 Feb 2026), whose early related work includes an NCCoE
 project / draft concept paper on **AI agent identity and authorization** —

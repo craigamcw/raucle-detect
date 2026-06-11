@@ -93,7 +93,7 @@ LANGS = [
 
 def _hexes(lang: str, reqs: list[dict]) -> list[str]:
     if lang == "python":
-        from raucle_detect.provenance import _canonical_json
+        from raucle.provenance import _canonical_json
         return [_canonical_json(r["obj"]).hex() for r in reqs]
     cmd, cwd = CANON_CMD[lang]
     return [row["hex"] for row in _run_lines(cmd, cwd, reqs)]
@@ -101,7 +101,7 @@ def _hexes(lang: str, reqs: list[dict]) -> list[str]:
 
 def _rejects_lang(lang: str, obj) -> bool:
     if lang == "python":
-        from raucle_detect.provenance import _canonical_json
+        from raucle.provenance import _canonical_json
         try:
             _canonical_json(obj)
             return False

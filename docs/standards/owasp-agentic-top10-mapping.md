@@ -1,6 +1,6 @@
 # Raucle ↔ OWASP Top 10 for Agentic Applications (2026)
 
-This document maps **raucle-detect**'s primitives to the
+This document maps **raucle**'s primitives to the
 [OWASP Top 10 for Agentic Applications (2026)](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)
 (published Dec 2025, risk codes **ASI01–ASI10**), so a security reviewer can see
 exactly which risk each Raucle control addresses — and, just as importantly,
@@ -19,10 +19,10 @@ where Raucle is **not** the right control.
 
 | Primitive | What it is |
 |---|---|
-| **Capability gate + token** (`raucle_detect.capability`) | Ed25519-signed, attenuable pre-action authorization: a tool refuses to run unless the call satisfies the token's signed constraints. Fail-closed by default. |
-| **Constraint prover** (`raucle_detect.prove`, Z3) + **Lean 4 theorems** | For **prover-encodable** policy keys (`max_value`/`min_value`/`forbidden_values`/`required_present`/`forbidden_field_combinations`) over modelled JSON-Schema fragments, proves *no admitted call can satisfy a violation* (a property of the envelope, settled ahead of time). Non-encodable keys (`allowed_values`, `starts_with`) return **UNDECIDED** and fail closed. Attenuation + gate soundness are mechanised in **Lean 4**; the composition theorem assumes prover soundness as a **stated axiom**. |
-| **Provenance receipts** (`raucle_detect.provenance`) | Compact-JWS (EdDSA), content-addressed, taint-tracking chain-of-custody; every step (`model_call`, `tool_call`, `retrieval`, `agent_handoff`, `sanitisation`, …) is signed and independently verifiable offline. |
-| **Guardrail / multimodal scanning** (`raucle_detect` scanners) | Detects injection / hidden-instruction patterns in inputs and retrieved content; emits a signed `guardrail_scan` receipt with a ruleset hash. |
+| **Capability gate + token** (`raucle.capability`) | Ed25519-signed, attenuable pre-action authorization: a tool refuses to run unless the call satisfies the token's signed constraints. Fail-closed by default. |
+| **Constraint prover** (`raucle.prove`, Z3) + **Lean 4 theorems** | For **prover-encodable** policy keys (`max_value`/`min_value`/`forbidden_values`/`required_present`/`forbidden_field_combinations`) over modelled JSON-Schema fragments, proves *no admitted call can satisfy a violation* (a property of the envelope, settled ahead of time). Non-encodable keys (`allowed_values`, `starts_with`) return **UNDECIDED** and fail closed. Attenuation + gate soundness are mechanised in **Lean 4**; the composition theorem assumes prover soundness as a **stated axiom**. |
+| **Provenance receipts** (`raucle.provenance`) | Compact-JWS (EdDSA), content-addressed, taint-tracking chain-of-custody; every step (`model_call`, `tool_call`, `retrieval`, `agent_handoff`, `sanitisation`, …) is signed and independently verifiable offline. |
+| **Guardrail / multimodal scanning** (`raucle` scanners) | Detects injection / hidden-instruction patterns in inputs and retrieved content; emits a signed `guardrail_scan` receipt with a ruleset hash. |
 | **Revocation + attenuation** | Token denylist (revokes a compromised agent's tokens *and* descendants when a resolver is wired); children can only narrow, never broaden. |
 
 ## The mapping

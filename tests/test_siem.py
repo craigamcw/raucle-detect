@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from raucle_detect.siem import ECS_VERSION, SIEMSink, to_ecs
+from raucle.siem import ECS_VERSION, SIEMSink, to_ecs
 
 # ---------------------------------------------------------------------------
 # ECS mapping
@@ -116,7 +116,7 @@ def test_sink_requires_some_output():
 
 
 def test_sink_works_as_scanner_audit_sink(tmp_path):
-    from raucle_detect.scanner import Scanner
+    from raucle.scanner import Scanner
 
     out = tmp_path / "siem.jsonl"
     scanner = Scanner(audit_sink=SIEMSink(out))
@@ -132,7 +132,7 @@ def test_sink_works_as_scanner_audit_sink(tmp_path):
 
 
 def test_watch_renders_chain_and_ecs_lines(tmp_path, capsys):
-    from raucle_detect.cli import main
+    from raucle.cli import main
 
     log = tmp_path / "mixed.jsonl"
     chain_rec = {
@@ -165,7 +165,7 @@ def test_watch_renders_chain_and_ecs_lines(tmp_path, capsys):
 
 
 def test_watch_denies_only_filters_allows(tmp_path, capsys):
-    from raucle_detect.cli import main
+    from raucle.cli import main
 
     log = tmp_path / "log.jsonl"
     rows = [
@@ -180,7 +180,7 @@ def test_watch_denies_only_filters_allows(tmp_path, capsys):
 
 
 def test_watch_missing_file_errors(capsys):
-    from raucle_detect.cli import main
+    from raucle.cli import main
 
     rc = main(["watch", "/no/such/file.jsonl", "--no-follow"])
     assert rc == 1

@@ -1,6 +1,6 @@
-# Contributing to Raucle Detect
+# Contributing to Raucle
 
-Thank you for your interest in contributing to Raucle Detect. This library is the open-source core of the [Raucle](https://raucle.com) AI security platform.
+Thank you for your interest in contributing to Raucle. This library is the open-source core of the [Raucle](https://raucle.com) AI security platform.
 
 ## Developer Certificate of Origin (DCO)
 
@@ -26,8 +26,8 @@ The DCO check runs automatically on all pull requests and must pass before mergi
 
 ```bash
 # Fork and clone
-git clone https://github.com/YOUR_USERNAME/raucle-detect.git
-cd raucle-detect
+git clone https://github.com/YOUR_USERNAME/raucle.git
+cd raucle
 
 # Install in development mode
 pip install -e ".[dev]"
@@ -36,7 +36,7 @@ pip install -e ".[dev]"
 python -m pytest tests/ -v
 
 # Run a quick scan
-raucle-detect scan "test prompt"
+raucle scan "test prompt"
 ```
 
 ## What We Welcome
@@ -100,7 +100,7 @@ All PRs require approval from a maintainer before merging.
 
 ## License
 
-By contributing to Raucle Detect, you agree that your contributions will be
+By contributing to Raucle, you agree that your contributions will be
 licensed under the **Apache License, Version 2.0** under which the project is
 released (see [LICENSE](LICENSE) and [LICENSING.md](LICENSING.md)). This follows
 the standard "inbound = outbound" model: what you contribute is licensed under

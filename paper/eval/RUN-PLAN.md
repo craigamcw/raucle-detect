@@ -6,7 +6,7 @@ What follows is the exact command sequence to take this from "smoke passes" to "
 
 ## Prerequisites
 
-On the VM (`/root/raucle-paper/raucle-detect`):
+On the VM (`/root/raucle-paper/raucle`):
 
 ```bash
 source .venv/bin/activate

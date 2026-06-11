@@ -22,8 +22,8 @@ import sys
 import time
 from pathlib import Path
 
-from raucle_detect.capability import CapabilityGate, CapabilityIssuer
-from raucle_detect.prove import JSONSchemaProver
+from raucle.capability import CapabilityGate, CapabilityIssuer
+from raucle.prove import JSONSchemaProver
 
 
 SCHEMA = {

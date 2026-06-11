@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from raucle_detect.canary import CanaryManager, EmbedStrategy
-from raucle_detect.outcome import OutcomeStatus, OutcomeVerifier
+from raucle.canary import CanaryManager, EmbedStrategy
+from raucle.outcome import OutcomeStatus, OutcomeVerifier
 
 
 class TestOutcomeBasics:

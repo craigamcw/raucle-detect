@@ -3,8 +3,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "raucle-detect"
-version = "0.21.0"
+name = "raucle"
+version = "0.22.0"
 description = "Open-source verifiable agent accountability — cryptographic capability receipts and formal proofs for LLM agent activity"
 readme = "README.md"
 license = "Apache-2.0"
@@ -60,26 +60,27 @@ proof = [
     "z3-solver>=4.12",    # SMT engine for formal-verification provers
 ]
 dev = [
-    "raucle-detect[rules,server,compliance,langchain]",
+    "raucle[rules,server,compliance,langchain]",
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "pytest-asyncio>=0.23",
     "ruff>=0.4",
 ]
-all = ["raucle-detect[rules,ml,server,compliance,multimodal,proof]"]
+all = ["raucle[rules,ml,server,compliance,multimodal,proof]"]
 
 [project.scripts]
-raucle-detect = "raucle_detect.cli:main"
-raucle-aws-mcp = "raucle_detect.broker.cli:main"
+raucle = "raucle.cli:main"
+raucle-detect = "raucle.cli:main"  # deprecated alias, kept for one transition cycle
+raucle-aws-mcp = "raucle.broker.cli:main"
 
 [project.urls]
 Homepage = "https://raucle.com"
-Documentation = "https://github.com/craigamcw/raucle-detect/tree/main/docs"
-Repository = "https://github.com/craigamcw/raucle-detect"
-Issues = "https://github.com/craigamcw/raucle-detect/issues"
+Documentation = "https://github.com/craigamcw/raucle/tree/main/docs"
+Repository = "https://github.com/craigamcw/raucle"
+Issues = "https://github.com/craigamcw/raucle/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["raucle_detect"]
+packages = ["raucle", "raucle_detect"]
 
 [tool.ruff]
 target-version = "py310"

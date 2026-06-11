@@ -10,19 +10,19 @@ thing:
 > key K and may use tools/models Z, until time T."
 
 ```bash
-pip install 'raucle-detect[compliance]'
+pip install 'raucle[compliance]'
 ```
 
 ## Issue (the org, once per agent)
 
 ```bash
 # The org's issuer key is published to the registry; it signs the passport.
-raucle-detect passport issue agent-statement.json \
+raucle passport issue agent-statement.json \
   --issuer-key org.key.pem --issuer "Org X" --ttl 2592000 --out agent.passport.json
 ```
 
 ```python
-from raucle_detect.passport import issue_passport
+from raucle.passport import issue_passport
 passport = issue_passport(agent.statement, issuer_signer=org_signer, issuer="Org X", ttl_seconds=30*86400)
 passport.save("agent.passport.json")
 ```
@@ -30,13 +30,13 @@ passport.save("agent.passport.json")
 ## Verify (anyone, in any framework)
 
 ```bash
-raucle-detect passport verify agent.passport.json --registry https://trust.example.com/registry.jsonl
+raucle passport verify agent.passport.json --registry https://trust.example.com/registry.jsonl
 # VALID  agent:billing.bot  (issuer: Org X)
 #   allowed tools: lookup_invoice, send_email
 ```
 
 ```python
-from raucle_detect.passport import verify_passport
+from raucle.passport import verify_passport
 v = verify_passport(passport.to_dict(), registry=shared_registry)
 if v.valid:
     # trust v.agent_id <-> v.key_id, enforce v.allowed_tools / v.allowed_models

@@ -29,7 +29,7 @@ pip install agentdojo            # https://github.com/ethz-spylab/agentdojo
 git clone https://github.com/uiuc-kang-lab/InjecAgent ./external/injecagent
 pip install -e ./external/injecagent
 
-# raucle-detect + the proof extra
+# raucle + the proof extra
 pip install -e .[compliance,proof]
 
 # Model API key (the harness reads from env)

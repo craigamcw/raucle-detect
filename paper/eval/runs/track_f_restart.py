@@ -12,7 +12,7 @@ import sys
 import time
 from pathlib import Path
 
-ROOT = Path("/root/raucle-paper/raucle-detect/runs")
+ROOT = Path("/root/raucle-paper/raucle/runs")
 
 # (suite, defence, parallel) -- shields gets RAUCLE_PARALLEL=2 (memory-bound), others 8
 CELLS = [
@@ -55,7 +55,7 @@ def run_cell(suite, defence, parallel):
     t0 = time.time()
     proc = subprocess.run(
         [sys.executable, "-c", code],
-        cwd="/root/raucle-paper/raucle-detect",
+        cwd="/root/raucle-paper/raucle",
         env={**os.environ, "PYTHONPATH": "."},
         capture_output=True, text=True,
     )

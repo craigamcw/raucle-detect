@@ -5,8 +5,8 @@ command turns your signed receipt chain into a **control-mapped evidence map**
 for a named framework — the artifact a CISO hands an auditor.
 
 ```bash
-raucle-detect compliance report receipts.jsonl --framework eu-ai-act
-raucle-detect compliance report receipts.jsonl --framework soc2 --format json --out soc2.json
+raucle compliance report receipts.jsonl --framework eu-ai-act
+raucle compliance report receipts.jsonl --framework soc2 --format json --out soc2.json
 ```
 
 Supported: `eu-ai-act`, `iso-42001`, `soc2`.
@@ -41,8 +41,8 @@ that collapses under audit.
 The evidence map is only as good as the chain it reads. Verify and bundle it:
 
 ```bash
-raucle-detect audit verify receipts.jsonl        # signed-chain integrity
-raucle-detect audit-pack build receipts.jsonl    # offline-verifiable evidence pack
+raucle audit verify receipts.jsonl        # signed-chain integrity
+raucle audit-pack build receipts.jsonl    # offline-verifiable evidence pack
 ```
 
 ---

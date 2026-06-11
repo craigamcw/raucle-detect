@@ -16,9 +16,9 @@ import pathlib
 
 import pytest
 
-from raucle_detect import capability as cap_mod
-from raucle_detect.capability import CapabilityGate, CapabilityIssuer
-from raucle_detect.scanner import ReceiptEmissionError, Scanner
+from raucle import capability as cap_mod
+from raucle.capability import CapabilityGate, CapabilityIssuer
+from raucle.scanner import ReceiptEmissionError, Scanner
 
 # ---------------------------------------------------------------------------
 # 1) Generic deny reason on constraint-evaluation error

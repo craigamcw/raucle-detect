@@ -16,7 +16,7 @@ shown to REJECT.
 
 Run::
 
-    pip install 'raucle-detect[compliance]'
+    pip install 'raucle[compliance]'
     python examples/a2a_handoff/demo.py
 
 No network needed — the Agent Cards and Message are in-process dicts.
@@ -27,8 +27,8 @@ from __future__ import annotations
 import io
 import sys
 
-from raucle_detect import a2a
-from raucle_detect.provenance import AgentIdentity, ProvenanceLogger
+from raucle import a2a
+from raucle.provenance import AgentIdentity, ProvenanceLogger
 
 ISS = "https://acme.example/raucle"
 FIXED_IAT = 1_700_000_000

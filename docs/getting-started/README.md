@@ -1,4 +1,4 @@
-# Getting started with raucle-detect
+# Getting started with raucle
 
 Add raucle to your agent in **under ten minutes**.
 
@@ -17,7 +17,7 @@ This guide is task-first. Pick a path. Run the code. You'll have a working signe
 | Claude Desktop / Claude Code / Cursor / Cline | **[3. MCP clients](03-mcp-clients.md)** — add raucle's detection tools to your assistant with one config block. | 2 min |
 | CrewAI crew | **[5. CrewAI](05-crewai.md)** — `guard_tools(...)` wraps every tool; gated + receipted, no interface change. | 5 min |
 | You want to prove a policy is sound, not just configured | **[4. Prove a policy](06-prove-a-policy.md)** — SMT-backed `ProofResult`, content-addressed, citeable. | 10 min |
-| You run a SOC / need a SIEM feed + live view | **[8. SIEM export & live monitoring](08-siem-and-live-view.md)** — ECS JSON to Splunk/Sentinel, `raucle-detect watch`, and a live `/dashboard`. | 5 min |
+| You run a SOC / need a SIEM feed + live view | **[8. SIEM export & live monitoring](08-siem-and-live-view.md)** — ECS JSON to Splunk/Sentinel, `raucle watch`, and a live `/dashboard`. | 5 min |
 | You deploy OpenClaw / NemoClaw | **[9. Securing OpenClaw / NemoClaw](09-openclaw-nemoclaw.md)** — the reference pattern: raucle gates tool calls + emits verifiable evidence under NemoClaw's sandbox. | 5 min |
 | You verify agents across org boundaries | **[10. Trust Registry](10-trust-registry.md)** — publish your issuer key once; any org resolves and verifies it. The cross-org trust layer. | 5 min |
 | Agents from different companies need to trust each other | **[11. Cross-org handshake](11-cross-org-handshake.md)** — verifiable capability-gated calls across orgs, trust resolved from the shared registry. No prior key exchange. | 5 min |
@@ -30,16 +30,16 @@ This guide is task-first. Pick a path. Run the code. You'll have a working signe
 
 ```bash
 # Gate, capability tokens, signed audit chain, receipts (needs cryptography):
-pip install 'raucle-detect[compliance]'
+pip install 'raucle[compliance]'
 
 # Plus SMT prover (Z3, for prove-a-policy and counterexample extraction):
-pip install 'raucle-detect[proof]'
+pip install 'raucle[proof]'
 
 # Plus Microsoft Agent Framework adapter:
-pip install 'raucle-detect[agent-framework]'
+pip install 'raucle[agent-framework]'
 
 # Engine extras bundle (rules + ml + server + compliance + multimodal + proof):
-pip install 'raucle-detect[all]'
+pip install 'raucle[all]'
 ```
 
 Python 3.10+. macOS / Linux / Windows.

@@ -37,12 +37,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/craigamcw/raucle-detect.git",
+    "url": "git+https://github.com/craigamcw/raucle.git",
     "directory": "reference/provenance-ts"
   },
   "homepage": "https://raucle.com/spec/provenance/v1",
   "bugs": {
-    "url": "https://github.com/craigamcw/raucle-detect/issues"
+    "url": "https://github.com/craigamcw/raucle/issues"
   },
   "publishConfig": {
     "access": "public"

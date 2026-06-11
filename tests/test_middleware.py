@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import pytest
 
-from raucle_detect.middleware import RaucleMiddleware
-from raucle_detect.scanner import ScanResult
-from raucle_detect.session import SessionScanResult
+from raucle.middleware import RaucleMiddleware
+from raucle.scanner import ScanResult
+from raucle.session import SessionScanResult
 
 
 @pytest.fixture

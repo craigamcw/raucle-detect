@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from raucle_detect.multimodal import (
+from raucle.multimodal import (
     MultimodalFinding,
     MultimodalScanner,
     MultimodalScanResult,
@@ -12,7 +12,7 @@ from raucle_detect.multimodal import (
     has_suspicious_unicode,
     strip_invisible_unicode,
 )
-from raucle_detect.scanner import Scanner
+from raucle.scanner import Scanner
 
 # ---------------------------------------------------------------------------
 # Invisible-Unicode scrubbing — dep-free, always runs

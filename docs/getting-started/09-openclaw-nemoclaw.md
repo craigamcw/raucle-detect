@@ -27,12 +27,12 @@ That is exactly the layer raucle adds. They stack — they don't compete.
        raucle receipts ──► SIEM (Splunk / Sentinel / Elastic) + live dashboard
 ```
 
-| Concern | OpenShell / NemoClaw | raucle-detect |
+| Concern | OpenShell / NemoClaw | raucle |
 |---|---|---|
 | Enforcement boundary | OS sandbox + network egress (host/port) | The **tool call**, by argument — any tool, not just network |
 | Prompt-injection posture | Sandbox; "not complete protection" (their words) | **Structural** on the tool-call surface — the gate never reads the model's reasoning |
 | Audit trail | Approve/deny in a TUI; no signed record | **Ed25519-signed, hash-chained, offline-verifiable receipts** |
-| SOC / SIEM feed | — | ECS JSON-lines + syslog ([SIEM export](../../raucle_detect/siem.py)) + live dashboard |
+| SOC / SIEM feed | — | ECS JSON-lines + syslog ([SIEM export](../../raucle/siem.py)) + live dashboard |
 | Runs fully local / no telemetry | yes (the whole point of NemoClaw) | **yes** — zero-dependency core, on-device, nothing leaves the host |
 
 The local-first match matters: NemoClaw exists so *no data leaves the device*.
@@ -44,12 +44,12 @@ re-introduce a cloud dependency.
 
 raucle ships an OpenClaw plugin (gateway-level, fires before the LLM, agents
 cannot disable it from a conversation — see the [OpenClaw Plugin section of the
-README](../../README.md)). Point its audit sink at a [`SIEMSink`](../../raucle_detect/siem.py)
+README](../../README.md)). Point its audit sink at a [`SIEMSink`](../../raucle/siem.py)
 to get the signed evidence chain *and* the SOC feed from one configuration:
 
 ```python
-from raucle_detect.audit import Ed25519Signer, HashChainSink
-from raucle_detect.siem import SIEMSink
+from raucle.audit import Ed25519Signer, HashChainSink
+from raucle.siem import SIEMSink
 
 # Signed evidence chain (authoritative) + SIEM operational stream, one sink.
 sink = SIEMSink(
@@ -61,7 +61,7 @@ sink = SIEMSink(
 ```
 
 See [SIEM export & live monitoring](08-siem-and-live-view.md) for the SIEM
-field mapping, the `raucle-detect watch` terminal view, and the `/dashboard`
+field mapping, the `raucle watch` terminal view, and the `/dashboard`
 web view.
 
 ## What raucle does *not* do here

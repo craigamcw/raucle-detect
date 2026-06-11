@@ -7,7 +7,7 @@ FIX 1.1 of the HOLD SCOPE review — ``_init_compliance()`` must:
   * warn loudly (not silently) when no key is configured and continue
     in unsigned mode.
 
-These tests import ``raucle_detect.server`` ONCE at module load (with
+These tests import ``raucle.server`` ONCE at module load (with
 clean env), then exercise ``_init_compliance()`` directly under various
 monkeypatched environments. The module-level call runs once during
 import; the function-level calls do not re-execute it.
@@ -25,13 +25,13 @@ fastapi = pytest.importorskip("fastapi")
 # Import ONCE while env is clean. The module-level ``_init_compliance()``
 # call runs here; subsequent test-level invocations are explicit and
 # isolated from this side-effect.
-import raucle_detect.server as srv  # noqa: E402
+import raucle.server as srv  # noqa: E402
 
 
 def test_server_refuses_start_with_bad_verdict_key_pem(monkeypatch):
     """A set-but-malformed RAUCLE_DETECT_VERDICT_KEY_PEM must surface
     as a ConfigurationError, NOT a silent fallback to no signer."""
-    from raucle_detect.errors import ConfigurationError
+    from raucle.errors import ConfigurationError
 
     monkeypatch.setenv("RAUCLE_DETECT_VERDICT_KEY_PEM", "not a real PEM")
     monkeypatch.delenv("RAUCLE_DETECT_AUDIT_PATH", raising=False)
@@ -44,7 +44,7 @@ def test_server_refuses_start_with_bad_verdict_key_pem(monkeypatch):
 def test_server_refuses_start_with_bad_audit_key_pem(monkeypatch, tmp_path):
     """A set-but-malformed RAUCLE_DETECT_AUDIT_PRIVATE_KEY_PEM must
     surface as a ConfigurationError."""
-    from raucle_detect.errors import ConfigurationError
+    from raucle.errors import ConfigurationError
 
     monkeypatch.setenv("RAUCLE_DETECT_AUDIT_PATH", str(tmp_path / "audit.jsonl"))
     monkeypatch.setenv("RAUCLE_DETECT_AUDIT_PRIVATE_KEY_PEM", "still not a PEM")

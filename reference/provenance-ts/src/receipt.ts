@@ -3,7 +3,7 @@
  *
  * Spec: https://raucle.com/spec/provenance/v1
  *
- * Mirrors the canonical Python reference (raucle_detect/provenance.py)
+ * Mirrors the canonical Python reference (raucle/provenance.py)
  * byte-for-byte: same JOSE header (incl. the `"raucle/v1": "provenance"`
  * tag), same payload field set, string-typed model/tool/corpus,
  * sha256:-prefixed hashes, and the same content-addressed id

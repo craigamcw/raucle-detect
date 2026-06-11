@@ -1,6 +1,6 @@
 # Raucle — security model & trust assumptions
 
-This document states what raucle-detect's guarantees depend on, so deployers can
+This document states what raucle's guarantees depend on, so deployers can
 reason about residual trust. It reflects the hardening from the 2026-06 security audit.
 
 ## Capability gate

@@ -9,7 +9,7 @@ signed constraints decide.
 
 Run it:
 
-    pip install 'raucle-detect[compliance,crewai]'
+    pip install 'raucle[compliance,crewai]'
     python examples/crewai_demo/demo.py
 """
 
@@ -26,9 +26,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from crewai.tools import BaseTool
 from pydantic import BaseModel
 
-from raucle_detect.audit import AuditVerifier, Ed25519Signer, HashChainSink
-from raucle_detect.capability import CapabilityGate, CapabilityIssuer
-from raucle_detect.integrations.crewai import (
+from raucle.audit import AuditVerifier, Ed25519Signer, HashChainSink
+from raucle.capability import CapabilityGate, CapabilityIssuer
+from raucle.integrations.crewai import (
     CapabilityDenied,
     guard_tools,
     set_in_force_token,

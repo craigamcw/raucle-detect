@@ -1,4 +1,4 @@
-"""Tests for the AWS Egress Gate (raucle_detect.broker).
+"""Tests for the AWS Egress Gate (raucle.broker).
 
 Covers: SigV4 correctness against the published AWS test vector, the gate
 ALLOW/DENY paths, the receipt binding to the exact wire request, and the
@@ -11,8 +11,8 @@ import pytest
 
 cryptography = pytest.importorskip("cryptography")
 
-from raucle_detect.broker import AWSEgressGate, CapabilityDenied, sigv4
-from raucle_detect.capability import CapabilityGate, CapabilityIssuer
+from raucle.broker import AWSEgressGate, CapabilityDenied, sigv4
+from raucle.capability import CapabilityGate, CapabilityIssuer
 
 
 # ---------------------------------------------------------------------------
@@ -335,8 +335,8 @@ def test_gate_jws_receipts_feed_audit_export_end_to_end(tmp_path):
     verifies OFFLINE from the broker's public key alone — no AWS, no network.
     This is the property AgentCore's CloudWatch trail structurally cannot give a
     regulator."""
-    from raucle_detect.audit_export import _load_receipts, build_report
-    from raucle_detect.provenance import (
+    from raucle.audit_export import _load_receipts, build_report
+    from raucle.provenance import (
         AgentIdentity,
         ProvenanceLogger,
         ProvenanceVerifier,
@@ -383,7 +383,7 @@ def test_gate_jws_receipts_feed_audit_export_end_to_end(tmp_path):
     assert len(receipts) == 3
 
     # The signed payloads carry the gate decisions and the performed AWS action.
-    from raucle_detect.provenance import Operation
+    from raucle.provenance import Operation
 
     decoded = [r for _, r in receipts]
     scans = [r for r in decoded if r.operation is Operation.GUARDRAIL_SCAN]

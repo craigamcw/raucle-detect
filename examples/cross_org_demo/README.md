@@ -5,7 +5,7 @@ multi-agent ecosystems: two organisations establish a verifiable, capability-gat
 call **without any prior key exchange between them.**
 
 ```bash
-pip install 'raucle-detect[compliance]'
+pip install 'raucle[compliance]'
 python examples/cross_org_demo/demo.py
 ```
 

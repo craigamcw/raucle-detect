@@ -2,7 +2,7 @@
 
 The gate enforces the **credential half** of custody in code: it holds the AWS
 credentials, signs each request, and never returns signed material to the agent
-(`raucle_detect/broker/aws_egress.py`). But "no receipt = no action" only holds
+(`raucle/broker/aws_egress.py`). But "no receipt = no action" only holds
 end to end if the agent *also* cannot reach AWS any other way. That is the
 **egress half**, and it is a deployment guarantee — two independent controls,
 neither of which the agent can lift:

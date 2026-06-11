@@ -16,7 +16,7 @@ import json
 
 import pytest
 
-from raucle_detect.provenance import (
+from raucle.provenance import (
     AgentIdentity,
     CapabilityStatement,
     Operation,
@@ -36,7 +36,7 @@ def _stmt(identity: AgentIdentity, **overrides) -> CapabilityStatement:
     """
     import base64
 
-    from raucle_detect.provenance import _canonical_json
+    from raucle.provenance import _canonical_json
 
     s = identity.statement
     stmt = CapabilityStatement(

@@ -19,9 +19,9 @@ pytest.importorskip("cryptography")
 
 from langchain_core.tools import tool  # noqa: E402
 
-from raucle_detect.audit import AuditVerifier, Ed25519Signer, HashChainSink  # noqa: E402
-from raucle_detect.capability import CapabilityGate, CapabilityIssuer  # noqa: E402
-from raucle_detect.integrations.langchain import (  # noqa: E402
+from raucle.audit import AuditVerifier, Ed25519Signer, HashChainSink  # noqa: E402
+from raucle.capability import CapabilityGate, CapabilityIssuer  # noqa: E402
+from raucle.integrations.langchain import (  # noqa: E402
     CapabilityDenied,
     RaucleCallbackHandler,
     set_in_force_token,

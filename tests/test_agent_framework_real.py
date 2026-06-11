@@ -31,8 +31,8 @@ import pytest
 agent_framework = pytest.importorskip("agent_framework")
 pytest.importorskip("cryptography")
 
-from raucle_detect.capability import CapabilityGate, CapabilityIssuer  # noqa: E402
-from raucle_detect.integrations.agent_framework import (  # noqa: E402
+from raucle.capability import CapabilityGate, CapabilityIssuer  # noqa: E402
+from raucle.integrations.agent_framework import (  # noqa: E402
     RaucleFunctionMiddleware,
     set_in_force_token,
 )

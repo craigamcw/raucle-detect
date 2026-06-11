@@ -7,7 +7,7 @@ from the registry, capability-gates the call, and signs an acknowledgement that
 Org A verifies the same way. This is the interop primitive for multi-agent
 ecosystems — trust comes from the shared registry, not a bilateral key exchange.
 
-    pip install 'raucle-detect[compliance]'
+    pip install 'raucle[compliance]'
     python examples/cross_org_demo/demo.py
 """
 
@@ -19,10 +19,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from raucle_detect.audit import Ed25519Signer
-from raucle_detect.capability import CapabilityIssuer
-from raucle_detect.handshake import accept_call, build_request, verify_ack
-from raucle_detect.trust_registry import TrustRegistry
+from raucle.audit import Ed25519Signer
+from raucle.capability import CapabilityIssuer
+from raucle.handshake import accept_call, build_request, verify_ack
+from raucle.trust_registry import TrustRegistry
 
 
 def main() -> int:

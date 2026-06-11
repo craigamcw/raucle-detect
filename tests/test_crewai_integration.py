@@ -1,6 +1,6 @@
 """End-to-end tests for the CrewAI integration against real crewai.
 
-Requires the ``crewai`` extra (``pip install 'raucle-detect[crewai]'``); skipped
+Requires the ``crewai`` extra (``pip install 'raucle[crewai]'``); skipped
 otherwise. These drive the genuine ``BaseTool.run(**kwargs)`` path — the same
 path a Crew uses — so a denied call is verified to block the real tool body, not
 a mock.
@@ -18,9 +18,9 @@ pytest.importorskip("cryptography")
 from crewai.tools import BaseTool  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
-from raucle_detect.audit import AuditVerifier, Ed25519Signer, HashChainSink  # noqa: E402
-from raucle_detect.capability import CapabilityGate, CapabilityIssuer  # noqa: E402
-from raucle_detect.integrations.crewai import (  # noqa: E402
+from raucle.audit import AuditVerifier, Ed25519Signer, HashChainSink  # noqa: E402
+from raucle.capability import CapabilityGate, CapabilityIssuer  # noqa: E402
+from raucle.integrations.crewai import (  # noqa: E402
     CapabilityDenied,
     guard_tool,
     guard_tools,

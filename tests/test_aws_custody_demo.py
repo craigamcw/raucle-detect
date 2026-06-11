@@ -37,6 +37,6 @@ def test_custody_demo_runs_and_verifies_offline(tmp_path):
     # The pack really exists and re-verifies offline from the test process too.
     pack = tmp_path / "demo-output" / "aws-custody" / "pack"
     assert (pack / "PACK.json").is_file()
-    from raucle_detect.audit_pack import verify_pack
+    from raucle.audit_pack import verify_pack
 
     assert verify_pack(pack).ok

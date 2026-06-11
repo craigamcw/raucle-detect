@@ -33,10 +33,10 @@ import uuid
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from raucle_detect.audit_pack import build_pack, verify_pack  # noqa: E402
-from raucle_detect.broker import AWSEgressGate, CapabilityDenied  # noqa: E402
-from raucle_detect.capability import CapabilityGate, CapabilityIssuer  # noqa: E402
-from raucle_detect.provenance import AgentIdentity, ProvenanceLogger  # noqa: E402
+from raucle.audit_pack import build_pack, verify_pack  # noqa: E402
+from raucle.broker import AWSEgressGate, CapabilityDenied  # noqa: E402
+from raucle.capability import CapabilityGate, CapabilityIssuer  # noqa: E402
+from raucle.provenance import AgentIdentity, ProvenanceLogger  # noqa: E402
 
 REGION = os.environ.get("AWS_DEFAULT_REGION", "eu-west-2")
 PREFIX = os.environ.get("RAUCLE_SMOKE_PREFIX", "raucle-smoke")
