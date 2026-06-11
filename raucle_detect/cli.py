@@ -274,6 +274,26 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     comp_rep.add_argument("--out", help="Write to this file instead of stdout")
 
+    # -- passport (portable agent identity, P3) ------------------------------
+    pass_p = subparsers.add_parser(
+        "passport", help="Agent passport — issuer-vouched, registry-anchored identity"
+    )
+    pass_sub = pass_p.add_subparsers(dest="passport_command")
+    pass_issue = pass_sub.add_parser("issue", help="Issue (countersign) a passport for an agent")
+    pass_issue.add_argument("statement", help="Agent CapabilityStatement JSON file")
+    pass_issue.add_argument("--issuer-key", required=True, help="Issuer (org) private key PEM")
+    pass_issue.add_argument("--issuer", required=True, help="Issuer display name")
+    pass_issue.add_argument(
+        "--ttl", type=int, default=None, help="Validity in seconds (default: no expiry)"
+    )
+    pass_issue.add_argument("--out", help="Output passport JSON file (default: stdout)")
+
+    pass_verify = pass_sub.add_parser("verify", help="Verify a passport against a trust registry")
+    pass_verify.add_argument("passport", help="Passport JSON file")
+    pass_verify.add_argument(
+        "--registry", required=True, help="Trust registry JSONL file or https:// URL"
+    )
+
     receipt_p = subparsers.add_parser("verify-receipt", help="Verify a signed JWS verdict receipt")
     receipt_p.add_argument("receipt", help="The compact JWS receipt string")
     receipt_p.add_argument("--pubkey", required=True, help="Path to Ed25519 public key PEM")
@@ -832,6 +852,51 @@ def _cmd_rules_fuzz(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
+
+def _cmd_passport(args: argparse.Namespace) -> int:
+    """Issue or verify an agent passport."""
+    import json as _json
+
+    from raucle_detect.audit import Ed25519Signer
+    from raucle_detect.passport import AgentPassport, issue_passport, verify_passport
+    from raucle_detect.trust_registry import TrustRegistry
+
+    cmd = getattr(args, "passport_command", None)
+    if cmd == "issue":
+        statement = _json.loads(Path(args.statement).read_text())
+        signer = Ed25519Signer.from_pem(Path(args.issuer_key).read_bytes())
+        passport = issue_passport(
+            statement, issuer_signer=signer, issuer=args.issuer, ttl_seconds=args.ttl
+        )
+        text = _json.dumps(passport.to_dict(), indent=2)
+        if args.out:
+            Path(args.out).write_text(text + "\n", encoding="utf-8")
+            print(f"Issued passport for {statement.get('agent_id', '?')} -> {args.out}")
+        else:
+            print(text)
+        return 0
+
+    if cmd == "verify":
+        if args.registry.startswith("https://"):
+            reg = TrustRegistry.from_url(args.registry)
+        else:
+            reg = TrustRegistry.load(args.registry)
+        passport = AgentPassport.load(args.passport)
+        v = verify_passport(passport.to_dict(), registry=reg)
+        if v.valid:
+            print(f"VALID  {v.agent_id}  (issuer: {v.issuer})")
+            print(f"  key_id: {v.key_id}")
+            if v.allowed_tools:
+                print(f"  allowed tools: {', '.join(v.allowed_tools)}")
+            if v.allowed_models:
+                print(f"  allowed models: {', '.join(v.allowed_models)}")
+            return 0
+        print(f"INVALID  {v.reason}", file=sys.stderr)
+        return 1
+
+    print("error: passport needs 'issue' or 'verify'", file=sys.stderr)
+    return 2
 
 
 def _cmd_compliance(args: argparse.Namespace) -> int:
@@ -1940,6 +2005,8 @@ def _dispatch(argv: list[str] | None = None) -> int:
         return _cmd_registry(args)
     elif args.command == "compliance":
         return _cmd_compliance(args)
+    elif args.command == "passport":
+        return _cmd_passport(args)
     elif args.command == "verify-receipt":
         return _cmd_verify_receipt(args)
     elif args.command == "audit-export":
