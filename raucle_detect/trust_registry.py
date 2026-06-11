@@ -35,6 +35,7 @@ registry over HTTPS (SSRF-guarded) and verifies it before use.
 
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import logging
 from dataclasses import dataclass, field
@@ -53,6 +54,23 @@ logger = logging.getLogger(__name__)
 REGISTRY_VERSION = "trust-registry/v1"
 
 _GENESIS = "0" * 64
+
+#: Allowed forward clock skew when checking head freshness (codex r8): a head
+#: timestamped further in the future than this is rejected as forged/invalid.
+_MAX_CLOCK_SKEW_SECONDS = 300
+
+
+def _now() -> int:
+    return int(_dt.datetime.now(_dt.timezone.utc).timestamp())
+
+
+def _canon_issuer(name: str) -> str:
+    """Canonical form of an issuer name for uniqueness comparison: NFC-normalised,
+    case-folded, stripped. So "Acme Bank" and "acme bank " cannot both be active
+    (confusable-name impersonation)."""
+    import unicodedata
+
+    return unicodedata.normalize("NFC", str(name)).casefold().strip()
 
 
 def _key_id_for(public_key_pem: bytes | str) -> str:
@@ -175,15 +193,22 @@ class TrustRegistry:
         url: str,
         *,
         operator_public_pem: bytes | None = None,
+        allow_unauthenticated: bool = False,
+        min_index: int | None = None,
+        expected_head_hash: str | None = None,
+        max_age_seconds: int | None = None,
         timeout: float = 10.0,
     ) -> TrustRegistry:
         """Fetch a published registry over HTTPS (SSRF-guarded) and verify it.
 
-        This is the client for the hosted public verification service: a verifier
-        in any org points at the registry URL and gets a checked trust directory.
-        For a signed registry from an untrusted host, pass ``operator_public_pem``
-        to AUTHENTICATE it (pin the operator key); without it the fetched log is
-        only integrity-checked, which a wholesale forger could pass.
+        A registry fetched from a URL is attacker-controllable: a forger can serve
+        a self-consistent signed log full of their own issuer keys. So by default
+        this **requires authentication** — pass ``operator_public_pem`` to pin the
+        operator key. Loading WITHOUT authentication (an unsigned registry, or a
+        signed one with no pinned key) is refused unless you explicitly pass
+        ``allow_unauthenticated=True`` (e.g. for a registry you already trust by
+        transport). The bare integrity check (hash chain) does not authenticate
+        the source and is not a substitute (codex #1).
         """
         from raucle_detect.feed import fetch_https_pinned
 
@@ -198,13 +223,17 @@ class TrustRegistry:
             reg._append_header()
         else:
             reg._tail_hash = reg._entries[-1].get("hash", _GENESIS)
-        reg.verify_integrity(operator_public_pem=operator_public_pem)
-        if reg._entries and reg._entries[0].get("signed") and reg._authenticated is not True:
-            logger.warning(
-                "fetched a SIGNED trust registry from %s without pinning the "
-                "operator key: integrity verified, authentication NOT verified. "
-                "Pass operator_public_pem to authenticate an untrusted source.",
-                url,
+        reg.verify_integrity(
+            operator_public_pem=operator_public_pem,
+            min_index=min_index,
+            expected_head_hash=expected_head_hash,
+            max_age_seconds=max_age_seconds,
+        )
+        if reg._authenticated is not True and not allow_unauthenticated:
+            raise RegistryIntegrityError(
+                f"refusing to trust trust-registry fetched from {url}: not authenticated. "
+                "Pass operator_public_pem to pin the operator key, or "
+                "allow_unauthenticated=True only if you trust the transport."
             )
         return reg
 
@@ -214,6 +243,7 @@ class TrustRegistry:
         entry = dict(entry)
         entry["index"] = len(self._entries)
         entry["prev_hash"] = self._tail_hash
+        entry.setdefault("ts", _now())  # signed freshness anchor (codex r7)
         # Hash covers everything except the hash field and the operator signature.
         body = {k: v for k, v in entry.items() if k not in ("hash", "operator_sig")}
         entry_hash = _sha256_hex(_canonical_json(body))
@@ -242,6 +272,19 @@ class TrustRegistry:
         """
         pem = public_key_pem.decode() if isinstance(public_key_pem, bytes) else public_key_pem
         key_id = _key_id_for(pem)
+        # Issuer NAME uniqueness (codex re-review #3): the issuer string is the
+        # authoritative identity verifiers match against, so the operator must not
+        # let two different keys hold the same active issuer name (confusable-name
+        # impersonation). Re-publishing the SAME key under its name is fine.
+        canon = _canon_issuer(issuer)
+        if not canon:
+            raise ValueError("issuer name must be non-empty")
+        for kid, rec in self._fold().items():
+            if not rec.revoked and _canon_issuer(rec.issuer) == canon and kid != key_id:
+                raise ValueError(
+                    f"issuer name {issuer!r} collides with an active key ({kid}, "
+                    f"issuer {rec.issuer!r}); revoke it first, or use a distinct issuer identity"
+                )
         self._write_entry(
             {
                 "type": "register",
@@ -305,9 +348,29 @@ class TrustRegistry:
     def records(self) -> list[TrustRecord]:
         return list(self._fold().values())
 
+    def head(self) -> dict[str, Any]:
+        """The current signed head: ``{index, hash, ts}``. A consumer records this
+        from a trusted/fresh source and later pins it (``expected_head_hash`` /
+        ``min_index`` / ``max_age_seconds``) to detect a stale snapshot that omits
+        a later revocation (codex r7)."""
+        last = self._entries[-1] if self._entries else {}
+        return {
+            "index": last.get("index", -1),
+            "hash": last.get("hash", _GENESIS),
+            "ts": last.get("ts", 0),
+        }
+
     # -- integrity -----------------------------------------------------------
 
-    def verify_integrity(self, *, operator_public_pem: bytes | None = None) -> bool:
+    def verify_integrity(
+        self,
+        *,
+        operator_public_pem: bytes | None = None,
+        min_index: int | None = None,
+        expected_head_hash: str | None = None,
+        max_age_seconds: int | None = None,
+        now: int | None = None,
+    ) -> bool:
         """Verify the hash chain and (if signed) the operator signatures.
 
         Raises :class:`RegistryIntegrityError` on any break. ``operator_public_pem``
@@ -325,7 +388,34 @@ class TrustRegistry:
             expect = _sha256_hex(_canonical_json(body))
             if e.get("hash") != expect:
                 raise RegistryIntegrityError(f"entry {i}: hash mismatch (tampered)")
+            # Resolution security depends on key_id being the real digest of the
+            # published PEM — otherwise a forged entry could map a victim key_id
+            # to an attacker key. Enforce the invariant (codex #6).
+            if e.get("type") == "register":
+                pem = e.get("public_key_pem", "")
+                if e.get("key_id") != _key_id_for(pem):
+                    raise RegistryIntegrityError(
+                        f"entry {i}: key_id does not match SHA-256 of its public key"
+                    )
             prev = e["hash"]
+
+        # Enforce active issuer-name uniqueness on load — publish() alone does not
+        # protect a hand-crafted (even operator-signed) registry file (codex r3 #1).
+        seen_names: dict[str, str] = {}
+        for kid, rec in self._fold().items():
+            if rec.revoked:
+                continue
+            canon = _canon_issuer(rec.issuer)
+            if not canon:
+                raise RegistryIntegrityError(
+                    f"active register entry for key {kid} has a blank issuer name"
+                )
+            if canon in seen_names and seen_names[canon] != kid:
+                raise RegistryIntegrityError(
+                    f"duplicate active issuer name {rec.issuer!r} "
+                    f"(keys {seen_names[canon]} and {kid})"
+                )
+            seen_names[canon] = kid
 
         header = self._entries[0] if self._entries else {}
         if header.get("signed"):
@@ -344,21 +434,57 @@ class TrustRegistry:
                 # a forger who rebuilt the whole chain would pass. That is a valid
                 # choice for a local, trusted file (load() does this quietly); the
                 # risky case (untrusted network source) is warned in from_url().
+                # Do NOT return here: the freshness checks below must still run
+                # (codex r8) — a rollback can be detected even unauthenticated.
                 self._authenticated = False
-                return True
-            self._authenticated = True
-            loaded = serialization.load_pem_public_key(pem)
-            if not isinstance(loaded, Ed25519PublicKey):
-                raise RegistryIntegrityError("operator key is not Ed25519")
-            op_pub = loaded
-            for i, e in enumerate(self._entries):
-                sig = e.get("operator_sig")
-                if not sig:
-                    raise RegistryIntegrityError(f"entry {i}: missing operator signature")
-                try:
-                    op_pub.verify(_b64d(sig), e["hash"].encode("ascii"))
-                except (InvalidSignature, ValueError) as exc:
-                    raise RegistryIntegrityError(f"entry {i}: operator signature invalid") from exc
+            else:
+                self._authenticated = True
+                loaded = serialization.load_pem_public_key(pem)
+                if not isinstance(loaded, Ed25519PublicKey):
+                    raise RegistryIntegrityError("operator key is not Ed25519")
+                op_pub = loaded
+                for i, e in enumerate(self._entries):
+                    sig = e.get("operator_sig")
+                    if not sig:
+                        raise RegistryIntegrityError(f"entry {i}: missing operator signature")
+                    try:
+                        op_pub.verify(_b64d(sig), e["hash"].encode("ascii"))
+                    except (InvalidSignature, ValueError) as exc:
+                        raise RegistryIntegrityError(
+                            f"entry {i}: operator signature invalid"
+                        ) from exc
+
+        # Freshness anchor (codex r7): a chain-valid, fully operator-signed
+        # snapshot is still vulnerable to a *rollback* — an attacker serves an
+        # older signed prefix that omits a later revocation. The consumer pins
+        # what it knows the head should be (index/hash) or a max age, and any
+        # snapshot that falls short is rejected as stale.
+        head = self.head()
+        if min_index is not None and head["index"] < min_index:
+            raise RegistryIntegrityError(
+                f"stale snapshot: head index {head['index']} < expected min {min_index}"
+            )
+        if expected_head_hash is not None and head["hash"] != expected_head_hash:
+            raise RegistryIntegrityError(
+                f"stale snapshot: head hash {head['hash']} != expected {expected_head_hash}"
+            )
+        if max_age_seconds is not None:
+            ref = now if now is not None else _now()
+            try:
+                head_ts = int(head["ts"])
+            except (TypeError, ValueError) as exc:
+                raise RegistryIntegrityError("head ts is not an integer timestamp") from exc
+            # A future-dated head would make ref - ts negative and stay "fresh"
+            # forever — reject it beyond a small clock-skew allowance (codex r8).
+            if head_ts > ref + _MAX_CLOCK_SKEW_SECONDS:
+                raise RegistryIntegrityError(
+                    f"stale/forged snapshot: head ts {head_ts} is in the future "
+                    f"(now {ref}, allowed skew {_MAX_CLOCK_SKEW_SECONDS}s)"
+                )
+            if ref - head_ts > max_age_seconds:
+                raise RegistryIntegrityError(
+                    f"stale snapshot: head is {ref - head_ts}s old (max {max_age_seconds}s)"
+                )
         return True
 
 

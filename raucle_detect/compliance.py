@@ -50,22 +50,71 @@ class ChainEvidence:
     deny: int = 0
     scans: int = 0
     flagged_scans: int = 0
-    signed: bool = False
+    signed: bool = False  # the chain DECLARES signed (header flag)
+    verifiable: bool = False  # we could run a CONCLUSIVE verification
+    chain_valid: bool = False  # verification ran and passed
+    signature_verified: bool = False  # signatures verified against a provided key
     checkpoints: int = 0
     distinct_agents: int = 0
     distinct_tools: int = 0
 
 
-def extract_evidence(chain_path: str | Path) -> ChainEvidence:
-    """Read a receipt chain (JSONL) and tally the facts controls are checked against."""
+def extract_evidence(
+    chain_path: str | Path, *, public_key_pem: bytes | None = None
+) -> ChainEvidence:
+    """Read a receipt chain (JSONL) and tally the facts controls are checked against.
+
+    The chain is **actually verified** with :class:`~raucle_detect.audit.AuditVerifier`
+    (codex #4) — a JSON ``signed:true`` flag on a forged file is NOT trusted. The
+    hash chain is always verified (tamper-evidence); checkpoint *signatures* are
+    verified only when ``public_key_pem`` is supplied, so a control is only marked
+    on signature strength when signatures were genuinely checked.
+    """
     ev = ChainEvidence()
+    # Determine the declared-signed flag from the header up front. Malformed JSON
+    # is not evidence — return an unverifiable ChainEvidence rather than raising
+    # (codex r6 LOW).
+    try:
+        raw_lines = Path(chain_path).read_text(encoding="utf-8").splitlines()
+        declared_signed = False
+        for line in raw_lines:
+            line = line.strip()
+            if line:
+                declared_signed = bool(json.loads(line).get("signed"))
+                break
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        return ev  # all-zero / unverifiable; every control will read PARTIAL
+    key_given = public_key_pem is not None
+    # A signed chain cannot be CONCLUSIVELY verified without the operator key:
+    # AuditVerifier(no key) on a signed chain returns invalid because it cannot
+    # authenticate the checkpoints. Treat that as inconclusive, NOT as failed —
+    # claiming "tampered" when we simply lack the key would itself be dishonest.
+    try:
+        from raucle_detect.audit import AuditVerifier
+
+        if declared_signed and not key_given:
+            ev.verifiable = False
+            ev.chain_valid = False
+            ev.signature_verified = False
+        else:
+            vreport = AuditVerifier(public_key_pem=public_key_pem).verify_chain(chain_path)
+            ev.verifiable = True
+            ev.chain_valid = bool(vreport.valid)
+            ev.signature_verified = ev.chain_valid and key_given and vreport.signed_mode == "signed"
+    except Exception:
+        ev.verifiable = True
+        ev.chain_valid = False
+        ev.signature_verified = False
     agents: set[str] = set()
     tools: set[str] = set()
-    for line in Path(chain_path).read_text(encoding="utf-8").splitlines():
+    for line in raw_lines:
         line = line.strip()
         if not line:
             continue
-        rec = json.loads(line)
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
         if rec.get("chain_meta"):
             ev.signed = bool(rec.get("signed"))
             continue
@@ -162,18 +211,31 @@ _DISCLAIMER = (
 
 
 def _signed_log(ev: ChainEvidence) -> tuple[ControlStatus, str]:
-    if ev.signed and ev.decisions > 0:
+    if ev.signed and not ev.verifiable:
+        return ControlStatus.PARTIAL, (
+            f"{ev.decisions} decisions logged in a signed chain, but signatures were NOT "
+            "authenticated here (no operator public key supplied). Re-run with --pubkey to "
+            "authenticate for full evidence."
+        )
+    if not ev.chain_valid:
+        return ControlStatus.PARTIAL, (
+            "the chain FAILED verification (tampered, reordered, or not a valid raucle chain) "
+            "— it cannot serve as record-keeping evidence until it verifies."
+        )
+    if ev.decisions == 0:
+        return ControlStatus.PARTIAL, "no authorization decisions found in this (valid) chain."
+    if ev.signature_verified:
         return ControlStatus.SATISFIED, (
             f"{ev.decisions} authorization decisions ({ev.allow} ALLOW / {ev.deny} DENY) "
-            f"recorded as a tamper-evident, Ed25519-signed, timestamped hash chain "
-            f"with {ev.checkpoints} signed checkpoint(s); independently verifiable offline."
+            f"recorded as a tamper-evident, Ed25519-signed, timestamped hash chain with "
+            f"{ev.checkpoints} signed checkpoint(s); signatures verified, independently "
+            "verifiable offline."
         )
-    if ev.decisions > 0:
-        return ControlStatus.PARTIAL, (
-            f"{ev.decisions} decisions logged but the chain is UNSIGNED — integrity is "
-            "hash-chained but not authenticated. Sign the chain (audit signer) for full evidence."
-        )
-    return ControlStatus.PARTIAL, "no authorization decisions found in this chain."
+    return ControlStatus.PARTIAL, (
+        f"{ev.decisions} decisions logged and the hash chain verifies, but the chain is "
+        "UNSIGNED — integrity is hash-chained, not authenticated. Sign the chain (audit "
+        "signer) for full evidence."
+    )
 
 
 def _access_control(ev: ChainEvidence) -> tuple[ControlStatus, str]:
@@ -188,16 +250,22 @@ def _access_control(ev: ChainEvidence) -> tuple[ControlStatus, str]:
 
 
 def _monitoring(ev: ChainEvidence) -> tuple[ControlStatus, str]:
-    signals = ev.deny + ev.flagged_scans
-    if signals > 0 or ev.scans > 0:
-        return ControlStatus.SATISFIED, (
+    if ev.signed and not ev.verifiable:
+        return ControlStatus.PARTIAL, "signed chain not authenticated (supply --pubkey)."
+    if not ev.chain_valid:
+        return ControlStatus.PARTIAL, "chain failed verification; monitoring evidence not usable."
+    if ev.deny == 0 and ev.scans == 0:
+        return ControlStatus.PARTIAL, "no denial or scan signals recorded yet."
+    if not ev.signature_verified:
+        return ControlStatus.PARTIAL, (
             f"{ev.deny} denied call(s) and {ev.flagged_scans} flagged scan(s) of {ev.scans} "
-            "recorded as signed anomaly signals — a continuous, attributable detection record "
-            "of policy-violating and adversarial activity."
+            "recorded, but the chain is UNSIGNED / signatures not authenticated — an "
+            "unauthenticated detection record. Sign the chain and supply --pubkey for evidence."
         )
-    return (
-        ControlStatus.PARTIAL,
-        "no denial or scan signals recorded yet (monitoring active, no events).",
+    return ControlStatus.SATISFIED, (
+        f"{ev.deny} denied call(s) and {ev.flagged_scans} flagged scan(s) of {ev.scans} "
+        "recorded as signed, verified anomaly signals — a continuous, attributable detection "
+        "record of policy-violating and adversarial activity."
     )
 
 
@@ -210,10 +278,11 @@ def _human_oversight(_ev: ChainEvidence) -> tuple[ControlStatus, str]:
 
 
 def _robustness(ev: ChainEvidence) -> tuple[ControlStatus, str]:
+    integrity = "authenticated" if ev.signature_verified else "unauthenticated"
     return ControlStatus.PARTIAL, (
         "Structural prompt-injection resistance on the tool-call surface (a call outside the "
-        f"signed capability cannot execute; {ev.deny} blocked here) plus signed-integrity of the "
-        "record. Not a full robustness/accuracy regime for model outputs."
+        f"signed capability cannot execute; {ev.deny} blocked here); the record's integrity is "
+        f"{integrity}. Not a full robustness/accuracy regime for model outputs."
     )
 
 
@@ -274,14 +343,17 @@ _FRAMEWORKS: dict[str, tuple[str, list[Control]]] = {
                 lambda ev: (
                     (
                         ControlStatus.SATISFIED,
-                        "Every decision is independently verifiable offline "
-                        "via the signed chain + bundled keys (audit-pack), needing no trust in the "
-                        "producing party.",
+                        "Every decision is independently verifiable offline via the signed chain "
+                        "+ bundled keys (audit-pack); signatures authenticated here, needing no "
+                        "trust in the producing party.",
                     )
-                    if ev.signed
+                    if ev.signature_verified
                     else (
                         ControlStatus.PARTIAL,
-                        "chain is unsigned; bundle a signed chain for independent auditability.",
+                        "not independently authenticated: supply the operator key (--pubkey) and a "
+                        "signed chain for verifiable auditability ("
+                        + ("signatures unauthenticated" if ev.signed else "chain unsigned")
+                        + ").",
                     )
                 ),
             ),
@@ -319,15 +391,22 @@ def supported_frameworks() -> list[str]:
     return sorted(_FRAMEWORKS)
 
 
-def build_report(chain_path: str | Path, *, framework: str) -> ComplianceReport:
-    """Map a receipt chain to a framework's controls and produce the evidence report."""
+def build_report(
+    chain_path: str | Path, *, framework: str, public_key_pem: bytes | None = None
+) -> ComplianceReport:
+    """Map a receipt chain to a framework's controls and produce the evidence report.
+
+    Pass ``public_key_pem`` (the operator/audit public key) to AUTHENTICATE the
+    chain's signatures; without it the chain is integrity-checked but signature
+    strength is not claimed.
+    """
     key = framework.lower()
     if key not in _FRAMEWORKS:
         raise ValueError(
             f"unknown framework {framework!r}; choose from {', '.join(supported_frameworks())}"
         )
     title, controls = _FRAMEWORKS[key]
-    ev = extract_evidence(chain_path)
+    ev = extract_evidence(chain_path, public_key_pem=public_key_pem)
     results: list[ControlResult] = []
     for c in controls:
         status, evidence = c.status_fn(ev)
@@ -344,7 +423,7 @@ def build_report(chain_path: str | Path, *, framework: str) -> ComplianceReport:
         framework=key,
         framework_title=title,
         chain_path=str(chain_path),
-        chain_signed=ev.signed,
+        chain_signed=ev.signature_verified,
         controls=results,
         evidence=ev,
     )

@@ -144,3 +144,139 @@ class TestPersistenceRoundTrip:
         k2 = reg2.publish(_issuer("b").public_key_pem, issuer="B")
         reg3 = TrustRegistry(path)
         assert reg3.public_key(k1) and reg3.public_key(k2)
+
+
+def test_duplicate_issuer_name_rejected(tmp_path):
+    """Two different keys cannot hold the same active issuer name (codex re-review
+    #3): the issuer string is the identity verifiers match on."""
+    reg = TrustRegistry(tmp_path / "r.jsonl")
+    reg.publish(_issuer("a").public_key_pem, issuer="Acme Bank")
+    with pytest.raises(ValueError, match="collides with an active key"):
+        reg.publish(_issuer("b").public_key_pem, issuer="Acme Bank")  # different key, same name
+    # Re-publishing the SAME key under its name is fine.
+    same = _issuer("c")
+    reg.publish(same.public_key_pem, issuer="Other")
+    reg.publish(same.public_key_pem, issuer="Other")  # no raise
+
+
+def test_issuer_name_reusable_after_revoke(tmp_path):
+    reg = TrustRegistry(tmp_path / "r.jsonl")
+    k1 = reg.publish(_issuer("a").public_key_pem, issuer="Acme Bank")
+    reg.revoke(k1)
+    # After revocation the name is free for a new key.
+    reg.publish(_issuer("b").public_key_pem, issuer="Acme Bank")  # no raise
+
+
+def test_duplicate_active_issuer_name_rejected_on_load(tmp_path):
+    """A hand-crafted (even operator-signed) registry with duplicate active issuer
+    names must be REJECTED on load, not just at publish (codex r3 #1)."""
+    op = Ed25519Signer.generate()
+    reg = TrustRegistry(tmp_path / "r.jsonl", operator_signer=op)
+    reg.publish(_issuer("a").public_key_pem, issuer="Acme Bank")
+    # Forge a second active register entry with the SAME name, different key
+    # (one issuer instance so key_id matches its own PEM — isolates the
+    # uniqueness check from the key_id-invariant check).
+    b = _issuer("b")
+    reg._write_entry(
+        {
+            "type": "register",
+            "key_id": b.key_id,
+            "public_key_pem": b.public_key_pem,
+            "issuer": "Acme Bank",
+            "created_at": 0,
+            "metadata": {},
+        }
+    )
+    with pytest.raises(RegistryIntegrityError, match="duplicate active issuer name"):
+        TrustRegistry.load(tmp_path / "r.jsonl")
+
+
+def test_confusable_issuer_names_rejected(tmp_path):
+    """Case/whitespace-confusable names cannot both be active (codex r3 #2)."""
+    reg = TrustRegistry(tmp_path / "r.jsonl")
+    reg.publish(_issuer("a").public_key_pem, issuer="Acme Bank")
+    with pytest.raises(ValueError, match="collides"):
+        reg.publish(_issuer("b").public_key_pem, issuer="acme bank ")  # casefold+strip collide
+
+
+def test_blank_issuer_rejected(tmp_path):
+    """A blank/whitespace issuer name is refused (codex r5): an empty identity
+    must not be registrable."""
+    reg = TrustRegistry(tmp_path / "r.jsonl")
+    for bad in ("", "   ", "\t"):
+        with pytest.raises(ValueError, match="non-empty"):
+            reg.publish(_issuer("x").public_key_pem, issuer=bad)
+
+
+def test_stale_snapshot_detected_via_freshness_anchor(tmp_path):
+    """A REAL stale signed prefix — chain-valid, operator-signed, but rolled
+    back to before a revocation — is caught when the consumer pins a freshness
+    anchor (codex r7, hardened test per codex r8)."""
+    op = Ed25519Signer.generate()
+    path = tmp_path / "r.jsonl"
+    reg = TrustRegistry(path, operator_signer=op)
+    kid = reg.publish(_issuer("a").public_key_pem, issuer="org-a")
+    stale_text = path.read_text()  # genuine signed snapshot BEFORE revocation
+    stale_head = reg.head()
+    reg.revoke(kid)
+    fresh_head = reg.head()
+    assert stale_head["index"] < fresh_head["index"]  # head advanced on revoke
+
+    # The attacker's rollback: serve the genuine older prefix.
+    stale = TrustRegistry.from_jsonl(stale_text)
+    # Without a freshness anchor it verifies fine — that's the gap.
+    assert stale.verify_integrity(operator_public_pem=op.public_key_pem())
+    # With the FRESH head hash pinned, the rollback is rejected.
+    with pytest.raises(RegistryIntegrityError, match="stale"):
+        stale.verify_integrity(
+            operator_public_pem=op.public_key_pem(),
+            expected_head_hash=fresh_head["hash"],
+        )
+    # min_index at the fresh head is rejected too.
+    with pytest.raises(RegistryIntegrityError, match="stale"):
+        stale.verify_integrity(
+            operator_public_pem=op.public_key_pem(), min_index=fresh_head["index"]
+        )
+    # max_age rejects an old head.
+    with pytest.raises(RegistryIntegrityError, match="stale"):
+        stale.verify_integrity(
+            operator_public_pem=op.public_key_pem(),
+            max_age_seconds=1,
+            now=fresh_head["ts"] + 10_000,
+        )
+    # And the revoked key is still resolvable in the stale view — the exploit
+    # the anchor exists to stop.
+    assert stale.public_key(kid) is not None
+
+
+def test_freshness_enforced_even_without_operator_key(tmp_path):
+    """Freshness anchors must not be bypassed when a signed registry is verified
+    without the operator key (codex r8 MEDIUM): the early unauthenticated return
+    used to skip min_index/expected_head_hash/max_age entirely."""
+    op = Ed25519Signer.generate()
+    path = tmp_path / "r.jsonl"
+    reg = TrustRegistry(path, operator_signer=op)
+    reg.publish(_issuer("a").public_key_pem, issuer="org-a")
+    loaded = TrustRegistry.load(path)
+    with pytest.raises(RegistryIntegrityError, match="stale"):
+        loaded.verify_integrity(expected_head_hash="f" * 64)  # no operator key
+    with pytest.raises(RegistryIntegrityError, match="stale"):
+        loaded.verify_integrity(min_index=999)
+    with pytest.raises(RegistryIntegrityError, match="stale"):
+        loaded.verify_integrity(max_age_seconds=1, now=reg.head()["ts"] + 10_000)
+
+
+def test_future_dated_head_rejected(tmp_path):
+    """A head timestamped in the future must not count as eternally fresh
+    (codex r8 LOW): ref - ts would be negative and never exceed max_age."""
+    op = Ed25519Signer.generate()
+    path = tmp_path / "r.jsonl"
+    reg = TrustRegistry(path, operator_signer=op)
+    reg.publish(_issuer("a").public_key_pem, issuer="org-a")
+    head_ts = reg.head()["ts"]
+    with pytest.raises(RegistryIntegrityError, match="future"):
+        reg.verify_integrity(
+            operator_public_pem=op.public_key_pem(),
+            max_age_seconds=3600,
+            now=head_ts - 10_000,  # head is 10000s in this verifier's future
+        )

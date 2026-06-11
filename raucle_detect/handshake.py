@@ -33,6 +33,7 @@ from __future__ import annotations
 import base64 as _base64
 import datetime as _dt
 import logging
+import secrets as _secrets
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -116,14 +117,15 @@ def build_request(
 
     The token already carries ``key_id`` (the trust anchor) and is Ed25519-signed
     by the initiator's issuer, so nothing else needs signing here — the responder
-    resolves and verifies it.
+    resolves and verifies it. A fresh random ``nonce`` is generated when none is
+    given, so every handshake is uniquely bound (anti-replay).
     """
     return HandshakeRequest(
         capability_token=token.to_dict(),
         tool=tool,
         args=dict(args),
         caller_agent_id=token.agent_id,
-        nonce=nonce,
+        nonce=nonce or _secrets.token_hex(16),
     )
 
 
@@ -134,6 +136,7 @@ def accept_call(
     responder_signer: Ed25519Signer,
     responder_id: str,
     require_unrevoked: bool = True,
+    seen: set[str] | None = None,
 ) -> HandshakeResult:
     """Responder side (org B): resolve the initiator's key from the **registry**,
     capability-gate the call, and return a signed acknowledgement.
@@ -160,10 +163,38 @@ def accept_call(
             request=request,
         )
 
+    # Responder-side replay protection (codex r6): the responder rejects a request
+    # it has already accepted. Pass a persistent ``seen`` set keyed across calls;
+    # the replay key binds the issuer key, token, and per-handshake nonce. A
+    # missing/empty nonce is itself a replay risk, so it is refused when dedup is on.
+    if seen is not None:
+        if not request.nonce:
+            return _ack(
+                responder_signer,
+                responder_id,
+                accepted=False,
+                reason="request has no nonce (required for replay protection)",
+                initiator_key_id=token.key_id,
+                request=request,
+                token=token,
+            )
+        replay_key = f"{token.key_id}:{token.token_id}:{request.nonce}"
+        if replay_key in seen:
+            return _ack(
+                responder_signer,
+                responder_id,
+                accepted=False,
+                reason="replayed request (this (token, nonce) was already handled)",
+                initiator_key_id=token.key_id,
+                request=request,
+                token=token,
+            )
+        seen.add(replay_key)
+
     key_id = token.key_id
-    pem = registry.public_key(key_id)  # fail-closed: None for unknown OR revoked
-    if pem is None:
-        revoked = registry.is_revoked(key_id)
+    record = registry.resolve(key_id)  # fail-closed: None for unknown
+    if record is None or record.revoked:
+        revoked = record is not None and record.revoked
         reason = (
             f"initiator key_id {key_id} is revoked in the registry"
             if revoked
@@ -176,19 +207,27 @@ def accept_call(
             reason=reason,
             initiator_key_id=key_id,
             request=request,
+            token=token,
         )
 
-    if require_unrevoked and registry.is_revoked(key_id):
+    # Anti-impersonation: the token's claimed issuer must match the registry's
+    # authoritative record for this key (codex #2). A registered org cannot
+    # present a token claiming to be a DIFFERENT org.
+    if token.issuer != record.issuer:
         return _ack(
             responder_signer,
             responder_id,
             accepted=False,
-            reason=f"initiator key_id {key_id} is revoked",
+            reason=(
+                f"issuer mismatch: token claims {token.issuer!r} but key {key_id} "
+                f"is registered to {record.issuer!r}"
+            ),
             initiator_key_id=key_id,
             request=request,
+            token=token,
         )
 
-    gate = CapabilityGate(trusted_issuers={key_id: pem})
+    gate = CapabilityGate(trusted_issuers={key_id: record.public_key_pem})
     decision: GateDecision = gate.check(
         token, tool=request.tool, args=request.args, agent_id=request.caller_agent_id
     )
@@ -199,6 +238,7 @@ def accept_call(
         reason=decision.reason or ("authorised" if decision.allowed else "denied"),
         initiator_key_id=key_id,
         request=request,
+        token=token,
     )
 
 
@@ -210,8 +250,14 @@ def _ack(
     reason: str,
     initiator_key_id: str,
     request: HandshakeRequest,
+    token: Capability | None = None,
 ) -> HandshakeResult:
-    """Build and sign the responder's acknowledgement receipt."""
+    """Build and sign the responder's acknowledgement receipt.
+
+    The signed body binds the FULL request (``request_hash``) and the
+    capability ``token_id``, so a signed ACCEPT cannot be replayed into a
+    different call or capability context (codex #3).
+    """
     body = {
         "version": HANDSHAKE_VERSION,
         "responder": responder_id,
@@ -220,6 +266,8 @@ def _ack(
         "caller_agent_id": request.caller_agent_id,
         "tool": request.tool,
         "args_hash": _sha256_hex(_canonical_json(request.args)),
+        "request_hash": _sha256_hex(_canonical_json(request.to_dict())),
+        "token_id": token.token_id if token is not None else "",
         "decision": "ACCEPT" if accepted else "REJECT",
         "reason": reason,
         "nonce": request.nonce,
@@ -240,18 +288,29 @@ def verify_ack(
     *,
     registry: TrustRegistry,
     expected_nonce: str | None = None,
+    expected_token_id: str | None = None,
+    expected_request: HandshakeRequest | None = None,
+    expected_decision: str | None = None,
+    expected_responder: str | None = None,
+    require_binding: bool = True,
 ) -> tuple[bool, str]:
-    """Initiator side: verify the responder's ack by resolving the responder's
+    """Initiator side: verify the responder's ack, resolving the responder's
     key from the **same registry** (no prior key exchange with org B either).
 
-    Returns ``(ok, reason)``. Checks: the responder's ``key_id`` resolves to an
-    active key in the registry, the signature verifies against it, and (if given)
-    the nonce matches — binding the ack to this handshake (anti-replay).
+    Returns ``(ok, reason)``. Always: the responder's key resolves to an active
+    registry key and the signature verifies. Anti-replay/substitution (pass the
+    ones you can): ``expected_nonce``, ``expected_token_id``, and
+    ``expected_request`` (its ``request_hash`` must match the signed body) bind
+    the ack to *this* handshake. ``ok=True`` means the ack is AUTHENTIC and bound
+    — it does NOT by itself mean ACCEPT; pass ``expected_decision="ACCEPT"`` to
+    require acceptance, or read ``body['decision']``.
     """
     from cryptography.exceptions import InvalidSignature
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
+    if not isinstance(ack_receipt, dict):
+        return False, "malformed ack receipt (not an object)"
     body = ack_receipt.get("body")
     sig = ack_receipt.get("signature")
     if not isinstance(body, dict) or not isinstance(sig, str):
@@ -259,21 +318,56 @@ def verify_ack(
     if body.get("version") != HANDSHAKE_VERSION:
         return False, f"unknown handshake version {body.get('version')!r}"
 
+    # Replay-safe by default: a successful verify must be BOUND to this handshake.
+    # The initiator always holds the request it sent, so it can always pass one of
+    # these. Without a binding an authentic-but-replayed ack would pass (codex r5).
+    # A reusable capability token is NOT a replay binding: an old ACCEPT for the
+    # same token verifies for a new call. Require a per-handshake binding —
+    # expected_request or expected_nonce — for a successful verify (codex r7).
+    # expected_token_id remains an additional capability-context check below.
+    if require_binding and expected_nonce is None and expected_request is None:
+        return False, (
+            "no anti-replay binding supplied: pass expected_request or expected_nonce "
+            "(expected_token_id alone is insufficient), or require_binding=False to only "
+            "check authenticity"
+        )
+
     responder_key_id = body.get("responder_key_id", "")
-    pem = registry.public_key(responder_key_id)  # fail-closed
-    if pem is None:
-        return False, f"responder key_id {responder_key_id} unknown/revoked in registry"
+    record = registry.resolve(responder_key_id)  # fail-closed
+    if record is None or record.revoked:
+        why = "revoked" if (record is not None and record.revoked) else "unknown"
+        return False, f"responder key_id {responder_key_id} is {why} in the registry"
 
     try:
-        loaded = serialization.load_pem_public_key(pem.encode())
+        loaded = serialization.load_pem_public_key(record.public_key_pem.encode())
         if not isinstance(loaded, Ed25519PublicKey):
             return False, "responder key is not Ed25519"
         loaded.verify(_b64d(sig), _canonical_json(body))
-    except (InvalidSignature, ValueError):
+    except (InvalidSignature, ValueError, TypeError):
         return False, "ack signature did not verify against responder key"
+
+    # Anti-impersonation (symmetric to accept_call): the signed responder NAME
+    # must match the registry's authoritative record for the responder key, so a
+    # registered attacker key cannot sign an ack claiming to be a DIFFERENT org
+    # (codex round 4).
+    if body.get("responder") != record.issuer:
+        return False, (
+            f"responder identity mismatch: ack claims {body.get('responder')!r} but key "
+            f"{responder_key_id} is registered to {record.issuer!r}"
+        )
+    if expected_responder is not None and body.get("responder") != expected_responder:
+        return False, f"responder is {body.get('responder')!r}, expected {expected_responder!r}"
 
     if expected_nonce is not None and body.get("nonce") != expected_nonce:
         return False, "ack nonce mismatch (possible replay)"
+    if expected_token_id is not None and body.get("token_id") != expected_token_id:
+        return False, "ack token_id mismatch (bound to a different capability)"
+    if expected_request is not None:
+        want = _sha256_hex(_canonical_json(expected_request.to_dict()))
+        if body.get("request_hash") != want:
+            return False, "ack request_hash mismatch (bound to a different request)"
+    if expected_decision is not None and body.get("decision") != expected_decision:
+        return False, f"decision is {body.get('decision')}, expected {expected_decision}"
 
     return True, f"ack verified: {body.get('decision')}"
 
