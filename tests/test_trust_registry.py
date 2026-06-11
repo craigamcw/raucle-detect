@@ -209,26 +209,33 @@ def test_blank_issuer_rejected(tmp_path):
 
 
 def test_stale_snapshot_detected_via_freshness_anchor(tmp_path):
-    """A stale signed snapshot that omits a later revocation is caught when the
-    consumer pins a freshness anchor (codex r7)."""
+    """A REAL stale signed prefix — chain-valid, operator-signed, but rolled
+    back to before a revocation — is caught when the consumer pins a freshness
+    anchor (codex r7, hardened test per codex r8)."""
     op = Ed25519Signer.generate()
     path = tmp_path / "r.jsonl"
     reg = TrustRegistry(path, operator_signer=op)
     kid = reg.publish(_issuer("a").public_key_pem, issuer="org-a")
-    stale_head = reg.head()  # snapshot BEFORE revocation
+    stale_text = path.read_text()  # genuine signed snapshot BEFORE revocation
+    stale_head = reg.head()
     reg.revoke(kid)
     fresh_head = reg.head()
-    # A verifier with the FRESH head pinned rejects the stale snapshot.
-    stale = TrustRegistry.load(path)  # (full file, but simulate pinning a newer head)
-    with pytest.raises(RegistryIntegrityError, match="stale|head"):
-        stale.verify_integrity(
-            operator_public_pem=op.public_key_pem(),
-            expected_head_hash="f" * 64,  # a head the consumer expected but isn't present
-        )
-    # min_index in the future is rejected.
+    assert stale_head["index"] < fresh_head["index"]  # head advanced on revoke
+
+    # The attacker's rollback: serve the genuine older prefix.
+    stale = TrustRegistry.from_jsonl(stale_text)
+    # Without a freshness anchor it verifies fine — that's the gap.
+    assert stale.verify_integrity(operator_public_pem=op.public_key_pem())
+    # With the FRESH head hash pinned, the rollback is rejected.
     with pytest.raises(RegistryIntegrityError, match="stale"):
         stale.verify_integrity(
-            operator_public_pem=op.public_key_pem(), min_index=fresh_head["index"] + 5
+            operator_public_pem=op.public_key_pem(),
+            expected_head_hash=fresh_head["hash"],
+        )
+    # min_index at the fresh head is rejected too.
+    with pytest.raises(RegistryIntegrityError, match="stale"):
+        stale.verify_integrity(
+            operator_public_pem=op.public_key_pem(), min_index=fresh_head["index"]
         )
     # max_age rejects an old head.
     with pytest.raises(RegistryIntegrityError, match="stale"):
@@ -237,4 +244,39 @@ def test_stale_snapshot_detected_via_freshness_anchor(tmp_path):
             max_age_seconds=1,
             now=fresh_head["ts"] + 10_000,
         )
-    assert stale_head["index"] < fresh_head["index"]  # head advanced on revoke
+    # And the revoked key is still resolvable in the stale view — the exploit
+    # the anchor exists to stop.
+    assert stale.public_key(kid) is not None
+
+
+def test_freshness_enforced_even_without_operator_key(tmp_path):
+    """Freshness anchors must not be bypassed when a signed registry is verified
+    without the operator key (codex r8 MEDIUM): the early unauthenticated return
+    used to skip min_index/expected_head_hash/max_age entirely."""
+    op = Ed25519Signer.generate()
+    path = tmp_path / "r.jsonl"
+    reg = TrustRegistry(path, operator_signer=op)
+    reg.publish(_issuer("a").public_key_pem, issuer="org-a")
+    loaded = TrustRegistry.load(path)
+    with pytest.raises(RegistryIntegrityError, match="stale"):
+        loaded.verify_integrity(expected_head_hash="f" * 64)  # no operator key
+    with pytest.raises(RegistryIntegrityError, match="stale"):
+        loaded.verify_integrity(min_index=999)
+    with pytest.raises(RegistryIntegrityError, match="stale"):
+        loaded.verify_integrity(max_age_seconds=1, now=reg.head()["ts"] + 10_000)
+
+
+def test_future_dated_head_rejected(tmp_path):
+    """A head timestamped in the future must not count as eternally fresh
+    (codex r8 LOW): ref - ts would be negative and never exceed max_age."""
+    op = Ed25519Signer.generate()
+    path = tmp_path / "r.jsonl"
+    reg = TrustRegistry(path, operator_signer=op)
+    reg.publish(_issuer("a").public_key_pem, issuer="org-a")
+    head_ts = reg.head()["ts"]
+    with pytest.raises(RegistryIntegrityError, match="future"):
+        reg.verify_integrity(
+            operator_public_pem=op.public_key_pem(),
+            max_age_seconds=3600,
+            now=head_ts - 10_000,  # head is 10000s in this verifier's future
+        )

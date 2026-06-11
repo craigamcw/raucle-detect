@@ -55,6 +55,10 @@ REGISTRY_VERSION = "trust-registry/v1"
 
 _GENESIS = "0" * 64
 
+#: Allowed forward clock skew when checking head freshness (codex r8): a head
+#: timestamped further in the future than this is rejected as forged/invalid.
+_MAX_CLOCK_SKEW_SECONDS = 300
+
 
 def _now() -> int:
     return int(_dt.datetime.now(_dt.timezone.utc).timestamp())
@@ -430,21 +434,25 @@ class TrustRegistry:
                 # a forger who rebuilt the whole chain would pass. That is a valid
                 # choice for a local, trusted file (load() does this quietly); the
                 # risky case (untrusted network source) is warned in from_url().
+                # Do NOT return here: the freshness checks below must still run
+                # (codex r8) — a rollback can be detected even unauthenticated.
                 self._authenticated = False
-                return True
-            self._authenticated = True
-            loaded = serialization.load_pem_public_key(pem)
-            if not isinstance(loaded, Ed25519PublicKey):
-                raise RegistryIntegrityError("operator key is not Ed25519")
-            op_pub = loaded
-            for i, e in enumerate(self._entries):
-                sig = e.get("operator_sig")
-                if not sig:
-                    raise RegistryIntegrityError(f"entry {i}: missing operator signature")
-                try:
-                    op_pub.verify(_b64d(sig), e["hash"].encode("ascii"))
-                except (InvalidSignature, ValueError) as exc:
-                    raise RegistryIntegrityError(f"entry {i}: operator signature invalid") from exc
+            else:
+                self._authenticated = True
+                loaded = serialization.load_pem_public_key(pem)
+                if not isinstance(loaded, Ed25519PublicKey):
+                    raise RegistryIntegrityError("operator key is not Ed25519")
+                op_pub = loaded
+                for i, e in enumerate(self._entries):
+                    sig = e.get("operator_sig")
+                    if not sig:
+                        raise RegistryIntegrityError(f"entry {i}: missing operator signature")
+                    try:
+                        op_pub.verify(_b64d(sig), e["hash"].encode("ascii"))
+                    except (InvalidSignature, ValueError) as exc:
+                        raise RegistryIntegrityError(
+                            f"entry {i}: operator signature invalid"
+                        ) from exc
 
         # Freshness anchor (codex r7): a chain-valid, fully operator-signed
         # snapshot is still vulnerable to a *rollback* — an attacker serves an
@@ -462,10 +470,20 @@ class TrustRegistry:
             )
         if max_age_seconds is not None:
             ref = now if now is not None else _now()
-            if ref - head["ts"] > max_age_seconds:
+            try:
+                head_ts = int(head["ts"])
+            except (TypeError, ValueError) as exc:
+                raise RegistryIntegrityError("head ts is not an integer timestamp") from exc
+            # A future-dated head would make ref - ts negative and stay "fresh"
+            # forever — reject it beyond a small clock-skew allowance (codex r8).
+            if head_ts > ref + _MAX_CLOCK_SKEW_SECONDS:
                 raise RegistryIntegrityError(
-                    f"stale snapshot: head is {ref - head['ts']}s old "
-                    f"(max {max_age_seconds}s)"
+                    f"stale/forged snapshot: head ts {head_ts} is in the future "
+                    f"(now {ref}, allowed skew {_MAX_CLOCK_SKEW_SECONDS}s)"
+                )
+            if ref - head_ts > max_age_seconds:
+                raise RegistryIntegrityError(
+                    f"stale snapshot: head is {ref - head_ts}s old (max {max_age_seconds}s)"
                 )
         return True
 
