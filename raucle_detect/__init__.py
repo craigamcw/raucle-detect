@@ -14,7 +14,7 @@ Copyright (c) 2026 epic28 Ltd (trading as Raucle).
 See LICENSE and NOTICE in the repository root.
 """
 
-__version__ = "0.20.0"
+__version__ = "0.21.0"
 __author__ = "Raucle"
 __license__ = "Apache-2.0"
 
