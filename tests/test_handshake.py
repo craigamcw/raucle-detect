@@ -198,3 +198,23 @@ def test_default_nonce_is_random(two_orgs):
     r1 = build_request(token, tool="transfer_funds", args={"to": "acct:b-co", "amount": 1})
     r2 = build_request(token, tool="transfer_funds", args={"to": "acct:b-co", "amount": 1})
     assert r1.nonce and r2.nonce and r1.nonce != r2.nonce
+
+
+def test_responder_identity_impersonation_rejected(tmp_path):
+    """An attacker's registered key cannot sign an ack claiming to be a DIFFERENT
+    responder org (codex round 4 — symmetric to the initiator check)."""
+    reg = TrustRegistry(tmp_path / "reg.jsonl")
+    initiator = CapabilityIssuer.generate(issuer="org-a.bank")
+    attacker = Ed25519Signer.generate()
+    reg.publish(initiator.public_key_pem, issuer="org-a.bank")
+    reg.publish(attacker.public_key_pem().decode(), issuer="evil.gateway")
+    token = initiator.mint(agent_id="agent:a", tool="transfer", constraints={}, ttl_seconds=300)
+    req = build_request(token, tool="transfer", args={}, nonce="n1")
+    # Attacker signs an ACCEPT but lies that it is org-b.gateway.
+    res = accept_call(req, registry=reg, responder_signer=attacker, responder_id="org-b.gateway")
+    ok, why = verify_ack(res.ack_receipt, registry=reg)
+    assert not ok and "responder identity mismatch" in why
+    # Honest case: the responder_id matches the registry record -> verifies.
+    res2 = accept_call(req, registry=reg, responder_signer=attacker, responder_id="evil.gateway")
+    ok2, _ = verify_ack(res2.ack_receipt, registry=reg)
+    assert ok2  # signed name now matches the registry record

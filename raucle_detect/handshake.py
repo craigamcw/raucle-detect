@@ -262,6 +262,7 @@ def verify_ack(
     expected_token_id: str | None = None,
     expected_request: HandshakeRequest | None = None,
     expected_decision: str | None = None,
+    expected_responder: str | None = None,
 ) -> tuple[bool, str]:
     """Initiator side: verify the responder's ack, resolving the responder's
     key from the **same registry** (no prior key exchange with org B either).
@@ -286,17 +287,30 @@ def verify_ack(
         return False, f"unknown handshake version {body.get('version')!r}"
 
     responder_key_id = body.get("responder_key_id", "")
-    pem = registry.public_key(responder_key_id)  # fail-closed
-    if pem is None:
-        return False, f"responder key_id {responder_key_id} unknown/revoked in registry"
+    record = registry.resolve(responder_key_id)  # fail-closed
+    if record is None or record.revoked:
+        why = "revoked" if (record is not None and record.revoked) else "unknown"
+        return False, f"responder key_id {responder_key_id} is {why} in the registry"
 
     try:
-        loaded = serialization.load_pem_public_key(pem.encode())
+        loaded = serialization.load_pem_public_key(record.public_key_pem.encode())
         if not isinstance(loaded, Ed25519PublicKey):
             return False, "responder key is not Ed25519"
         loaded.verify(_b64d(sig), _canonical_json(body))
     except (InvalidSignature, ValueError, TypeError):
         return False, "ack signature did not verify against responder key"
+
+    # Anti-impersonation (symmetric to accept_call): the signed responder NAME
+    # must match the registry's authoritative record for the responder key, so a
+    # registered attacker key cannot sign an ack claiming to be a DIFFERENT org
+    # (codex round 4).
+    if body.get("responder") != record.issuer:
+        return False, (
+            f"responder identity mismatch: ack claims {body.get('responder')!r} but key "
+            f"{responder_key_id} is registered to {record.issuer!r}"
+        )
+    if expected_responder is not None and body.get("responder") != expected_responder:
+        return False, f"responder is {body.get('responder')!r}, expected {expected_responder!r}"
 
     if expected_nonce is not None and body.get("nonce") != expected_nonce:
         return False, "ack nonce mismatch (possible replay)"
