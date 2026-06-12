@@ -609,4 +609,4 @@ Receipt specification is CC-BY-4.0.
 > which they were published; releases before v0.10.0 remain under their
 > previously published terms (MIT).
 
-Copyright (c) 2026 epic28 Ltd (trading as Raucle)
+Copyright (c) 2026 Raucle

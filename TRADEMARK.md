@@ -1,7 +1,7 @@
 # Trademark policy
 
 **"Raucle"**, the Raucle logo, and **"raucle"** are unregistered
-(common-law) trademarks of epic28 Ltd (trading as Raucle) (the "Marks"), used to
+(common-law) trademarks of Raucle (the "Marks"), used to
 identify the official project and its origin. This policy explains how you may
 and may not use the Marks. It is
 separate from, and additional to, the software licences in this
