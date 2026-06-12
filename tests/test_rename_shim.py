@@ -60,3 +60,18 @@ def test_deprecated_cli_alias_warns_on_stderr(tmp_path):
     )
     assert proc.returncode == 0
     assert "deprecated" in proc.stderr
+
+
+def test_stonechat_easter_egg():
+    """The bird has a story; `raucle stonechat` (or `raucle bird`) tells it."""
+    import contextlib
+    import io
+
+    from raucle.cli import main
+
+    for alias in ("stonechat", "bird"):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            assert main([alias]) == 0
+        out = buf.getvalue()
+        assert "stonechat" in out and "receipt" in out
