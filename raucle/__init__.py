@@ -10,7 +10,7 @@ and other adversarial inputs before they reach your AI models.
     print(result.verdict)  # "MALICIOUS"
 
 Apache-2.0 licensed.
-Copyright (c) 2026 epic28 Ltd (trading as Raucle).
+Copyright (c) 2026 Raucle.
 See LICENSE and NOTICE in the repository root.
 """
 

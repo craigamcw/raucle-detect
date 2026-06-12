@@ -14,7 +14,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-PATTERN='raucle|craig|mcwilliams|epic28|craigamcw|github\.com/craig|raucle\.com'
+PATTERN='raucle|craig|mcwilliams|craigamcw|github\.com/craig|raucle\.com'
 TARGETS=(main.tex references.bib)
 
 # .mmd figure sources too — they render into the PDF.

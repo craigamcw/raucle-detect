@@ -6,10 +6,10 @@ This document describes how the **raucle** project and the
 ## Stewardship
 
 raucle and the Raucle Provenance Receipt specification are
-created and maintained by **epic28 Ltd (trading as Raucle)** as the originator and current
+created and maintained by **Raucle** as the originator and current
 steward. Final decisions on the engine, the specification, and what
 counts as a conformant implementation rest with the maintainers at
-epic28 Ltd (trading as Raucle). We welcome contributions, review, and implementations from
+Raucle. We welcome contributions, review, and implementations from
 anyone (see [CONTRIBUTING.md](./CONTRIBUTING.md)).
 
 ## What lives here, and under what terms
@@ -42,7 +42,7 @@ your own code.
 - **Proposing changes.** Open a GitHub issue labelled `spec`. Substantive
   changes are discussed in the open before a maintainer merges. We will
   consider donating the specification to a neutral standards body once it
-  is established; until then epic28 Ltd (trading as Raucle) stewards it to keep it coherent.
+  is established; until then Raucle stewards it to keep it coherent.
 
 ## Decision-making
 

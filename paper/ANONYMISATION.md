@@ -27,7 +27,7 @@ paper/scripts/check-anon.sh
 ```
 
 The script greps `main.tex` and `references.bib` for the canonical
-identity strings (`raucle`, `craig`, `mcwilliams`, `epic28`, `craigamcw`,
+identity strings (`raucle`, `craig`, `mcwilliams`, `craigamcw`,
 `github.com/craig`, `raucle.com`) and exits non-zero if any match.
 
 ## Surfaces explicitly *out of scope* for double-blind
