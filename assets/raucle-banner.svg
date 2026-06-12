@@ -1,13 +1,18 @@
-<svg width="600" height="120" viewBox="0 0 600 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="600" height="120" rx="8" fill="#0a0a0a"/>
-  <!-- Logo icon -->
-  <g transform="translate(30, 28) scale(1)">
-    <path d="M8 12L28 32L8 52" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M56 12L36 32L56 52" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-    <rect x="24" y="24" width="16" height="16" rx="2" transform="rotate(45 32 32)" stroke="#ffffff" stroke-width="3" fill="none"/>
-  </g>
-  <!-- Text -->
-  <text x="110" y="55" font-family="system-ui, -apple-system, sans-serif" font-size="36" font-weight="200" letter-spacing="0.08em" fill="#ffffff" text-transform="uppercase">RAUCLE DETECT</text>
-  <text x="110" y="80" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="400" fill="#cccccc">Verifiable agent accountability for regulated AI deployments</text>
-  <text x="110" y="100" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="400" fill="#888888">Cryptographic capability receipts · Formal Lean 4 proofs · Open source</text>
+<svg width="600" height="150" viewBox="0 0 600 150" xmlns="http://www.w3.org/2000/svg">
+<rect width="600" height="150" rx="8" fill="#0a0a0a"/>
+<g font-family="Menlo, Consolas, monospace" font-size="16" fill="#d8dadf">
+<text x="2" y="45" xml:space="preserve">　　　　 _,,_</text>
+<text x="2" y="65" xml:space="preserve">　　　-´・｡丶</text>
+<text x="2" y="85" xml:space="preserve">　　 　 l.ﾞ｀ (;;ﾐヽ､.＿__</text>
+<text x="2" y="105" xml:space="preserve">　 　 　 ｀ﾝ‐ｼ&quot;ﾞ￣￣</text>
+<text x="2" y="125" xml:space="preserve">　 　 　 ´　´</text>
+</g>
+<g font-family="Menlo, Consolas, monospace" font-size="13" fill="#f5f6f8">
+<text x="278" y="48" xml:space="preserve">                       _      </text>
+<text x="278" y="63" xml:space="preserve">  _ __ __ _ _   _  ___| | ___ </text>
+<text x="278" y="78" xml:space="preserve"> | &#x27;__/ _` | | | |/ __| |/ _ \</text>
+<text x="278" y="93" xml:space="preserve"> | | | (_| | |_| | (__| |  __/</text>
+<text x="278" y="108" xml:space="preserve"> |_|  \__,_|\__,_|\___|_|\___|</text>
+</g>
+<text x="292" y="132" font-family="Menlo, Consolas, monospace" font-size="11" fill="#8a8f98">verifiable agent accountability</text>
 </svg>
