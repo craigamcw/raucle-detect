@@ -1964,6 +1964,39 @@ def _cmd_cap_attenuate(args: argparse.Namespace) -> int:
     return 0
 
 
+_STONECHAT = r"""
+　　　　 _,,_
+　　　-´・｡丶
+　　 　 l.ﾞ｀ (;;ﾐヽ､.＿__
+　 　 　 ｀ﾝ‐ｼ"ﾞ￣￣
+　 　 　 ´　´
+"""
+
+
+def _cmd_stonechat() -> int:
+    """Hidden: the raucle bird. Not listed in --help; you found it."""
+    print(_STONECHAT)
+    print(
+        "This is a stonechat — a wee, sturdy Scottish moorland bird whose call\n"
+        "sounds like two stones clicked together, link by link. A hash chain\n"
+        "with wings.\n"
+        "\n"
+        "'raucle' is Scots — Burns used it — for rough, sturdy, fearless. A\n"
+        "'raucle tongue' is blunt, honest speech: it tells you what actually\n"
+        "happened, not what you wanted to hear.\n"
+        "\n"
+        "The bird is a raucle tongue with feathers. Small and unglamorous, it\n"
+        "perches inside your agent stack, sees every tool call and every claim\n"
+        "of authority, and speaks in signed receipts — undiplomatic, unforgeable,\n"
+        "and fearless out of all proportion to its size. A few kilobytes of\n"
+        "Ed25519 will happily contradict a billion-parameter model, because the\n"
+        "math defers to no one.\n"
+        "\n"
+        "It saw what your agent did. It has the receipt."
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point with clean, developer-facing error handling.
 
@@ -1983,6 +2016,10 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     from raucle.errors import ConfigurationError, PolicyUnproven
+
+    args_in = argv if argv is not None else sys.argv[1:]
+    if args_in[:1] and args_in[0] in ("stonechat", "bird"):
+        return _cmd_stonechat()
 
     try:
         return _dispatch(argv)
